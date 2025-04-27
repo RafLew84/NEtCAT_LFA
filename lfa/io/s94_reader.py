@@ -1,5 +1,39 @@
 # lfa/io/s94_reader.py
+
+""" .s94 metadata
+/*
+Converter was created thanks to the courtesy of Gerald Gmachmeir and Krzysztof Wasielewski
+s94MetaDataDisplay: display metadata of .s94 STM image files.
+(c) 2013 Gerald Gmachmeir    V0.74
+
+s94 file:                   	c:\Test\Gerald\19708.S94
+Image size [pixel]:         	256*256	Pixel
+x/y scan direction swapped: 	0	(0: no swap;  1: swap of x/y scan direction)
+ImageMode:                  	0	(0: topological image [nm];  1: current image [nA])
+ImageNumber original:       	19708	(number of the originally recorded image)
+Image size [nm]:            	  81.817 *  81.817	nm^2
+OffsetX, OffsetY:           	   0.000 ,   0.000	nm^2  (x/y offset of image center)
+ScanSpeed:                  	2496.865	nm/s (fast scanning direction)
+Digital Bias Voltage:       	 200.000	mV
+zGain:                      	3	(Gain of z-feedback circuit: 1/2/3) [5.5/22/88 nm]
+Section:                    	2	(Gain of x/y scan ramp amplifiers: 1/2/3)
+Scan Angle:                 	80	deg (Rotation with respect to physical x/y scan direction: 0-359 deg)
+
+Image data:
+Possible z-range:  -44.000 ... 43.979 nm  (-32768 ...32752 RAW)    (88 nm)
+Actual image:       -3.459 ...  7.025 nm  ( -2576 ... 5232 RAW)
+   zMax - zMin:                10.484 nm            ( 7808 RAW)    (11.9% F.S.)
+   zMean:                       0.777 nm  (  2.26*256 =   578.9 RAW)
+   zStdDev                      1.220 nm  (  3.55*256 =   908.7 RAW)
+12 bit image:
+ 1 LSB (12 bit) = delta z Min = 0.0215 nm
+   z-range used contains: 489 levels     8.9 bits effective
+
+*/
 """
+
+"""
+Based on conv_s94-STP_W10_v2_Z-amp_MD+current.c converter created thanks to the courtesy of Gerald Gmachmeir and Krzysztof Wasielewski.
 Reads SPECS S94 STM image files.
 
 This module provides a function to parse the fixed-size binary header
