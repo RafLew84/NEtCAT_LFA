@@ -81,17 +81,17 @@ def display_image(image_data: np.ndarray, title: str):
         logger.error(f"No data provided for display: {title}")
         return
 
-    plt.figure(figsize=(8, 8)) # Create a new figure for the plot
-    # Display the image using a grayscale colormap.
-    # 'origin=lower' places the (0,0) index at the bottom-left corner.
-    im = plt.imshow(image_data, cmap='gray', origin='lower')
-    # Add a colorbar to show the mapping of scaled values to grayscale shades
+    # Flip the image vertically to correct the mirroring
+    image_data = np.flipud(image_data)
+
+    plt.figure(figsize=(8, 8))
+    im = plt.imshow(image_data, cmap='gray', origin='lower') # origin='lower' -> (0,0) at bottom-left
     plt.colorbar(im, label='Scaled Intensity [0, 1]')
     plt.title(title)
     plt.xlabel("X Pixels")
     plt.ylabel("Y Pixels")
-    plt.axis('on') # Ensure axes with pixel numbers are visible
-    plt.show(block=False) # Display the plot without blocking execution
+    plt.axis('on')
+    plt.show(block=False) # Show plot without blocking
 
 # --- Main Execution Logic ---
 

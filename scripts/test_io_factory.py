@@ -73,6 +73,10 @@ def display_image(image_data: np.ndarray, title: str):
     if image_data is None:
         logger.error(f"No data provided for display: {title}")
         return
+
+    # Flip the image vertically to correct the mirroring
+    image_data = np.flipud(image_data)
+
     plt.figure(figsize=(8, 8))
     im = plt.imshow(image_data, cmap='gray', origin='lower') # origin='lower' -> (0,0) at bottom-left
     plt.colorbar(im, label='Scaled Intensity [0, 1]')

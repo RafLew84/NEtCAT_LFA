@@ -158,7 +158,7 @@ def read_s94_file(file_path: str) -> STMImage | None:
                 # data_array = data_array * 1e-9 # Now in Amperes
                 # logger.debug(f"Converted raw current data to nA (factor {current_nA_per_raw}).")
                 # For now, let's keep it in nA as indicated by original formula context
-                data_array = np.rot90(data_array, k=2)
+                # data_array = np.rot90(data_array, k=2)
 
             else:
                 logger.warning(f"Unknown image mode: {image_mode_raw}. Treating data as raw int16 (scaled to float32).")

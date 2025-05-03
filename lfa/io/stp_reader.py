@@ -185,7 +185,7 @@ def read_stp_file(file_path: str) -> STMImage | None:
             logger.info(f"Successfully read data array of shape: {data_array.shape}")
 
             # *** ROTATE DATA BY 180 DEGREES ***
-            # data_array = np.rot90(data_array, k=2)
+            data_array = np.rot90(data_array, k=2)
             # logger.info(f"Rotated STP data array by 180 degrees. Shape remains: {data_array.shape}")
             # ---------------------------------
 
