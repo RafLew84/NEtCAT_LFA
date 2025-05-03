@@ -293,59 +293,49 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def open_gaussian_blur_dialog(self):
-        """Opens the dialog for applying Gaussian Blur based on the current node."""
-        if self.current_node_id is None or self.current_node_id not in self.history:
-            QMessageBox.warning(self, "No Image", "No history state selected or available.")
-            return
-        if not GaussianBlurDialog:
-             QMessageBox.critical(self,"Error", "GaussianBlurDialog could not be imported."); return
-
+        # ... (kod sprawdzający current_node_id i dialog_input_data bez zmian) ...
+        if self.current_node_id is None or self.current_node_id not in self.history: QMessageBox.warning(self, "No Image", "..."); return
+        if not GaussianBlurDialog: QMessageBox.critical(self,"Error", "..."); return
         current_node = self.history[self.current_node_id]
-        # --- Get data for the dialog (handle lazy loading later) ---
-        if current_node.image_data is None:
-             # This part is for future lazy loading - for now, data should exist
-             logger.error(f"Image data is missing for node {self.current_node_id}. Cannot open dialog.")
-             QMessageBox.critical(self, "Internal Error", "Image data is missing for the selected history state.")
-             return
-        # Pass a copy of the *current* node's data to the dialog
+        if current_node.image_data is None: QMessageBox.critical(self, "Internal Error", "..."); return
         dialog_input_data = current_node.image_data.copy()
-        # --------------------------------------------------------
 
         logger.info(f"Opening Gaussian Blur dialog based on node: {current_node.get_display_text()}")
         dialog = GaussianBlurDialog(dialog_input_data, parent=self)
         result = dialog.exec()
 
         if result == QDialog.DialogCode.Accepted:
-            processed_data = dialog.get_processed_data() # Assumes dialog returns data
-            # Retrieve parameters used from the dialog (needs modification in dialog)
-            # For now, let's hardcode retrieval or assume dialog stores them
-            # We need to modify the dialog to return this info.
-            # Let's assume the dialog has a method get_params() for now:
-            # params = dialog.get_params() # e.g., {'sigma': 1.5}
-            # op_name = "Gaussian Blur" # Or get from dialog
-
-            # TEMPORARY: Get sigma from dialog directly for now
-            sigma_val = dialog._get_sigma_value() # Accessing protected member - needs refactor later
-            params = {'sigma': round(sigma_val, 2)}
+            processed_data = dialog.get_processed_data()
+            params = dialog.get_parameters()
+            # *** Użyj metody was_roi_applied() ***
+            was_roi = dialog.was_roi_applied()
             op_name = "Gaussian Blur"
 
-
             if processed_data is not None:
-                logger.info("Gaussian Blur dialog accepted. Creating new history node.")
+                # Porównaj czy dane się zmieniły
+                if np.allclose(processed_data, current_node.image_data):
+                     logger.info("Data was not modified. No history node created.")
+                     self.statusBar().showMessage("No changes applied.", 3000)
+                     return
+
+                logger.info(f"Dialog accepted. Final apply was ROI: {was_roi}. Creating history node.")
                 # --- Create new history node ---
                 new_node = HistoryNode(
-                    parent_id=self.current_node_id, # Parent is the node we started from
+                    parent_id=self.current_node_id,
                     operation_name=op_name,
                     parameters=params,
-                    image_data=processed_data # Store the result
+                    image_data=processed_data,
+                    is_roi_applied=was_roi # Ustaw flagę na podstawie dialogu
                 )
                 new_item = self._add_history_node(new_node)
-                self._set_current_node(new_node.node_id) # Make the new node current
-                self.history_list_widget.setCurrentItem(new_item) # Select in list
+                self._set_current_node(new_node.node_id)
+                self.history_list_widget.setCurrentItem(new_item)
                 # -------------------------------
-                self.statusBar().showMessage(f"{op_name} applied.", 3000)
+                display_name = new_node.get_display_text()
+                self.statusBar().showMessage(f"{display_name} applied.", 3000)
             else:
-                 logger.warning("Dialog accepted, but no processed data returned.")
+                 # To nie powinno się zdarzyć, jeśli accept() obliczyło dane
+                 logger.warning("Dialog accepted, but processed data is None.")
         else:
             logger.info("Gaussian Blur dialog cancelled.")
             self.statusBar().showMessage("Gaussian Blur cancelled.", 3000)

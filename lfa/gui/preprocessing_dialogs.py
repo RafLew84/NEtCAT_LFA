@@ -1,239 +1,298 @@
 # lfa/gui/preprocessing_dialogs.py
-"""
-Dialog windows for configuring and previewing preprocessing operations.
-"""
 import logging
 import numpy as np
-from typing import Optional
+from typing import Optional, Tuple
 
 try:
     from PyQt6.QtWidgets import (
-        QDialog, QVBoxLayout, QHBoxLayout, QSlider, QLabel, QCheckBox, QDialogButtonBox,
-        QWidget, QSizePolicy, QMessageBox
+        QDialog, QVBoxLayout, QHBoxLayout, QSlider, QLabel, QCheckBox,
+        QDialogButtonBox, QWidget, QSizePolicy, QSpacerItem, QMessageBox
     )
-    from PyQt6.QtCore import Qt, pyqtSignal, pyqtSlot
+    from PyQt6.QtCore import Qt, pyqtSlot, QRectF, QPointF
     import pyqtgraph as pg
-    from pyqtgraph import PlotItem 
+    from pyqtgraph import PlotItem, RectROI, ROI
 except ImportError as e:
     logging.critical(f"Failed to import necessary Qt or pyqtgraph modules: {e}")
-    PlotItem = None
-    # Handle the error appropriately, maybe exit or disable functionality
     raise
 
-# Import the processing function
 try:
     from ..preprocessing.filtering import gaussian_blur
 except ImportError:
     logging.error("Could not import preprocessing functions.")
-    # Define dummy function to avoid crash if import fails
-    def gaussian_blur(image, sigma):
-        logging.error("gaussian_blur function not available!")
-        return image
-
+    def gaussian_blur(image, sigma): logging.error("gaussian_blur function not available!"); return image
 
 logger = logging.getLogger(__name__)
 
-# --- Gaussian Blur Dialog ---
-
 class GaussianBlurDialog(QDialog):
     """
-    Dialog window for applying Gaussian Blur.
+    Dialog window for applying Gaussian Blur with integrated ROI/Whole Image mode.
 
-    Shows original and processed images side-by-side.
-    Allows adjusting the sigma parameter with a slider and live preview.
+    Features:
+    - Side-by-side view of Original and Preview/Processed images.
+    - ROI selection on the Original image.
+    - "Process ROI Only" checkbox to switch between modes.
+    - "Live Preview" checkbox to enable/disable real-time updates.
+    - Final application via OK/Apply Changes button reflects the selected mode.
     """
-    # Signal emitted when processing parameters change significantly (e.g., slider released)
-    # Could be used for more complex updates if needed.
-    # processing_updated = pyqtSignal()
 
     def __init__(self, original_data: np.ndarray, parent=None):
-        """
-        Initializes the dialog.
-
-        Args:
-            original_data (np.ndarray): The initial 2D image data to process.
-            parent: The parent widget (usually the MainWindow).
-        """
         super().__init__(parent)
-        if original_data is None:
-            raise ValueError("Original data cannot be None for GaussianBlurDialog")
+        if original_data is None: raise ValueError("Original data cannot be None")
 
-        self.original_data = original_data.astype(np.float32) # Store a float copy
-        self.processed_data = self.original_data.copy() # Start with a copy for the processed view
+        self.original_data = original_data.astype(np.float32)
+        # Bufor na wynik podglądu (live preview)
+        self.preview_data = self.original_data.copy()
+        # Flaga i zmienna na finalny wynik po kliknięciu Apply/OK
+        self._final_processed_data: Optional[np.ndarray] = None
+        self._final_is_roi: bool = False
 
         self.setWindowTitle("Gaussian Blur")
-        self.setMinimumSize(800, 450) # Set a reasonable minimum size
+        self.setMinimumSize(900, 500)
 
-        # --- Main Layouts ---
-        # Main vertical layout
+        # --- Layouts ---
         main_layout = QVBoxLayout(self)
-        # Horizontal layout for image views
-        image_layout = QHBoxLayout()
-        # Horizontal layout for controls
-        controls_layout = QHBoxLayout()
+        top_layout = QHBoxLayout()
+        controls_layout_v = QVBoxLayout()
+        bottom_layout = QHBoxLayout()
 
-        # --- Image Views (using GraphicsLayoutWidget for more control) ---
-        pg.setConfigOption('background', 'w')
-        pg.setConfigOption('foreground', 'k')
-
-        # Graphics Layout Widget to hold the two image views
+        # --- Graphics Layout for Images ---
+        pg.setConfigOption('background', 'w'); pg.setConfigOption('foreground', 'k')
         self.win = pg.GraphicsLayoutWidget()
+        self.plot_original = self.win.addPlot(row=0, col=0, title="Original (Select ROI here)", name="plot_orig")
+        self.img_original = pg.ImageItem(); self.plot_original.addItem(self.img_original)
+        self.plot_original.hideAxis('left'); self.plot_original.hideAxis('bottom'); self.plot_original.setAspectLocked(True)
+        self.plot_processed = self.win.addPlot(row=0, col=1, title="Preview", name="plot_proc") # Zmieniono tytuł
+        self.img_processed = pg.ImageItem(); self.plot_processed.addItem(self.img_processed)
+        self.plot_processed.hideAxis('left'); self.plot_processed.hideAxis('bottom'); self.plot_processed.setAspectLocked(True)
+        self.plot_processed.vb.setXLink(self.plot_original.vb); self.plot_processed.vb.setYLink(self.plot_original.vb)
+        top_layout.addWidget(self.win, stretch=3)
 
-        # PlotItem for Original Image
-        self.plot_original = self.win.addPlot(row=0, col=0, title="Original", name="plot_orig") # Tworzy PlotItem i ustawia tytuł
-        self.img_original = pg.ImageItem()
-        self.plot_original.addItem(self.img_original)
-        self.plot_original.hideAxis('left')
-        self.plot_original.hideAxis('bottom')
-        self.plot_original.setAspectLocked(True)
+        # --- Controls Panel ---
+        controls_panel = QWidget(); controls_panel.setMaximumWidth(250)
+        controls_panel.setLayout(controls_layout_v)
 
-        # PlotItem for Processed Image
-        self.plot_processed = self.win.addPlot(row=0, col=1, title="Processed", name="plot_proc") # Tworzy PlotItem i ustawia tytuł
-        self.img_processed = pg.ImageItem()
-        self.plot_processed.addItem(self.img_processed)
-        self.plot_processed.hideAxis('left')
-        self.plot_processed.hideAxis('bottom')
-        self.plot_processed.setAspectLocked(True)
-
-        # Link the views for synchronized zoom/pan
-        self.plot_processed.vb.setXLink(self.plot_original.vb)
-        self.plot_processed.vb.setYLink(self.plot_original.vb)
-
-        image_layout.addWidget(self.win) # Add graphics layout to the horizontal image layout
-
-        # --- Controls ---
-        # Sigma Slider
-        controls_widget = QWidget() # Widget to hold controls layout
-        controls_widget.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum) # Limit vertical size
+        # Sigma Controls
+        sigma_group_layout = QHBoxLayout()
         self.sigma_label = QLabel(f"Sigma: {0.0:.1f}")
         self.sigma_slider = QSlider(Qt.Orientation.Horizontal)
-        self.sigma_slider.setMinimum(0)  # Min sigma = 0 (no blur)
-        self.sigma_slider.setMaximum(100) # Max sigma (scaled, e.g., 10.0) - adjust range as needed
-        self.sigma_slider.setValue(0)     # Initial value
-        self.sigma_slider.setTickInterval(10) # Optional ticks
-        self.sigma_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
+        self.sigma_slider.setMinimum(0); self.sigma_slider.setMaximum(100); self.sigma_slider.setValue(0)
+        self.sigma_slider.setTickInterval(10); self.sigma_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
+        sigma_group_layout.addWidget(QLabel("Sigma:")); sigma_group_layout.addWidget(self.sigma_slider); sigma_group_layout.addWidget(self.sigma_label)
+        controls_layout_v.addLayout(sigma_group_layout)
 
-        # Live Preview Checkbox
+        # --- Checkboxes for Mode Control ---
+        self.roi_mode_checkbox = QCheckBox("Process ROI Only")
+        self.roi_mode_checkbox.setChecked(False) # Domyślnie przetwarzaj cały obraz
+        controls_layout_v.addWidget(self.roi_mode_checkbox)
+
         self.live_preview_checkbox = QCheckBox("Live Preview")
-        self.live_preview_checkbox.setChecked(True) # Default to on
+        self.live_preview_checkbox.setChecked(True)
+        controls_layout_v.addWidget(self.live_preview_checkbox)
+        # ------------------------------------
 
-        # Add controls to their layout
-        controls_layout.addWidget(QLabel("Sigma:"))
-        controls_layout.addWidget(self.sigma_slider)
-        controls_layout.addWidget(self.sigma_label)
-        controls_layout.addStretch() # Add space
-        controls_layout.addWidget(self.live_preview_checkbox)
-        controls_widget.setLayout(controls_layout)
+        controls_layout_v.addSpacing(15)
 
+        # ROI Info Label
+        self.roi_info_label = QLabel("ROI: Not selected")
+        controls_layout_v.addWidget(self.roi_info_label)
+
+        # Ukryj/pokaż etykietę ROI w zależności od trybu
+        self.roi_info_label.setVisible(self.roi_mode_checkbox.isChecked())
+
+        controls_layout_v.addStretch()
+        top_layout.addWidget(controls_panel, stretch=1)
+
+        # --- ROI ---
+        h, w = self.original_data.shape
+        roi_w, roi_h = w // 4, h // 4; roi_x, roi_y = w // 2 - roi_w // 2, h // 2 - roi_h // 2
+        self.roi = RectROI(pos=(roi_x, roi_y), size=(roi_w, roi_h), pen=pg.mkPen('y', width=2), translateSnap=True, scaleSnap=True)
+        self.plot_original.addItem(self.roi)
+        # Ukryj/pokaż ROI w zależności od trybu
+        self.roi.setVisible(self.roi_mode_checkbox.isChecked())
+        self._on_roi_changed() # Aktualizuj etykietę na starcie
 
         # --- Dialog Buttons ---
-        self.button_box = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-        )
-        # Rename OK to Apply for clarity
-        self.button_box.button(QDialogButtonBox.StandardButton.Ok).setText("Apply")
+        self.button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        self.button_box.button(QDialogButtonBox.StandardButton.Ok).setText("Apply Changes")
+        bottom_layout.addWidget(self.button_box)
 
         # --- Assemble Main Layout ---
-        main_layout.addLayout(image_layout) # Add image views layout (takes most space)
-        main_layout.addWidget(controls_widget) # Add controls layout
-        main_layout.addWidget(self.button_box) # Add standard buttons
+        main_layout.addLayout(top_layout)
+        main_layout.addLayout(bottom_layout)
 
         # --- Initial Display ---
         self.update_original_view()
-        self.update_processed_view() # Show original initially in processed view
-        # self._update_views_range() # Set initial zoom/pan
+        self._update_preview() # Wywołaj wstępną aktualizację podglądu
 
         # --- Connect Signals ---
         self.sigma_slider.valueChanged.connect(self._on_parameter_changed)
-        # Use sliderReleased if valueChanged is too slow/resource intensive
-        # self.sigma_slider.sliderReleased.connect(self._on_slider_released)
         self.live_preview_checkbox.stateChanged.connect(self._on_parameter_changed)
-        self.button_box.accepted.connect(self.accept) # Connect OK/Apply button
-        self.button_box.rejected.connect(self.reject) # Connect Cancel button
+        self.roi_mode_checkbox.stateChanged.connect(self._on_mode_changed) # Nowy slot
+        self.roi.sigRegionChanged.connect(self._on_roi_changed)
+        self.button_box.accepted.connect(self.accept) # OK/Apply Changes
+        self.button_box.rejected.connect(self.reject)
 
-        logger.debug("GaussianBlurDialog initialized.")
-
+        logger.debug("GaussianBlurDialog with integrated modes initialized.")
 
     def _get_sigma_value(self) -> float:
-        """Gets the sigma value from the slider, scaled appropriately."""
-        # Scale slider value (0-100) to a float sigma range (e.g., 0.0-10.0)
         return self.sigma_slider.value() / 10.0
 
     @pyqtSlot()
     def _on_parameter_changed(self):
-        """Slot called when sigma slider value or live preview checkbox changes."""
+        """Slot called when sigma slider or live preview checkbox changes."""
         sigma = self._get_sigma_value()
-        self.sigma_label.setText(f"Sigma: {sigma:.1f}") # Update label
-
+        self.sigma_label.setText(f"Sigma: {sigma:.1f}")
+        # Always update preview if live preview is on
         if self.live_preview_checkbox.isChecked():
-            self._apply_processing()
+            self._update_preview()
+        # else: # Optionally clear preview or leave the last state? Leaving is fine.
+        #    pass
 
-    # Optional slot if using sliderReleased signal:
-    # @pyqtSlot()
-    # def _on_slider_released(self):
-    #    """Slot called when slider is released (less frequent update)."""
-    #    if self.live_preview_checkbox.isChecked():
-    #        self._apply_processing()
+    @pyqtSlot(int) # Slot dla stateChanged checkboxa trybu
+    def _on_mode_changed(self, state):
+        """Slot called when 'Process ROI Only' checkbox state changes."""
+        is_roi_mode = state == Qt.CheckState.Checked.value # Czy tryb ROI jest aktywny
+        self.roi.setVisible(is_roi_mode) # Pokaż/ukryj ROI
+        self.roi_info_label.setVisible(is_roi_mode) # Pokaż/ukryj etykietę ROI
+        # Zaktualizuj podgląd, aby odzwierciedlić nowy tryb (jeśli live preview włączone)
+        if self.live_preview_checkbox.isChecked():
+            self._update_preview()
+        logger.debug(f"Processing mode changed. ROI mode active: {is_roi_mode}")
 
-    def _apply_processing(self):
-        """Applies the Gaussian blur based on current parameters."""
-        if self.original_data is None:
-            return
+
+    @pyqtSlot()
+    def _on_roi_changed(self):
+        """Slot called when the ROI is moved or resized."""
+        pos = self.roi.pos(); size = self.roi.size()
+        info_text = f"ROI: ({pos.x():.1f}, {pos.y():.1f}) Size: ({size.x():.1f}, {size.y():.1f})"
+        self.roi_info_label.setText(info_text)
+        # Jeśli jesteśmy w trybie ROI i live preview jest włączone, odśwież podgląd
+        if self.roi_mode_checkbox.isChecked() and self.live_preview_checkbox.isChecked():
+             self._update_preview()
+
+    def _get_roi_slice(self) -> Optional[Tuple[slice, slice]]:
+        # ... (bez zmian - kalkulacja wycinka) ...
+        pos = self.roi.pos(); size = self.roi.size(); h, w = self.original_data.shape
+        x0, y0 = int(round(pos.x())), int(round(pos.y())); width, height = int(round(size.x())), int(round(size.y()))
+        x1 = min(x0 + width, w); y1 = min(y0 + height, h); x0 = max(0, x0); y0 = max(0, y0)
+        if x1 > x0 and y1 > y0: row_slice = slice(y0, y1); col_slice = slice(x0, x1); return row_slice, col_slice
+        else: logger.warning("Invalid ROI dimensions after clamping/rounding."); return None
+
+
+    def _update_preview(self):
+        """Calculates and updates the preview image based on current settings."""
+        if not self.live_preview_checkbox.isChecked():
+             # If live preview turned off, maybe revert preview to last applied state?
+             # For now, let's just show the last calculated preview or processed data.
+             # Or simply return - the view won't update. Let's return.
+             # logger.debug("Live preview off, preview update skipped.")
+             # Revert preview to the actual processed data state
+             self.preview_data = self.processed_data.copy()
+             self.update_processed_view()
+             return
 
         sigma = self._get_sigma_value()
-        logger.debug(f"Applying Gaussian Blur with sigma={sigma:.2f}...")
+        is_roi_mode = self.roi_mode_checkbox.isChecked()
+        logger.debug(f"Updating preview. ROI mode: {is_roi_mode}, Sigma: {sigma:.2f}")
 
-        # Run the processing function
-        # For potentially slow operations, consider running this in a background thread
         try:
-             self.processed_data = gaussian_blur(self.original_data, sigma)
-             # Update the "Processed" image view
-             self.update_processed_view()
+            # Base for calculation is always the original data for preview consistency
+            base_image = self.original_data
+            # Calculate the effect of the filter on the *whole* base image first
+            processed_full = gaussian_blur(base_image, sigma)
+
+            if is_roi_mode:
+                roi_slice = self._get_roi_slice()
+                if roi_slice:
+                    # Start preview with original data
+                    self.preview_data = base_image.copy()
+                    # Apply processed data *only* within the ROI slice
+                    self.preview_data[roi_slice] = processed_full[roi_slice]
+                else:
+                    # If ROI is invalid, show the full processed image? Or original? Show original.
+                    self.preview_data = base_image.copy()
+            else:
+                # If not ROI mode, the preview is the fully processed image
+                self.preview_data = processed_full
+
+            # Update the view
+            self.update_processed_view()
+
         except Exception as e:
-             logger.exception(f"Error applying gaussian blur in dialog: {e}")
-             QMessageBox.warning(self, "Processing Error", f"Failed to apply Gaussian blur:\n{e}")
+            logger.exception(f"Error during preview update: {e}")
+            # Optionally show error to user or just log
 
-
+    # Update/Display methods
     def update_original_view(self):
-        """Updates the 'Original' image view."""
         if self.original_data is not None and self.img_original:
-            self.img_original.setImage(np.fliplr(self.original_data.T)) # Transpose and flip vertically
-            self.plot_original.autoRange()
-            logger.debug("Original view updated.")
+            self.img_original.setImage(self.original_data.T); self.plot_original.autoRange()
 
     def update_processed_view(self):
-        """Updates the 'Processed' image view."""
-        if self.processed_data is not None and self.img_processed:
-            self.img_processed.setImage(np.fliplr(self.processed_data.T)) # Transpose and flip vertically
-            self.plot_processed.autoRange()
-            logger.debug("Processed view updated.")
+        """Updates the 'Processed' image view with self.preview_data."""
+        # This view now always shows the content of self.preview_data
+        if not self.img_processed: return
 
-    # def _update_views_range(self):
-    #      """Sets the zoom/pan range for both views based on original data."""
-    #      if self.vb_original and self.vb_processed:
-    #           self.vb_original.autoRange()
-    #           self.vb_processed.autoRange()
-    #           logger.debug("Views autoranged.")
+        if self.preview_data is not None:
+            self.img_processed.setImage(self.preview_data.T) # Transpose
+            # self.plot_processed.autoRange() # Keep autoRange? Might be annoying on live update
+            logger.debug("Preview view updated.")
+        else:
+             self.img_processed.clear()
+             logger.debug("Preview view cleared.")
 
+
+    # Accept/Reject/Getters
     def accept(self):
-        """Called when the 'Apply' (OK) button is clicked."""
-        logger.info("Gaussian Blur dialog accepted (Apply clicked).")
-        # Ensure the final processing is applied if live preview was off
-        if not self.live_preview_checkbox.isChecked():
-            self._apply_processing()
-        # Let the main window know the dialog was accepted
-        super().accept()
+        """Calculate final result based on mode and close dialog."""
+        sigma = self._get_sigma_value()
+        is_roi_mode = self.roi_mode_checkbox.isChecked()
+        self._final_is_roi = is_roi_mode # Store flag for main window
+
+        logger.info(f"Dialog accepted. Finalizing processing. ROI mode: {is_roi_mode}, Sigma: {sigma:.2f}")
+
+        try:
+            # Always calculate the fully processed version first
+            base_image = self.original_data
+            processed_full = gaussian_blur(base_image, sigma)
+
+            if is_roi_mode:
+                roi_slice = self._get_roi_slice()
+                if roi_slice:
+                    # Create final result by applying effect only within ROI
+                    self._final_processed_data = base_image.copy()
+                    self._final_processed_data[roi_slice] = processed_full[roi_slice]
+                else:
+                    # Invalid ROI selected at time of apply? Return original.
+                    logger.warning("Cannot apply ROI mode with invalid ROI. Returning original data.")
+                    self._final_processed_data = base_image.copy()
+                    self._final_is_roi = False # Mark as not ROI applied
+            else:
+                # Whole image mode - final result is the fully processed image
+                self._final_processed_data = processed_full
+
+            logger.info("Final processing calculated.")
+            super().accept() # Close the dialog
+
+        except Exception as e:
+            logger.exception(f"Error during final processing calculation: {e}")
+            QMessageBox.critical(self, "Processing Error", f"Failed to calculate final result:\n{e}")
+            # Don't close the dialog on error? Or close with reject? Let's reject.
+            super().reject()
+
 
     def reject(self):
-        """Called when the 'Cancel' button is clicked."""
         logger.info("Gaussian Blur dialog rejected (Cancel clicked).")
-        # Discard changes, processed_data is not returned
+        self._final_processed_data = None # Ensure no data is returned
         super().reject()
 
     def get_processed_data(self) -> Optional[np.ndarray]:
-        """
-        Returns the final processed data.
-        Call this *after* the dialog has been accepted (dialog.exec() == QDialog.Accepted).
-        """
-        # Return a copy to avoid external modification if dialog is reused (though unlikely here)
-        return self.processed_data.copy() if self.processed_data is not None else None
+        # Return the final data calculated during accept()
+        return self._final_processed_data.copy() if self._final_processed_data is not None else None
+
+    def get_parameters(self) -> dict:
+        # Return parameters used for the final calculation
+        return {'sigma': round(self._get_sigma_value(), 2)}
+
+    def was_roi_applied(self) -> bool:
+        """Returns True if the final accepted result was ROI-based."""
+        return self._final_is_roi
