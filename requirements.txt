@@ -2,3 +2,5 @@ numpy>=1.20  # Specify a minimum version if needed
 matplotlib>=3.0 # For testing and basic visualization
 PyQt6>=6.0
 pyqtgraph>=0.13
+scipy>=1.7     # Needed for Gaussian filter (or use scikit-image)
+scikit-image>=0.18 # Alternative/complement for image processing
