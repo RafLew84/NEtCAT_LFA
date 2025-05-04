@@ -61,8 +61,16 @@ class BasePreprocessingDialog(QDialog):
         self._final_processed_data: Optional[np.ndarray] = None
         self._final_is_roi: bool = False
 
+        self._initial_levels_set = False
+
         self.setWindowTitle(f"{self.operation_name} Settings")
         self.setMinimumSize(900, 500)
+
+        current_flags = self.windowFlags()
+
+        self.setWindowFlags(current_flags |
+                            Qt.WindowType.WindowMinimizeButtonHint |
+                            Qt.WindowType.WindowMaximizeButtonHint)
 
         # --- Main Layouts ---
         main_layout = QVBoxLayout(self)
@@ -145,6 +153,7 @@ class BasePreprocessingDialog(QDialog):
         # --- Initial Display ---
         self.update_original_view()
         self._update_preview() # Initial preview update
+        
 
         # --- Connect Base Signals ---
         self.live_preview_checkbox.stateChanged.connect(self._on_parameter_or_preview_changed)
@@ -152,6 +161,9 @@ class BasePreprocessingDialog(QDialog):
         self.roi.sigRegionChanged.connect(self._on_roi_changed)
         self.button_box.accepted.connect(self.accept)
         self.button_box.rejected.connect(self.reject)
+
+        self.plot_original.vb.invertY(True)
+        self.plot_processed.vb.invertY(True)
 
         logger.debug(f"BasePreprocessingDialog for '{self.operation_name}' initialized.")
 
