@@ -28,9 +28,10 @@ from ..io.factory import load_stm_file
 from ..core.history import HistoryNode
 
 try:
-    from .preprocessing_dialogs import GaussianBlurDialog
+    from .preprocessing_dialogs import GaussianBlurDialog, PlaneLevelingDialog
 except ImportError:
     GaussianBlurDialog = None
+    PlaneLevelingDialog = None
     logging.warning("Could not import GaussianBlurDialog. Preprocessing options may be unavailable.")
 
 logger = logging.getLogger(__name__)
@@ -166,6 +167,11 @@ class MainWindow(QMainWindow):
         self.gaussian_blur_action.setEnabled(False)
         preprocessing_menu.addAction(self.gaussian_blur_action)
 
+        self.plane_level_action = QAction("&Plane Leveling...", self)
+        self.plane_level_action.setStatusTip("Level image by subtracting a fitted plane")
+        self.plane_level_action.triggered.connect(self.open_plane_leveling_dialog) 
+        preprocessing_menu.addAction(self.plane_level_action)
+
         # --- Help Menu ---
         help_menu = menu_bar.addMenu("&Help")
 
@@ -180,6 +186,7 @@ class MainWindow(QMainWindow):
         """Enables/disables actions based on the current state."""
         has_image = self.current_node_id is not None and self.current_node_id in self.history
         self.gaussian_blur_action.setEnabled(has_image)
+        self.plane_level_action.setEnabled(has_image)
 
     @pyqtSlot()
     def open_file_dialog(self):
@@ -231,6 +238,44 @@ class MainWindow(QMainWindow):
             logger.debug("File dialog cancelled.")
             self.statusBar().showMessage("File open cancelled.", 3000)
 
+    @pyqtSlot()
+    def open_plane_leveling_dialog(self):
+        """Opens the dialog for applying Plane Leveling."""
+        if self.current_node_id is None or self.current_node_id not in self.history: QMessageBox.warning(self, "No Image", "..."); return
+        if not PlaneLevelingDialog: QMessageBox.critical(self, "Error", "PlaneLevelingDialog not available."); return
+
+        current_node = self.history[self.current_node_id]
+        if current_node.image_data is None: QMessageBox.critical(self, "Internal Error", "..."); return
+        dialog_input_data = current_node.image_data.copy()
+
+        logger.info(f"Opening Plane Leveling dialog based on node: {current_node.get_display_text()}")
+        dialog = PlaneLevelingDialog(dialog_input_data, parent=self)
+        result = dialog.exec()
+
+        if result == QDialog.DialogCode.Accepted:
+            processed_data = dialog.get_processed_data()
+            params = dialog.get_parameters()
+            was_roi_only = dialog.was_roi_applied_only() 
+            op_name = "Plane Leveling"
+
+            if processed_data is not None:
+                logger.info(f"Plane Leveling accepted. ROI Only: {was_roi_only}. Creating history node.")
+                new_node = HistoryNode(
+                    parent_id=self.current_node_id,
+                    operation_name=op_name,
+                    parameters=params,
+                    image_data=processed_data,
+                    is_roi_applied=was_roi_only 
+                )
+                new_item = self._add_history_node(new_node)
+                self._set_current_node(new_node.node_id)
+                self.history_list_widget.setCurrentItem(new_item)
+                display_name = new_node.get_display_text() 
+                self.statusBar().showMessage(f"{display_name} applied.", 3000)
+            else: logger.warning("Dialog accepted, but no processed data returned.")
+        else: logger.info("Plane Leveling dialog cancelled."); self.statusBar().showMessage("Plane Leveling cancelled.", 3000)
+
+
     @pyqtSlot(QListWidgetItem, QListWidgetItem)
     def on_history_selection_changed(self, current_item: QListWidgetItem, previous_item: QListWidgetItem):
         """Slot called when the selection in the history list changes."""
@@ -275,7 +320,7 @@ class MainWindow(QMainWindow):
         if result == QDialog.DialogCode.Accepted:
             processed_data = dialog.get_processed_data()
             params = dialog.get_parameters()
-            was_roi = dialog.was_roi_applied()
+            was_roi = dialog.was_roi_applied_only()
             op_name = "Gaussian Blur"
 
             if processed_data is not None:
