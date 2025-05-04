@@ -14,6 +14,12 @@ except ImportError:
     def gaussian_filter(image, sigma, **kwargs): return image
     def median_filter(image, size, **kwargs): return image 
 
+try:
+    from skimage.filters import unsharp_mask
+except ImportError:
+     logging.critical("Scikit-image not found. pip install scikit-image")
+     unsharp_mask = None # Dummy if missing
+
 logger = logging.getLogger(__name__)
 
 def gaussian_blur(image: np.ndarray, sigma: float) -> np.ndarray:
@@ -94,4 +100,55 @@ def median_filter_lfa(image: np.ndarray, size: int = 3, mode: str = 'reflect', c
         return filtered_image.astype(np.float32)
     except Exception as e:
         logger.exception(f"Error during median filtering: {e}")
+        return None
+    
+def gaussian_sharpen_unsharp_mask(image: np.ndarray, radius: float = 1.0, amount: float = 1.0) -> Optional[np.ndarray]:
+    """
+    Applies sharpening using the Unsharp Mask technique via skimage.filters.unsharp_mask.
+
+    Sharpened = original + amount * (original - blurred)
+    where blurred is obtained using a Gaussian filter with sigma=radius.
+
+    Args:
+        image (np.ndarray): Input 2D image data (float).
+        radius (float, optional): Sigma (standard deviation) of the Gaussian filter
+                                  used internally. Controls the scale of features
+                                  being sharpened. Defaults to 1.0. Must be non-negative.
+        amount (float, optional): Strength of the sharpening effect (contrast amplification).
+                                  Amount=1.0 is typical, higher values sharpen more but
+                                  amplify noise. Defaults to 1.0. Must be non-negative.
+
+    Returns:
+        Optional[np.ndarray]: The sharpened image data as float32, or None on error.
+    """
+    if unsharp_mask is None:
+        logger.error("unsharp_mask requires scikit-image to be installed.")
+        return None
+    if image is None or image.ndim != 2:
+        logger.error(f"Sharpening: Invalid input image (None or shape {getattr(image, 'shape', 'N/A')}).")
+        return None
+    if radius < 0:
+        logger.warning(f"Sharpening: Radius {radius} is negative. Clamping to 0.")
+        radius = 0
+    if amount < 0:
+        logger.warning(f"Sharpening: Amount {amount} is negative. Clamping to 0.")
+        amount = 0
+
+    try:
+        # Ensure input is float, skimage handles internal types
+        image_float = image.astype(np.float32, copy=False)
+        logger.debug(f"Applying Unsharp Mask: radius={radius:.2f}, amount={amount:.2f}")
+
+        sharpened_image = unsharp_mask(
+            image_float,
+            radius=radius,
+            amount=amount,
+            preserve_range=True, # Important for float data!
+            channel_axis=None    # Indicate 2D grayscale image
+        )
+        logger.info("Unsharp Mask sharpening completed.")
+        return sharpened_image.astype(np.float32) # Ensure float32 output
+
+    except Exception as e:
+        logger.exception(f"Error during Unsharp Mask sharpening: {e}")
         return None
