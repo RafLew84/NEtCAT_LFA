@@ -8,7 +8,8 @@ try:
     from PyQt6.QtWidgets import (
         QDialog, QVBoxLayout, QHBoxLayout, QSlider, QLabel, QCheckBox,
         QDialogButtonBox, QWidget, QSizePolicy, QSpacerItem, QFrame, QMessageBox, 
-        QGroupBox, QRadioButton, QPushButton, QComboBox, QSpinBox, QDoubleSpinBox
+        QGroupBox, QRadioButton, QPushButton, QComboBox, QSpinBox, QDoubleSpinBox,
+        QApplication
     )
     from PyQt6.QtGui import QIntValidator
     from PyQt6.QtCore import Qt, pyqtSlot
@@ -34,11 +35,11 @@ except ImportError:
     def fit_plane_3pts(*args, **kwargs): return None
     def level_by_plane(*args, **kwargs): return None
 
-try: from ..preprocessing.denoising import denoise_nlmeans_skimage 
+try: from ..preprocessing.denoising import denoise_nlmeans_skimage, denoise_bm3d_lfa
 except ImportError: 
     logging.error("Could not import denoising functions."); 
     def denoise_nlmeans_skimage(**kwargs): return kwargs.get('image')
-
+    def denoise_bm3d_lfa(**kwargs): return kwargs.get('image')
 
 logger = logging.getLogger(__name__)
 
@@ -524,9 +525,16 @@ class PlaneLevelingDialog(QDialog):
 
         # --- Graphics Views (like in GaussianBlurDialog) ---
         pg.setConfigOption('background', 'w'); pg.setConfigOption('foreground', 'k'); self.win = pg.GraphicsLayoutWidget()
-        self.plot_original = self.win.addPlot(row=0, col=0, title="Original", name="plot_orig"); self.img_original = ImageItem(); self.plot_original.addItem(self.img_original); self.plot_original.hideAxis('left'); self.plot_original.hideAxis('bottom'); self.plot_original.setAspectLocked(True)
-        self.plot_processed = self.win.addPlot(row=0, col=1, title="Preview", name="plot_proc"); self.img_processed = ImageItem(); self.plot_processed.addItem(self.img_processed); self.plot_processed.hideAxis('left'); self.plot_processed.hideAxis('bottom'); self.plot_processed.setAspectLocked(True)
-        self.plot_processed.vb.setXLink(self.plot_original.vb); self.plot_processed.vb.setYLink(self.plot_original.vb)
+        self.plot_original = self.win.addPlot(row=0, col=0, title="Original", name="plot_orig")
+        self.img_original = ImageItem(); self.plot_original.addItem(self.img_original)
+        self.plot_original.hideAxis('left'); self.plot_original.hideAxis('bottom')
+        self.plot_original.setAspectLocked(True)
+        self.plot_processed = self.win.addPlot(row=0, col=1, title="Preview", name="plot_proc")
+        self.img_processed = ImageItem(); self.plot_processed.addItem(self.img_processed)
+        self.plot_processed.hideAxis('left'); self.plot_processed.hideAxis('bottom')
+        self.plot_processed.setAspectLocked(True)
+        self.plot_processed.vb.setXLink(self.plot_original.vb)
+        self.plot_processed.vb.setYLink(self.plot_original.vb)
         self.plot_original.vb.invertY(True); self.plot_processed.vb.invertY(True)
         top_layout.addWidget(self.win, stretch=3)
 
@@ -777,6 +785,215 @@ class PlaneLevelingDialog(QDialog):
     def get_parameters(self) -> dict: return self._get_current_parameters()
     def was_roi_applied_only(self) -> bool: return self._final_is_roi_applied_only
 
+class BM3DDialog(QDialog):
+    """
+    Standalone dialog window for applying BM3D denoising.
+    Includes ROI/Whole image mode toggle. Live preview is disabled by default.
+    """
+    def __init__(self, original_data: np.ndarray, parent=None):
+        super().__init__(parent)
+        if original_data is None: raise ValueError("Original data cannot be None")
+
+        self.operation_name = "BM3D Denoising"
+        self.original_data = original_data.astype(np.float32)
+        self.preview_data = self.original_data.copy()
+        self._final_processed_data: Optional[np.ndarray] = None
+        self._final_params: Dict[str, Any] = {}
+        self._final_is_roi_applied_only: bool = False
+
+        self.setWindowTitle(f"{self.operation_name} Settings")
+        self.setMinimumSize(900, 550)
+        current_flags=self.windowFlags(); self.setWindowFlags(current_flags | Qt.WindowType.WindowMinimizeButtonHint | Qt.WindowType.WindowMaximizeButtonHint)
+
+        # --- Layouts ---
+        main_layout=QVBoxLayout(self); top_layout=QHBoxLayout(); controls_area_layout=QVBoxLayout() 
+        bottom_layout=QHBoxLayout()
+
+        # --- Graphics Views ---
+        pg.setConfigOption('background', 'w'); pg.setConfigOption('foreground', 'k')
+        self.win = pg.GraphicsLayoutWidget()
+        self.plot_original = self.win.addPlot(row=0, col=0, title="Original", name="plot_orig")
+        self.img_original = ImageItem(); self.plot_original.addItem(self.img_original)
+        self.plot_original.hideAxis('left'); self.plot_original.hideAxis('bottom')
+        self.plot_original.setAspectLocked(True)
+        self.plot_processed = self.win.addPlot(row=0, col=1, title="Preview (Click Update)", name="plot_proc")
+        self.img_processed = ImageItem(); self.plot_processed.addItem(self.img_processed)
+        self.plot_processed.hideAxis('left'); self.plot_processed.hideAxis('bottom')
+        self.plot_processed.setAspectLocked(True)
+        self.plot_processed.vb.setXLink(self.plot_original.vb)
+        self.plot_processed.vb.setYLink(self.plot_original.vb)
+        self.plot_original.vb.invertY(True); self.plot_processed.vb.invertY(True)
+        top_layout.addWidget(self.win, stretch=3)
+
+        # --- Controls Panel ---
+        controls_panel = QWidget(); controls_panel.setMaximumWidth(250)
+        controls_panel.setLayout(controls_area_layout)
+        parameter_widget_container = QWidget()
+        specific_param_layout = QVBoxLayout(parameter_widget_container)
+        specific_param_layout.setContentsMargins(0,0,0,0)
+        self._create_parameter_controls(specific_param_layout)
+        controls_area_layout.addWidget(parameter_widget_container)
+
+        controls_area_layout.addWidget(QFrame(frameShape=QFrame.Shape.HLine, frameShadow=QFrame.Shadow.Sunken))
+
+        # --- ROI / Mode Controls ---
+        self.apply_to_roi_only_checkbox = QCheckBox("Apply only to ROI area")
+        self.apply_to_roi_only_checkbox.setChecked(False)
+        # Live Preview - domyślnie wyłączone i nieaktywne
+        self.live_preview_checkbox = QCheckBox("Live Preview")
+        self.live_preview_checkbox.setChecked(False)
+        self.live_preview_checkbox.setEnabled(False)
+        self.live_preview_checkbox.setToolTip("Live preview disabled for BM3D due to performance.")
+        # Przycisk do ręcznej aktualizacji podglądu
+        self.update_preview_button = QPushButton("Update Preview")
+
+        controls_area_layout.addWidget(self.apply_to_roi_only_checkbox)
+        controls_area_layout.addWidget(self.live_preview_checkbox)
+        controls_area_layout.addWidget(self.update_preview_button) # Dodaj przycisk
+
+        controls_area_layout.addWidget(QFrame(frameShape=QFrame.Shape.HLine, frameShadow=QFrame.Shadow.Sunken))
+
+        # ROI Info and Item
+        self.roi_info_label = QLabel("ROI: Not selected"); controls_area_layout.addWidget(self.roi_info_label)
+        h, w = self.original_data.shape; roi_w, roi_h = w//4, h//4; roi_x, roi_y = w//2-roi_w//2, h//2-roi_h//2
+        self.roi = RectROI(pos=(roi_x, roi_y), size=(roi_w, roi_h), pen=pg.mkPen('r', width=2), translateSnap=True, scaleSnap=True); # Czerwone ROI
+        self.plot_original.addItem(self.roi)
+        is_roi_mode = self.apply_to_roi_only_checkbox.isChecked()
+        self.roi.setVisible(is_roi_mode); self.roi_info_label.setVisible(is_roi_mode)
+        self._on_roi_changed()
+
+        controls_area_layout.addStretch()
+        top_layout.addWidget(controls_panel, stretch=1)
+
+        # Dialog Buttons
+        self.button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        self.button_box.button(QDialogButtonBox.StandardButton.Ok).setText("Apply Changes")
+        bottom_layout.addWidget(self.button_box)
+
+        # Assemble Layout
+        main_layout.addLayout(top_layout); main_layout.addLayout(bottom_layout)
+
+        # Initial Display & Connections
+        self.update_original_view(); self._update_preview()
+        self.apply_to_roi_only_checkbox.stateChanged.connect(self._on_settings_changed)
+        self.roi.sigRegionChanged.connect(self._on_roi_changed) # ROI nadal aktualizuje etykietę
+        self.update_preview_button.clicked.connect(self._update_preview) # Przycisk aktualizuje podgląd
+        self.button_box.accepted.connect(self.accept); self.button_box.rejected.connect(self.reject)
+
+        logger.debug(f"Standalone {self.operation_name} dialog initialized.")
+
+
+    # --- Implementacja Metod UI i Logiki ---
+    def _create_parameter_controls(self, layout: QVBoxLayout):
+        """Adds controls specific to BM3D Filter."""
+        sigma_layout = QHBoxLayout()
+        sigma_layout.addWidget(QLabel("Noise Sigma (σ) [0-1]:")) # Etykieta wskazująca zakres
+        self.sigma_spinbox = QDoubleSpinBox()
+        self.sigma_spinbox.setDecimals(4)
+        self.sigma_spinbox.setRange(0.0001, 1.0) # Sigma względem zakresu [0, 1]
+        self.sigma_spinbox.setValue(0.05) # Typowa wartość startowa
+        self.sigma_spinbox.setSingleStep(0.005)
+        self.sigma_spinbox.setToolTip("Estimated noise standard deviation relative to the [0, 1] data range.")
+        sigma_layout.addWidget(self.sigma_spinbox)
+        layout.addLayout(sigma_layout)
+
+        # Podłącz zmianę parametru do ogólnego slotu (chociaż live preview jest wyłączone)
+        self.sigma_spinbox.valueChanged.connect(self._on_settings_changed)
+
+    def _get_current_parameters(self) -> Dict[str, Any]:
+        """Gathers parameters for BM3D Filter."""
+        return {
+            'sigma_psd': self.sigma_spinbox.value(),
+            'apply_roi_only': self.apply_to_roi_only_checkbox.isChecked()
+        }
+
+    def _apply_operation(self, image: np.ndarray, params: Dict[str, Any]) -> Optional[np.ndarray]:
+        """Applies denoise_bm3d_lfa based on parameters."""
+        sigma = params.get('sigma_psd', 0.05)
+        apply_roi_only = params.get('apply_roi_only', False)
+        logger.debug(f"BM3D _apply_operation called. Sigma={sigma}, ROI Only={apply_roi_only}")
+        try:
+            # Zawsze obliczaj pełny wynik najpierw
+            processed_full = denoise_bm3d_lfa(image, sigma_psd=sigma)
+            if processed_full is None: return None # Błąd w funkcji backendu
+
+            if apply_roi_only:
+                roi_slice = self._get_roi_slice()
+                if roi_slice:
+                    result_image = image.copy()
+                    result_image[roi_slice] = processed_full[roi_slice]
+                    return result_image
+                else: logger.warning("Cannot apply BM3D to ROI only: Invalid ROI."); return image
+            else: return processed_full # Zastosuj do całości
+        except Exception as e: logger.exception(f"Error applying denoise_bm3d_lfa: {e}"); return None
+
+    # --- Sloty i Metody ---
+    @pyqtSlot()
+    def _on_settings_changed(self):
+        """Slot for parameter or ROI checkbox changes."""
+        is_roi_mode = self.apply_to_roi_only_checkbox.isChecked()
+        self.roi.setVisible(is_roi_mode)
+        self.roi_info_label.setVisible(is_roi_mode)
+
+    @pyqtSlot()
+    def _on_roi_changed(self):
+        """Updates ROI info label."""
+        pos=self.roi.pos(); size=self.roi.size(); info_text = f"ROI: ({pos.x():.1f}, {pos.y():.1f}) Size: ({size.x():.1f}, {size.y():.1f})"; self.roi_info_label.setText(info_text)
+
+    def _get_roi_slice(self) -> Optional[Tuple[slice, slice]]:
+        if not self.roi.isVisible() or not self.roi.size().x()>0 or not self.roi.size().y()>0: 
+            return None
+        pos=self.roi.pos()
+        size=self.roi.size()
+        h,w=self.original_data.shape
+        x0,y0=int(round(pos.x())),int(round(pos.y()))
+        width,height=int(round(size.x())),int(round(size.y()))
+        x1=min(x0+width,w); y1=min(y0+height,h); x0=max(0,x0); y0=max(0,y0);
+        if x1>x0 and y1>y0: 
+            return slice(y0,y1), slice(x0,x1)
+        else: 
+            logger.warning("Invalid ROI dims.")
+            return None
+
+    @pyqtSlot()
+    def _update_preview(self):
+        """Calculates and updates the preview image MANUALLY."""
+        params = self._get_current_parameters()
+        logger.debug(f"Manually updating preview. Params: {params}")
+        try:
+            self.preview_data = self._apply_operation(self.original_data, params)
+            if self.preview_data is None: self.preview_data = self.original_data.copy()
+            self.update_preview_view()
+        except Exception as e:
+            logger.exception(f"Error during manual preview update: {e}")
+            QMessageBox.warning(self, "Preview Error", f"Could not update preview:\n{e}")
+
+
+    def update_original_view(self):
+        if self.original_data is not None and self.img_original: self.img_original.setImage(self.original_data.T); self.plot_original.autoRange()
+    def update_preview_view(self):
+        if not self.img_processed: return
+        if self.preview_data is not None: self.img_processed.setImage(self.preview_data.T); logger.debug("Preview view updated.")
+        else: self.img_processed.clear(); logger.debug("Preview view cleared.")
+
+    def accept(self):
+        params = self._get_current_parameters()
+        self._final_is_roi_applied_only = params.get('apply_roi_only', False)
+        logger.info(f"Dialog accepted. Finalizing '{self.operation_name}'. Apply ROI Only: {self._final_is_roi_applied_only}, Params: {params}")
+        try:
+            self._final_processed_data = self._apply_operation(self.original_data, params)
+            if self._final_processed_data is None: raise ValueError("Processing failed.")
+            if np.allclose(self._final_processed_data, self.original_data): logger.info("Data not modified."); self._final_processed_data = None; super().reject(); return
+            logger.info("Final processing calculated."); super().accept()
+        except Exception as e: logger.exception(f"Error final processing: {e}"); QMessageBox.critical(self, "Error", f"... {e}"); self._final_processed_data = None; self._final_is_roi_applied_only = False; super().reject()
+
+
+    def reject(self): logger.info(f"{self.operation_name} dialog rejected."); self._final_processed_data = None; super().reject()
+    def get_processed_data(self) -> Optional[np.ndarray]: return self._final_processed_data.copy() if self._final_processed_data is not None else None
+    def get_parameters(self) -> dict: return self._get_current_parameters()
+    def was_roi_applied_only(self) -> bool: return self._final_is_roi_applied_only
+
+
 class MedianFilterDialog(QDialog):
     """
     Standalone dialog window for applying Median Filter.
@@ -801,10 +1018,18 @@ class MedianFilterDialog(QDialog):
         main_layout=QVBoxLayout(self); top_layout=QHBoxLayout(); controls_area_layout=QVBoxLayout(); bottom_layout=QHBoxLayout()
 
         # --- Graphics Views ---
-        pg.setConfigOption('background', 'w'); pg.setConfigOption('foreground', 'k'); self.win = pg.GraphicsLayoutWidget()
-        self.plot_original = self.win.addPlot(row=0, col=0, title="Original", name="plot_orig"); self.img_original = ImageItem(); self.plot_original.addItem(self.img_original); self.plot_original.hideAxis('left'); self.plot_original.hideAxis('bottom'); self.plot_original.setAspectLocked(True)
-        self.plot_processed = self.win.addPlot(row=0, col=1, title="Preview", name="plot_proc"); self.img_processed = ImageItem(); self.plot_processed.addItem(self.img_processed); self.plot_processed.hideAxis('left'); self.plot_processed.hideAxis('bottom'); self.plot_processed.setAspectLocked(True)
-        self.plot_processed.vb.setXLink(self.plot_original.vb); self.plot_processed.vb.setYLink(self.plot_original.vb)
+        pg.setConfigOption('background', 'w'); pg.setConfigOption('foreground', 'k')
+        self.win = pg.GraphicsLayoutWidget()
+        self.plot_original = self.win.addPlot(row=0, col=0, title="Original", name="plot_orig")
+        self.img_original = ImageItem(); self.plot_original.addItem(self.img_original)
+        self.plot_original.hideAxis('left'); self.plot_original.hideAxis('bottom')
+        self.plot_original.setAspectLocked(True)
+        self.plot_processed = self.win.addPlot(row=0, col=1, title="Preview", name="plot_proc")
+        self.img_processed = ImageItem(); self.plot_processed.addItem(self.img_processed)
+        self.plot_processed.hideAxis('left'); self.plot_processed.hideAxis('bottom')
+        self.plot_processed.setAspectLocked(True)
+        self.plot_processed.vb.setXLink(self.plot_original.vb)
+        self.plot_processed.vb.setYLink(self.plot_original.vb)
         self.plot_original.vb.invertY(True); self.plot_processed.vb.invertY(True)
         top_layout.addWidget(self.win, stretch=3)
 
@@ -975,7 +1200,7 @@ class MedianFilterDialog(QDialog):
         logger.debug(f"Updating preview. Params: {params}")
         try:
             self.preview_data = self._apply_operation(self.original_data, params)
-            if self.preview_data is None: self.preview_data = self.original_data.copy() # Show original on error
+            if self.preview_data is None: self.preview_data = self.original_data.copy()
             self.update_preview_view()
         except Exception as e: logger.exception(f"Error during preview update: {e}")
 

@@ -16,6 +16,12 @@ except ImportError:
     def denoise_nl_means(*args, **kwargs):
         logging.error("denoise_nl_means called, but scikit-image is not available.")
         return args[0] if args else None
+    
+try:
+    import bm3d
+except ImportError:
+    logging.critical("bm3d package not found. Please install it: pip install bm3d")
+    bm3d = None
 
 
 logger = logging.getLogger(__name__)
@@ -79,4 +85,54 @@ def denoise_nlmeans_skimage(image: np.ndarray, sigma: float, h_param_mult: float
 
     except Exception as e:
         logger.exception(f"Error during NL-Means denoising: {e}")
+        return None
+    
+def denoise_bm3d_lfa(image: np.ndarray, sigma_psd: float) -> Optional[np.ndarray]:
+    """
+    Applies BM3D denoising using the bm3d package.
+
+    Note: BM3D often works best on images scaled to range [0, 1].
+    This function internally scales the image, applies BM3D, and scales back.
+    The sigma_psd should therefore be provided relative to the [0, 1] range.
+
+    Args:
+        image (np.ndarray): Input 2D image data (float).
+        sigma_psd (float): Noise standard deviation estimate, scaled relative
+                           to the image intensity range [0, 1]. Should be > 0.
+
+    Returns:
+        Optional[np.ndarray]: The denoised image data as float32, or None on error.
+    """
+    if bm3d is None:
+        logger.error("BM3D package is not installed or could not be imported.")
+        return None
+    if image is None or image.ndim != 2:
+        logger.error(f"BM3D: Invalid input image (None or shape {getattr(image, 'shape', 'N/A')}).")
+        return None
+    if not isinstance(sigma_psd, (float, int)) or sigma_psd <= 0:
+        logger.error(f"BM3D: sigma_psd must be a positive number, got {sigma_psd}.")
+        return None
+
+    try:
+        img_min = np.min(image)
+        img_max = np.max(image)
+        img_range = img_max - img_min
+        if np.isclose(img_range, 0):
+             logger.warning("BM3D: Input image is constant. Returning original.")
+             return image.astype(np.float32)
+
+        scaled_image = (image - img_min) / img_range
+        scaled_sigma = sigma_psd
+        logger.debug(f"Applying BM3D: scaled_sigma_psd={scaled_sigma:.4f}")
+
+        # --- BM3D ---
+        denoised_scaled = bm3d.bm3d(scaled_image, sigma_psd=scaled_sigma,
+                                    stage_arg=bm3d.BM3DStages.ALL_STAGES)
+
+        denoised_image = (denoised_scaled * img_range) + img_min
+        logger.info("BM3D denoising completed.")
+        return denoised_image.astype(np.float32)
+
+    except Exception as e:
+        logger.exception(f"Error during BM3D denoising: {e}")
         return None
