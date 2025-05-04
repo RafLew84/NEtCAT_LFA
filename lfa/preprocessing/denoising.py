@@ -53,7 +53,7 @@ def denoise_nlmeans_skimage(image: np.ndarray, sigma: float, h_param_mult: float
         return None
     if h_param_mult <= 0:
          logger.warning(f"NL-Means: h_param_mult is non-positive ({h_param_mult}). Setting h directly to sigma.")
-         h = sigma # Fallback if multiplier is invalid
+         return None
     else:
          h = h_param_mult * sigma
 
