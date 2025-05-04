@@ -4,9 +4,15 @@ Image filtering operations for LFA.
 """
 import logging
 import numpy as np
+from typing import Optional
 # Use SciPy for Gaussian filter, it's often faster for this specific task
 # than scikit-image's version
-from scipy.ndimage import gaussian_filter
+try:
+    from scipy.ndimage import gaussian_filter, median_filter
+except ImportError:
+    logging.critical("SciPy not found. pip install scipy")
+    def gaussian_filter(image, sigma, **kwargs): return image
+    def median_filter(image, size, **kwargs): return image 
 
 logger = logging.getLogger(__name__)
 
@@ -45,3 +51,47 @@ def gaussian_blur(image: np.ndarray, sigma: float) -> np.ndarray:
         logger.exception(f"Error during Gaussian filtering with sigma={sigma}: {e}")
         # Return original image on error to prevent crash downstream
         return image.astype(np.float32, copy=False)
+    
+def median_filter_lfa(image: np.ndarray, size: int = 3, mode: str = 'reflect', cval: float = 0.0) -> Optional[np.ndarray]:
+    """
+    Applies a median filter to the image using scipy.ndimage.median_filter.
+
+    Effective for reducing salt-and-pepper noise while preserving edges.
+
+    Args:
+        image (np.ndarray): Input 2D image data (should be float or integer type).
+        size (int, optional): The size of the filter neighborhood.
+                               Should ideally be an odd integer. Defaults to 3.
+        mode (str, optional): The mode parameter determines how the input array
+                              is extended beyond its boundaries.
+                              Options: 'reflect', 'constant', 'nearest', 'mirror', 'wrap'.
+                              Defaults to 'reflect'.
+        cval (float, optional): Value to fill past edges of input if mode is 'constant'.
+                                Defaults to 0.0.
+
+    Returns:
+        Optional[np.ndarray]: The filtered image data as float32, or None if an error occurs.
+    """
+    if image is None or image.ndim != 2:
+        logger.error(f"median_filter_lfa: Invalid input image (None or shape {getattr(image, 'shape', 'N/A')}).")
+        return None
+    if not isinstance(size, int) or size <= 0:
+        logger.error(f"median_filter_lfa: Size must be a positive integer, got {size}.")
+        return None
+
+    if size % 2 == 0:
+         logger.warning(f"median_filter_lfa: Filter size {size} is even. Odd sizes are generally preferred.")
+
+    valid_modes = {'reflect', 'constant', 'nearest', 'mirror', 'wrap'}
+    if mode not in valid_modes:
+        logger.error(f"median_filter_lfa: Invalid mode '{mode}'. Valid modes are: {valid_modes}")
+        return None
+
+    try:
+        logger.debug(f"Applying median filter with size={size}, mode='{mode}', cval={cval}")
+        # median_filter zachowuje typ danych, konwertujemy na float32 na końcu dla spójności
+        filtered_image = median_filter(image, size=size, mode=mode, cval=cval)
+        return filtered_image.astype(np.float32)
+    except Exception as e:
+        logger.exception(f"Error during median filtering: {e}")
+        return None
