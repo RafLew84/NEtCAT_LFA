@@ -32,14 +32,23 @@ def fit_plane(image: np.ndarray, roi_slice: Optional[Tuple[slice, slice]] = None
                               representing the fitted plane values across the whole image.
                               Returns None if fitting fails.
     """
-    if image is None or image.ndim != 2:
-        logger.error(f"fit_plane: Invalid input image (None or shape {image.shape}).")
+    if image is None:
+        logger.error("fit_plane: Invalid input image (is None).")
         return None
+    if image.ndim != 2:
+         logger.error(f"fit_plane: Invalid input image (ndim is {image.ndim}, expected 2).")
+         return None
 
     rows, cols = image.shape
 
     # --- Prepare coordinates and Z data for fitting ---
     if roi_slice is not None:
+        if not (isinstance(roi_slice, (tuple, list)) and
+                len(roi_slice) == 2 and
+                isinstance(roi_slice[0], slice) and
+                isinstance(roi_slice[1], slice)):
+            logger.error(f"fit_plane: Invalid roi_slice format. Expected Tuple[slice, slice], got {type(roi_slice)} with content {roi_slice}")
+            return None
         row_slice, col_slice = roi_slice
         if not (isinstance(row_slice, slice) and isinstance(col_slice, slice)):
              logger.error(f"fit_plane: Invalid roi_slice format: {roi_slice}")
