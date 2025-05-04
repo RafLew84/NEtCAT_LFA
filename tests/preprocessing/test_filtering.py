@@ -13,9 +13,12 @@ logger = logging.getLogger(__name__)
 
 # Import the function to be tested
 try:
-    from lfa.preprocessing.filtering import gaussian_blur, median_filter_lfa
+    from lfa.preprocessing.filtering import gaussian_blur, median_filter_lfa, gaussian_sharpen_unsharp_mask
 except ImportError:
     pytest.fail("Could not import gaussian_blur from lfa.preprocessing.filtering", pytrace=False)
+    gaussian_sharpen_unsharp_mask = None
+    median_filter_lfa = None
+    gaussian_blur = None
 
 # --- Fixtures (optional reusable test data) ---
 
@@ -136,3 +139,90 @@ def test_gaussian_blur_return_type(sample_image):
     int_image = sample_image.astype(np.uint8) # Start with int image
     processed = gaussian_blur(int_image, sigma=1.0)
     assert processed.dtype == np.float32, f"Expected float32 output, got {processed.dtype}"
+
+def test_sharpen_defaults(original_image_nl):
+    """Test sharpening with default parameters."""
+    original = original_image_nl
+    # Domyślne: radius=1.0, amount=1.0
+    sharpened = gaussian_sharpen_unsharp_mask(original)
+
+    assert sharpened is not None
+    assert sharpened.shape == original.shape
+    assert sharpened.dtype == np.float32
+    # Sharpening should change the image
+    assert not np.allclose(sharpened, original)
+    # Sharpening usually increases variance due to enhanced edges/noise
+    assert np.var(sharpened) > np.var(original), "Variance did not increase after sharpening"
+
+def test_sharpen_radius_effect(original_image_nl):
+    """Test effect of radius parameter."""
+    original = original_image_nl
+    amount = 1.0
+    radius_small = 0.5
+    radius_large = 3.0
+
+    sharpened_small_r = gaussian_sharpen_unsharp_mask(original, radius=radius_small, amount=amount)
+    sharpened_large_r = gaussian_sharpen_unsharp_mask(original, radius=radius_large, amount=amount)
+
+    assert sharpened_small_r is not None and sharpened_large_r is not None
+    # Different radius should produce different results
+    assert not np.allclose(sharpened_small_r, sharpened_large_r)
+    # Variance might change differently depending on features sharpened
+    print(f"Variance: R={radius_small} -> {np.var(sharpened_small_r):.4f}, R={radius_large} -> {np.var(sharpened_large_r):.4f}")
+
+def test_sharpen_amount_effect(original_image_nl):
+    """Test effect of amount parameter."""
+    original = original_image_nl
+    radius = 1.0
+    amount_low = 0.5
+    amount_high = 2.5
+
+    sharpened_low_a = gaussian_sharpen_unsharp_mask(original, radius=radius, amount=amount_low)
+    sharpened_high_a = gaussian_sharpen_unsharp_mask(original, radius=radius, amount=amount_high)
+
+    assert sharpened_low_a is not None and sharpened_high_a is not None
+    # Different amount should produce different results
+    assert not np.allclose(sharpened_low_a, sharpened_high_a)
+    # Higher amount should generally increase variance more
+    var_low = np.var(sharpened_low_a)
+    var_high = np.var(sharpened_high_a)
+    print(f"Variance: A={amount_low} -> {var_low:.4f}, A={amount_high} -> {var_high:.4f}")
+    assert var_high > var_low, "Variance did not increase with higher amount"
+
+def test_sharpen_zero_params(original_image_nl):
+    """Test sharpening with zero radius or amount."""
+    original = original_image_nl
+
+    # Amount = 0 should return original image
+    sharpened_zero_amount = gaussian_sharpen_unsharp_mask(original, radius=1.0, amount=0.0)
+    assert sharpened_zero_amount is not None
+    assert np.allclose(sharpened_zero_amount, original), "amount=0 did not return original image"
+
+    # Radius = 0 means no blurring, so difference is zero, should return original
+    sharpened_zero_radius = gaussian_sharpen_unsharp_mask(original, radius=0.0, amount=1.0)
+    assert sharpened_zero_radius is not None
+    # Note: skimage unsharp_mask with radius=0 might have tiny float precision diffs
+    assert np.allclose(sharpened_zero_radius, original, atol=1e-6), "radius=0 did not return original image"
+
+def test_sharpen_invalid_inputs(original_image_nl):
+    """Test invalid inputs for gaussian_sharpen_unsharp_mask."""
+    assert gaussian_sharpen_unsharp_mask(None, radius=1.0, amount=1.0) is None, "None image"
+    assert gaussian_sharpen_unsharp_mask(np.zeros(5), radius=1.0, amount=1.0) is None, "1D image"
+    # Function clamps negative values, so these should not return None but run with 0
+    # assert gaussian_sharpen_unsharp_mask(original_image_nl, radius=-1.0, amount=1.0) is None, "negative radius"
+    # assert gaussian_sharpen_unsharp_mask(original_image_nl, radius=1.0, amount=-1.0) is None, "negative amount"
+    sharpened_neg_r = gaussian_sharpen_unsharp_mask(original_image_nl, radius=-1.0, amount=1.0)
+    assert sharpened_neg_r is not None # Should run with radius=0
+    assert np.allclose(sharpened_neg_r, original_image_nl, atol=1e-6) # Should be like radius=0
+
+    sharpened_neg_a = gaussian_sharpen_unsharp_mask(original_image_nl, radius=1.0, amount=-1.0)
+    assert sharpened_neg_a is not None # Should run with amount=0
+    assert np.allclose(sharpened_neg_a, original_image_nl) # Should be like amount=0
+
+
+def test_sharpen_return_type(original_image_nl):
+    """Ensure the output is always float32."""
+    int_image = (original_image_nl * 100).astype(np.int16) # Create int version
+    sharpened = gaussian_sharpen_unsharp_mask(int_image, radius=1.0, amount=1.0)
+    assert sharpened is not None
+    assert sharpened.dtype == np.float32, f"Expected float32 output, got {sharpened.dtype}"
