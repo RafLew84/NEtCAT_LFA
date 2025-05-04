@@ -28,12 +28,13 @@ from ..io.factory import load_stm_file
 from ..core.history import HistoryNode
 
 try:
-    from .preprocessing_dialogs import GaussianBlurDialog, PlaneLevelingDialog, MedianFilterDialog
+    from .preprocessing_dialogs import GaussianBlurDialog, PlaneLevelingDialog, MedianFilterDialog, NLMeansDialog
 except ImportError:
     GaussianBlurDialog = None
     PlaneLevelingDialog = None
     MedianFilterDialog = None
-    logging.warning("Could not import GaussianBlurDialog. Preprocessing options may be unavailable.")
+    NLMeansDialog = None
+    logging.warning("Could not import preprocessing dialogs. Preprocessing options may be unavailable.")
 
 logger = logging.getLogger(__name__)
 
@@ -178,6 +179,11 @@ class MainWindow(QMainWindow):
         self.median_filter_action.triggered.connect(self.open_median_filter_dialog) # Nowy slot
         preprocessing_menu.addAction(self.median_filter_action)
 
+        self.nlmeans_action = QAction("&NL-Means Denoising...", self)
+        self.nlmeans_action.setStatusTip("Apply Non-Local Means denoising (skimage)")
+        self.nlmeans_action.triggered.connect(self.open_nlmeans_dialog) # Nowy slot
+        preprocessing_menu.addAction(self.nlmeans_action)
+
         # --- Help Menu ---
         help_menu = menu_bar.addMenu("&Help")
 
@@ -194,6 +200,7 @@ class MainWindow(QMainWindow):
         self.gaussian_blur_action.setEnabled(has_image)
         self.plane_level_action.setEnabled(has_image)
         self.median_filter_action.setEnabled(has_image)
+        self.nlmeans_action.setEnabled(has_image)
 
     @pyqtSlot()
     def open_file_dialog(self):
@@ -244,6 +251,45 @@ class MainWindow(QMainWindow):
         else:
             logger.debug("File dialog cancelled.")
             self.statusBar().showMessage("File open cancelled.", 3000)
+
+    @pyqtSlot()
+    def open_nlmeans_dialog(self):
+        """Opens the dialog for applying NL-Means Denoising."""
+        if self.current_node_id is None or self.current_node_id not in self.history: QMessageBox.warning(self, "No Image", "..."); return
+        if not NLMeansDialog: QMessageBox.critical(self, "Error", "NLMeansDialog not available."); return
+
+        current_node = self.history[self.current_node_id]
+        if current_node.image_data is None: QMessageBox.critical(self, "Internal Error", "..."); return
+        dialog_input_data = current_node.image_data.copy()
+
+        logger.info(f"Opening NL-Means dialog based on node: {current_node.get_display_text()}")
+        dialog = NLMeansDialog(dialog_input_data, parent=self)
+        result = dialog.exec()
+
+        if result == QDialog.DialogCode.Accepted:
+            processed_data = dialog.get_processed_data()
+            params = dialog.get_parameters()
+            was_roi_only = dialog.was_roi_applied_only()
+            op_name = "NL-Means" # Można dodać parametry do nazwy, jeśli trzeba
+
+            if processed_data is not None:
+                 # Sprawdzenie allclose jest w dialog.accept()
+                logger.info(f"NL-Means accepted. ROI Only: {was_roi_only}. Creating history node.")
+                new_node = HistoryNode(
+                    parent_id=self.current_node_id,
+                    operation_name=op_name,
+                    parameters=params,
+                    image_data=processed_data,
+                    is_roi_applied=was_roi_only
+                )
+                new_item = self._add_history_node(new_node)
+                self._set_current_node(new_node.node_id)
+                self.history_list_widget.setCurrentItem(new_item)
+                display_name = new_node.get_display_text()
+                self.statusBar().showMessage(f"{display_name} applied.", 3000)
+            else: logger.warning("Dialog accepted, but no processed data returned.")
+        else: logger.info("NL-Means dialog cancelled."); self.statusBar().showMessage("NL-Means cancelled.", 3000)
+
 
     @pyqtSlot()
     def open_median_filter_dialog(self):
