@@ -839,24 +839,25 @@ class BM3DDialog(QDialog):
         # --- ROI / Mode Controls ---
         self.apply_to_roi_only_checkbox = QCheckBox("Apply only to ROI area")
         self.apply_to_roi_only_checkbox.setChecked(False)
-        # Live Preview - domyślnie wyłączone i nieaktywne
+        # Live Preview - disabled by default
         self.live_preview_checkbox = QCheckBox("Live Preview")
         self.live_preview_checkbox.setChecked(False)
         self.live_preview_checkbox.setEnabled(False)
         self.live_preview_checkbox.setToolTip("Live preview disabled for BM3D due to performance.")
-        # Przycisk do ręcznej aktualizacji podglądu
+        # Button for manual preview update
         self.update_preview_button = QPushButton("Update Preview")
 
         controls_area_layout.addWidget(self.apply_to_roi_only_checkbox)
         controls_area_layout.addWidget(self.live_preview_checkbox)
-        controls_area_layout.addWidget(self.update_preview_button) # Dodaj przycisk
+        controls_area_layout.addWidget(self.update_preview_button) # Add button
 
         controls_area_layout.addWidget(QFrame(frameShape=QFrame.Shape.HLine, frameShadow=QFrame.Shadow.Sunken))
 
         # ROI Info and Item
-        self.roi_info_label = QLabel("ROI: Not selected"); controls_area_layout.addWidget(self.roi_info_label)
+        self.roi_info_label = QLabel("ROI: Not selected")
+        controls_area_layout.addWidget(self.roi_info_label)
         h, w = self.original_data.shape; roi_w, roi_h = w//4, h//4; roi_x, roi_y = w//2-roi_w//2, h//2-roi_h//2
-        self.roi = RectROI(pos=(roi_x, roi_y), size=(roi_w, roi_h), pen=pg.mkPen('r', width=2), translateSnap=True, scaleSnap=True); # Czerwone ROI
+        self.roi = RectROI(pos=(roi_x, roi_y), size=(roi_w, roi_h), pen=pg.mkPen('r', width=2), translateSnap=True, scaleSnap=True); # Red ROI
         self.plot_original.addItem(self.roi)
         is_roi_mode = self.apply_to_roi_only_checkbox.isChecked()
         self.roi.setVisible(is_roi_mode); self.roi_info_label.setVisible(is_roi_mode)
@@ -875,29 +876,31 @@ class BM3DDialog(QDialog):
 
         # Initial Display & Connections
         self.update_original_view(); self._update_preview()
+        # Connect ROI checkbox, specific parameters and Preview button to slot
         self.apply_to_roi_only_checkbox.stateChanged.connect(self._on_settings_changed)
-        self.roi.sigRegionChanged.connect(self._on_roi_changed) # ROI nadal aktualizuje etykietę
-        self.update_preview_button.clicked.connect(self._update_preview) # Przycisk aktualizuje podgląd
-        self.button_box.accepted.connect(self.accept); self.button_box.rejected.connect(self.reject)
+        self.roi.sigRegionChanged.connect(self._on_roi_changed) # ROI still updates label
+        self.update_preview_button.clicked.connect(self._update_preview) # Button updates preview
+        self.button_box.accepted.connect(self.accept)
+        self.button_box.rejected.connect(self.reject)
 
         logger.debug(f"Standalone {self.operation_name} dialog initialized.")
 
 
-    # --- Implementacja Metod UI i Logiki ---
+    # --- UI and Logic Methods Implementation ---
     def _create_parameter_controls(self, layout: QVBoxLayout):
         """Adds controls specific to BM3D Filter."""
         sigma_layout = QHBoxLayout()
-        sigma_layout.addWidget(QLabel("Noise Sigma (σ) [0-1]:")) # Etykieta wskazująca zakres
+        sigma_layout.addWidget(QLabel("Noise Sigma (σ) [0-1]:")) # Label indicating range
         self.sigma_spinbox = QDoubleSpinBox()
         self.sigma_spinbox.setDecimals(4)
-        self.sigma_spinbox.setRange(0.0001, 1.0) # Sigma względem zakresu [0, 1]
-        self.sigma_spinbox.setValue(0.05) # Typowa wartość startowa
+        self.sigma_spinbox.setRange(0.0001, 1.0) # Sigma relative to [0, 1] range
+        self.sigma_spinbox.setValue(0.05) # Typical starting value
         self.sigma_spinbox.setSingleStep(0.005)
         self.sigma_spinbox.setToolTip("Estimated noise standard deviation relative to the [0, 1] data range.")
         sigma_layout.addWidget(self.sigma_spinbox)
         layout.addLayout(sigma_layout)
 
-        # Podłącz zmianę parametru do ogólnego slotu (chociaż live preview jest wyłączone)
+        # Connect parameter change to general slot (even though live preview is disabled)
         self.sigma_spinbox.valueChanged.connect(self._on_settings_changed)
 
     def _get_current_parameters(self) -> Dict[str, Any]:
@@ -913,9 +916,9 @@ class BM3DDialog(QDialog):
         apply_roi_only = params.get('apply_roi_only', False)
         logger.debug(f"BM3D _apply_operation called. Sigma={sigma}, ROI Only={apply_roi_only}")
         try:
-            # Zawsze obliczaj pełny wynik najpierw
+            # Always calculate full result first
             processed_full = denoise_bm3d_lfa(image, sigma_psd=sigma)
-            if processed_full is None: return None # Błąd w funkcji backendu
+            if processed_full is None: return None # Error in backend function
 
             if apply_roi_only:
                 roi_slice = self._get_roi_slice()
@@ -923,9 +926,14 @@ class BM3DDialog(QDialog):
                     result_image = image.copy()
                     result_image[roi_slice] = processed_full[roi_slice]
                     return result_image
-                else: logger.warning("Cannot apply BM3D to ROI only: Invalid ROI."); return image
-            else: return processed_full # Zastosuj do całości
-        except Exception as e: logger.exception(f"Error applying denoise_bm3d_lfa: {e}"); return None
+                else:
+                    logger.warning("Cannot apply BM3D to ROI only: Invalid ROI.")
+                    return image
+            else:
+                return processed_full # Apply to whole image
+        except Exception as e:
+            logger.exception(f"Error applying denoise_bm3d_lfa: {e}")
+            return None
 
     # --- Sloty i Metody ---
     @pyqtSlot()

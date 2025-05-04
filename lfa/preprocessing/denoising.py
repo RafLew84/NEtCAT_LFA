@@ -110,7 +110,7 @@ def denoise_bm3d_lfa(image: np.ndarray, sigma_psd: float) -> Optional[np.ndarray
         logger.error(f"BM3D: Invalid input image (None or shape {getattr(image, 'shape', 'N/A')}).")
         return None
     if not isinstance(sigma_psd, (float, int)) or sigma_psd <= 0:
-        logger.error(f"BM3D: sigma_psd must be a positive number, got {sigma_psd}.")
+        logger.error(f"BM3D: sigma_psd must be a positive number relative to [0, 1] range, got {sigma_psd}.")
         return None
 
     try:
@@ -122,11 +122,13 @@ def denoise_bm3d_lfa(image: np.ndarray, sigma_psd: float) -> Optional[np.ndarray
              return image.astype(np.float32)
 
         scaled_image = (image - img_min) / img_range
-        scaled_sigma = sigma_psd
-        logger.debug(f"Applying BM3D: scaled_sigma_psd={scaled_sigma:.4f}")
+        scaled_sigma_psd = sigma_psd / img_range
+        logger.debug(f"Applying BM3D: original_sigma={sigma_psd:.4f}, scaled_sigma_psd={scaled_sigma_psd:.4f}")
+        # scaled_sigma = sigma_psd  # sigma_psd is already relative to [0, 1] range
+        # logger.debug(f"Applying BM3D: scaled_sigma_psd={scaled_sigma:.4f}")
 
         # --- BM3D ---
-        denoised_scaled = bm3d.bm3d(scaled_image, sigma_psd=scaled_sigma,
+        denoised_scaled = bm3d.bm3d(scaled_image, sigma_psd=scaled_sigma_psd,
                                     stage_arg=bm3d.BM3DStages.ALL_STAGES)
 
         denoised_image = (denoised_scaled * img_range) + img_min
