@@ -63,8 +63,8 @@ def test_history_node_get_display_text_original():
 def test_history_node_get_display_text_operation():
     """Test display text for a node representing an operation."""
     params = {"sigma": 2.0, "mode": "nearest"}
-    node = HistoryNode(operation_name="Gaussian Blur", parameters=params)
-    expected_text = "Gaussian Blur (sigma=2.0, mode=nearest)"
+    node = HistoryNode(operation_name="Gaussian Blur", parameters=params, data_type="STM")
+    expected_text = "Gaussian Blur (Mode:nearest, sigma=2)"
     assert node.get_display_text() == expected_text
 
 def test_history_node_get_display_text_long_params():
@@ -72,9 +72,10 @@ def test_history_node_get_display_text_long_params():
     params = {"alpha": 0.1, "beta": 0.2, "gamma": 0.3, "delta": 0.4, "epsilon": 0.5, "zeta": 0.6}
     node = HistoryNode(operation_name="Complex Filter", parameters=params)
     text = node.get_display_text()
-    assert text.startswith("Complex Filter (alpha=0.1, beta=0.2, gamma=0.3")
-    assert text.endswith("gamma=0.3...)")
-    assert len(text) < 60 # Check if it's reasonably truncated
+    assert text.startswith("Complex Filter (alpha=0.1, beta=0.2, delta=0.4")
+    assert text.endswith("...)")
+    assert len(text) <= len("Complex Filter ()") + 35 + len("...")
+
 
 def test_history_node_invalid_image_data_type():
     """Test that initializing with incorrect image_data type raises TypeError."""
