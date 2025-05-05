@@ -10,7 +10,7 @@ from typing import Optional, Dict
 
 from PyQt6.QtWidgets import (
     QMainWindow, QVBoxLayout, QWidget, QFileDialog, QMessageBox, QApplication, 
-    QDialog, QHBoxLayout, QSplitter, QListWidget, QListWidgetItem
+    QDialog, QHBoxLayout, QSplitter, QListWidget, QListWidgetItem, QDockWidget
 )
 from PyQt6.QtGui import QAction, QIcon
 from PyQt6.QtCore import Qt, pyqtSlot
@@ -26,6 +26,7 @@ except ImportError:
 from ..core.data_models import STMImage
 from ..io.factory import load_stm_file
 from ..core.history import HistoryNode
+from .widgets.metadata_widget import MetadataWidget
 
 try:
     from .preprocessing_dialogs import (GaussianBlurDialog, PlaneLevelingDialog, 
@@ -54,6 +55,7 @@ class MainWindow(QMainWindow):
         # --- History Management ---
         self.history: Dict[str, HistoryNode] = {}
         self.current_node_id: Optional[str] = None
+        self.original_file_path: Optional[str] = None
 
         self.setWindowTitle("Lattice Fourier Analyzer (LFA)")
         self.resize(1000, 700)
@@ -86,7 +88,7 @@ class MainWindow(QMainWindow):
             logger.error("Cannot create ImageView because PyQtGraph is not available.")
         
         splitter.addWidget(image_view_container)
-        splitter.setSizes([250, 750])
+        splitter.setSizes([250, 950])
         main_layout.addWidget(splitter)
 
         # --- Menu Bar ---
@@ -94,6 +96,18 @@ class MainWindow(QMainWindow):
 
         # --- Status Bar ---
         self.statusBar().showMessage("Ready - Load an image using File -> Open")
+
+        self.metadata_dock = QDockWidget("Metadata", self)
+        self.metadata_widget = MetadataWidget(self) 
+        self.metadata_dock.setWidget(self.metadata_widget)
+        self.metadata_dock.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.metadata_dock)
+        view_menu = self.menuBar().addMenu("&View")
+        toggle_metadata_action = self.metadata_dock.toggleViewAction()
+        toggle_metadata_action.setText("Metadata Panel")
+        toggle_metadata_action.setStatusTip("Show/hide the metadata panel")
+        view_menu.addAction(toggle_metadata_action)
+
         self._update_action_states()
 
         logger.info("Main window initialized with history panel.")
@@ -143,6 +157,8 @@ class MainWindow(QMainWindow):
         self.history_list_widget.blockSignals(False)
 
         self.display_image_data()
+        current_node_obj = self.history.get(self.current_node_id)
+        self.metadata_widget.update_metadata(current_node_obj, self.history)
         self._update_action_states()
 
     def create_menus(self):
@@ -272,14 +288,30 @@ class MainWindow(QMainWindow):
             if stm_image_obj and stm_image_obj.data is not None:
                 self.original_file_path = file_path
                 self._clear_history()
+
+                root_params = {
+                    "filename": os.path.basename(file_path),
+                    "pixels_x": stm_image_obj.pixels_x,
+                    "pixels_y": stm_image_obj.pixels_y,
+                    "size_nm_x": stm_image_obj.size_nm_x,
+                    "size_nm_y": stm_image_obj.size_nm_y,
+                    "bias_v": stm_image_obj.bias_v,
+                    "setpoint_a": stm_image_obj.setpoint_a,
+                    "scan_angle_deg": stm_image_obj.scan_angle_deg,
+                    # Dodaj inne potrzebne standardowe pola
+                }
+
+                 # root_params['raw_header'] = stm_image_obj.raw_header
+
                 root_node = HistoryNode(
                     operation_name="Original",
                     image_data=stm_image_obj.data.copy(),
-                    parameters={"filename": os.path.basename(file_path)}
+                    parameters=root_params,
+                    data_type="STM"
                 )
                 root_item = self._add_history_node(root_node)
                 self._set_current_node(root_node.node_id)
-                self.history_list_widget.setCurrentItem(root_item)
+                # self.history_list_widget.setCurrentItem(root_item)
 
                 logger.info("File loaded successfully and history initialized.")
                 self.statusBar().showMessage(f"Loaded: {os.path.basename(file_path)}", 5000)
