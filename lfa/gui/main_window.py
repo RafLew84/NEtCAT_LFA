@@ -712,7 +712,7 @@ class MainWindow(QMainWindow):
                         view_box.invertY(False)
                         # Display FFT data (already scaled magnitude)
                         # Apply transpose .T based on previous user feedback for desired orientation
-                        image_item.setImage(display_data.astype(np.float32).T) # Using .T as requested
+                        image_item.setImage(np.fliplr(display_data.astype(np.float32).T)) # Using .T as requested
                         logger.debug("Set FFT image with transpose, no Y inversion.")
 
                         # --- Apply Percentile Levels for FFT ---

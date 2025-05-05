@@ -324,7 +324,7 @@ class FFTDialog(QDialog):
             logger.debug(f"Displaying FFT preview data shape: {self.preview_display_data.shape}")
             # Use setImage on ImageView; Use .T if user preferred that orientation
             self.fft_image_view.setImage(
-                self.preview_display_data.astype(np.float32).T, # Using .T
+                np.fliplr(self.preview_display_data.astype(np.float32).T), # Using .T
                 autoLevels=True, # Let histogram handle levels/gamma
                 autoRange=True
             )
