@@ -387,6 +387,9 @@ class MainWindow(QMainWindow):
 
             if processed_data is not None:
                 logger.info(f"Sharpening accepted. ROI Only: {was_roi_only}. Creating history node.")
+                parent_data_type = current_node.data_type
+                logger.info(f"Creating history node. Parent type: {parent_data_type}. ROI Only: {was_roi_only}.")
+
                 
                 final_roi_slice = None
                 if was_roi_only:
@@ -397,7 +400,7 @@ class MainWindow(QMainWindow):
                     operation_name=op_name,
                     parameters=params,
                     image_data=processed_data,
-                    data_type="STM",
+                    data_type=parent_data_type,
                     source_roi_slice=final_roi_slice
                 )
                 new_item = self._add_history_node(new_node)
@@ -439,6 +442,10 @@ class MainWindow(QMainWindow):
                     return
 
                 logger.info(f"BM3D accepted. ROI Only: {was_roi_only}. Creating history node.")
+
+                parent_data_type = current_node.data_type
+                logger.info(f"Creating history node. Parent type: {parent_data_type}. ROI Only: {was_roi_only}.")
+
                 
                 final_roi_slice = None
                 if was_roi_only:
@@ -449,7 +456,7 @@ class MainWindow(QMainWindow):
                     operation_name=op_name,
                     parameters=params,
                     image_data=processed_data,
-                    data_type="STM",
+                    data_type=parent_data_type,
                     source_roi_slice=final_roi_slice
                 )
                 new_item = self._add_history_node(new_node)
@@ -483,6 +490,10 @@ class MainWindow(QMainWindow):
 
             if processed_data is not None:
                 logger.info(f"NL-Means accepted. ROI Only: {was_roi_only}. Creating history node.")
+
+                parent_data_type = current_node.data_type
+                logger.info(f"Creating history node. Parent type: {parent_data_type}. ROI Only: {was_roi_only}.")
+
                 
                 final_roi_slice = None
                 if was_roi_only:
@@ -493,7 +504,7 @@ class MainWindow(QMainWindow):
                     operation_name=op_name,
                     parameters=params,
                     image_data=processed_data,
-                    data_type="STM",
+                    data_type=parent_data_type,
                     source_roi_slice=final_roi_slice
                 )
                 new_item = self._add_history_node(new_node)
@@ -529,6 +540,10 @@ class MainWindow(QMainWindow):
                 if np.allclose(processed_data, current_node.image_data): logger.info("Data not modified."); self.statusBar().showMessage("No changes applied.", 3000); return
 
                 logger.info(f"Median Filter accepted. ROI Only: {was_roi_only}. Creating history node.")
+
+                parent_data_type = current_node.data_type
+                logger.info(f"Creating history node. Parent type: {parent_data_type}. ROI Only: {was_roi_only}.")
+
                 
                 final_roi_slice = None
                 if was_roi_only:
@@ -539,13 +554,13 @@ class MainWindow(QMainWindow):
                     operation_name=op_name,
                     parameters=params,
                     image_data=processed_data,
-                    data_type="STM", 
+                    data_type=parent_data_type, 
                     source_roi_slice=final_roi_slice
                 )
                 new_item = self._add_history_node(new_node)
                 self._set_current_node(new_node.node_id)
                 self.history_list_widget.setCurrentItem(new_item)
-                display_name = new_node.get_display_text() # Powinno zawierać "(ROI Only)"
+                display_name = new_node.get_display_text() 
                 self.statusBar().showMessage(f"{display_name} applied.", 3000)
             else: logger.warning("Dialog accepted, but no processed data returned.")
         else: logger.info("Median Filter dialog cancelled."); self.statusBar().showMessage("Median Filter cancelled.", 3000)
@@ -573,6 +588,10 @@ class MainWindow(QMainWindow):
 
             if processed_data is not None:
                 logger.info(f"Plane Leveling accepted. ROI Only: {was_roi_only}. Creating history node.")
+
+                parent_data_type = current_node.data_type
+                logger.info(f"Creating history node. Parent type: {parent_data_type}. ROI Only: {was_roi_only}.")
+
                 
                 final_roi_slice = None
                 if was_roi_only:
@@ -583,7 +602,7 @@ class MainWindow(QMainWindow):
                     operation_name=op_name,
                     parameters=params,
                     image_data=processed_data,
-                    data_type="STM", 
+                    data_type=parent_data_type, 
                     source_roi_slice=final_roi_slice
                 )
                 new_item = self._add_history_node(new_node)
@@ -650,6 +669,10 @@ class MainWindow(QMainWindow):
                     return
 
                 logger.info(f"Dialog accepted. Final apply was ROI: {was_roi_only}. Creating history node.")
+
+                parent_data_type = current_node.data_type
+                logger.info(f"Creating history node. Parent type: {parent_data_type}. ROI Only: {was_roi_only}.")
+
                 
                 final_roi_slice = None
                 if was_roi_only:
@@ -660,7 +683,7 @@ class MainWindow(QMainWindow):
                     operation_name=op_name,
                     parameters=params,
                     image_data=processed_data,
-                    data_type="STM", 
+                    data_type=parent_data_type, 
                     source_roi_slice=final_roi_slice
                 )
                 new_item = self._add_history_node(new_node)
