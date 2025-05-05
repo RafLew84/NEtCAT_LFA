@@ -1,6 +1,6 @@
 # lfa/preprocessing/filtering.py
 """
-Image filtering operations for LFA.
+Functions for image filtering operations.
 """
 import logging
 import numpy as np
@@ -95,7 +95,7 @@ def median_filter_lfa(image: np.ndarray, size: int = 3, mode: str = 'reflect', c
 
     try:
         logger.debug(f"Applying median filter with size={size}, mode='{mode}', cval={cval}")
-        # median_filter zachowuje typ danych, konwertujemy na float32 na końcu dla spójności
+        # median_filter preserves data type, we convert to float32 at the end for consistency
         filtered_image = median_filter(image, size=size, mode=mode, cval=cval)
         return filtered_image.astype(np.float32)
     except Exception as e:

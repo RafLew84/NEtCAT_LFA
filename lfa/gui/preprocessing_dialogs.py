@@ -135,6 +135,15 @@ class GaussianBlurDialog(QDialog): # Inherits directly from QDialog
         self.button_box.accepted.connect(self.accept); self.button_box.rejected.connect(self.reject)
 
         logger.debug(f"Standalone {self.operation_name} dialog initialized.")
+    
+    def get_final_roi_slice(self) -> Optional[Tuple[slice, slice]]:
+        if self._final_is_roi_applied_only:
+            current_slice = self._get_roi_slice()
+            logger.debug(f"get_final_roi_slice called, roi_only={self._final_is_roi_applied_only}, slice={current_slice}")
+            return current_slice
+        else:
+            logger.debug(f"get_final_roi_slice called, roi_only={self._final_is_roi_applied_only}, returning None")
+            return None
 
     # --- Implementation of "abstract" methods from previous base ---
     def _create_parameter_controls(self, layout: QVBoxLayout):
@@ -330,6 +339,14 @@ class GaussianSharpeningDialog(QDialog):
 
         logger.debug(f"Standalone {self.operation_name} dialog initialized.")
 
+    def get_final_roi_slice(self) -> Optional[Tuple[slice, slice]]:
+        if self._final_is_roi_applied_only:
+            current_slice = self._get_roi_slice()
+            logger.debug(f"get_final_roi_slice called, roi_only={self._final_is_roi_applied_only}, slice={current_slice}")
+            return current_slice
+        else:
+            logger.debug(f"get_final_roi_slice called, roi_only={self._final_is_roi_applied_only}, returning None")
+            return None
 
     # --- UI and Logic ---
     def _create_parameter_controls(self, layout: QVBoxLayout):
@@ -552,6 +569,15 @@ class NLMeansDialog(QDialog):
         self.button_box.accepted.connect(self.accept); self.button_box.rejected.connect(self.reject)
 
         logger.debug(f"Standalone {self.operation_name} dialog initialized.")
+    
+    def get_final_roi_slice(self) -> Optional[Tuple[slice, slice]]:
+        if self._final_is_roi_applied_only:
+            current_slice = self._get_roi_slice()
+            logger.debug(f"get_final_roi_slice called, roi_only={self._final_is_roi_applied_only}, slice={current_slice}")
+            return current_slice
+        else:
+            logger.debug(f"get_final_roi_slice called, roi_only={self._final_is_roi_applied_only}, returning None")
+            return None
 
 
     # --- UI and logic implementation ---
@@ -816,6 +842,15 @@ class PlaneLevelingDialog(QDialog):
         self.button_box.accepted.connect(self.accept); self.button_box.rejected.connect(self.reject)
 
         logger.debug(f"Standalone {self.operation_name} dialog initialized.")
+
+    def get_final_roi_slice(self) -> Optional[Tuple[slice, slice]]:
+        if self._final_is_roi_applied_only:
+            current_slice = self._get_roi_slice()
+            logger.debug(f"get_final_roi_slice called, roi_only={self._final_is_roi_applied_only}, slice={current_slice}")
+            return current_slice
+        else:
+            logger.debug(f"get_final_roi_slice called, roi_only={self._final_is_roi_applied_only}, returning None")
+            return None
 
 
     # --- Implementation of UI and Logic Methods ---
@@ -1109,6 +1144,15 @@ class BM3DDialog(QDialog):
         self.button_box.rejected.connect(self.reject)
 
         logger.debug(f"Standalone {self.operation_name} dialog initialized.")
+    
+    def get_final_roi_slice(self) -> Optional[Tuple[slice, slice]]:
+        if self._final_is_roi_applied_only:
+            current_slice = self._get_roi_slice()
+            logger.debug(f"get_final_roi_slice called, roi_only={self._final_is_roi_applied_only}, slice={current_slice}")
+            return current_slice
+        else:
+            logger.debug(f"get_final_roi_slice called, roi_only={self._final_is_roi_applied_only}, returning None")
+            return None
 
 
     # --- UI and Logic Methods Implementation ---
@@ -1309,6 +1353,15 @@ class MedianFilterDialog(QDialog):
         self.button_box.accepted.connect(self.accept); self.button_box.rejected.connect(self.reject)
 
         logger.debug(f"Standalone {self.operation_name} dialog initialized.")
+
+    def get_final_roi_slice(self) -> Optional[Tuple[slice, slice]]:
+        if self._final_is_roi_applied_only:
+            current_slice = self._get_roi_slice()
+            logger.debug(f"get_final_roi_slice called, roi_only={self._final_is_roi_applied_only}, slice={current_slice}")
+            return current_slice
+        else:
+            logger.debug(f"get_final_roi_slice called, roi_only={self._final_is_roi_applied_only}, returning None")
+            return None
 
 
     # --- Implementacja Metod UI i Logiki ---

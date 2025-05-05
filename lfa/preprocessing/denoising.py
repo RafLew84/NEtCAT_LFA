@@ -6,10 +6,10 @@ import logging
 import numpy as np
 from typing import Optional
 
-# Upewnij się, że scikit-image jest zainstalowane
+# Make sure scikit-image is installed
 try:
     from skimage.restoration import denoise_nl_means
-    # from skimage.util import img_as_float # denoise_nl_means robi to wewnętrznie
+    # from skimage.util import img_as_float # denoise_nl_means does this internally
 except ImportError:
     logging.critical("Scikit-image not found. Please install it: pip install scikit-image")
     # Dummy function if skimage is not available

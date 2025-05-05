@@ -139,10 +139,10 @@ pytestmark_bm3d = pytest.mark.skipif(not bm3d_installed, reason="bm3d package no
 def test_bm3d_basic(noisy_image_gaussian):
     """Test basic BM3D denoising effect."""
     noisy, original, sigma_actual = noisy_image_gaussian
-    # Przekazujemy sigma w oryginalnych jednostkach
+    # Pass sigma in original units
     denoised = denoise_bm3d_lfa(noisy, sigma_psd=sigma_actual)
 
-    assert denoised is not None, "denoise_bm3d_lfa returned None" # Zmieniono komunikat
+    assert denoised is not None, "denoise_bm3d_lfa returned None" 
     assert denoised.shape == noisy.shape
     assert denoised.dtype == np.float32
     assert not np.allclose(denoised, noisy)
@@ -156,10 +156,10 @@ def test_bm3d_sigma_psd_effect(noisy_image_gaussian):
     """Test the effect of sigma_psd parameter."""
     noisy, original, sigma_actual = noisy_image_gaussian
 
-    sigma_low = sigma_actual * 0.5 # Mniejsze niż rzeczywiste
-    sigma_high = sigma_actual * 1.5 # Większe niż rzeczywiste
+    sigma_low = sigma_actual * 0.5 # Lower than actual
+    sigma_high = sigma_actual * 1.5 # Higher than actual
 
-    # Przekazujemy sigma w oryginalnych jednostkach
+    # Pass sigma in original units
     denoised_low = denoise_bm3d_lfa(noisy, sigma_psd=sigma_low)
     denoised_high = denoise_bm3d_lfa(noisy, sigma_psd=sigma_high)
 
@@ -174,19 +174,19 @@ def test_bm3d_sigma_psd_effect(noisy_image_gaussian):
 @pytestmark_bm3d
 def test_bm3d_constant_image(original_image_nl):
     """Test BM3D on an image with no noise (should ideally change little)."""
-    sigma_psd_low = 0.01 # Małe sigma w jednostkach obrazu
+    sigma_psd_low = 0.01 # Small sigma in image units
     denoised = denoise_bm3d_lfa(original_image_nl, sigma_psd=sigma_psd_low)
 
     assert denoised is not None
     assert denoised.shape == original_image_nl.shape
-    # Tolerancja powinna być związana z sigma *w jednostkach obrazu*
+    # Tolerance should be related to sigma in image units
     assert np.allclose(denoised, original_image_nl, atol=sigma_psd_low * 5), "BM3D significantly altered a clean image"
 
 @pytestmark_bm3d
 def test_bm3d_flat_image():
     """Test BM3D on a completely flat image."""
     flat = np.full((20, 20), 0.5, dtype=np.float32)
-    sigma_psd = 0.1 # Sigma w jednostkach obrazu
+    sigma_psd = 0.1 # Sigma in image units
     denoised = denoise_bm3d_lfa(flat, sigma_psd=sigma_psd)
 
     assert denoised is not None
@@ -205,7 +205,7 @@ def test_bm3d_invalid_inputs(original_image_nl):
 def test_bm3d_return_type(noisy_image_gaussian):
     """Ensure the output is always float32."""
     noisy, _, sigma_actual = noisy_image_gaussian
-    # Przekazujemy sigma w oryginalnych jednostkach
+    # Pass sigma in original units
     denoised = denoise_bm3d_lfa(noisy.astype(np.float64), sigma_psd=sigma_actual) # Input as float64
     assert denoised is not None
     assert denoised.dtype == np.float32, f"Expected float32 output, got {denoised.dtype}"

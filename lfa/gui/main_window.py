@@ -30,6 +30,7 @@ from ..core.history import HistoryNode
 try:
     from .preprocessing_dialogs import (GaussianBlurDialog, PlaneLevelingDialog, 
     MedianFilterDialog, NLMeansDialog, BM3DDialog, GaussianSharpeningDialog)
+    from .fft_dialog import FFTDialog
 except ImportError:
     GaussianBlurDialog = None
     PlaneLevelingDialog = None
@@ -37,6 +38,7 @@ except ImportError:
     NLMeansDialog = None
     BM3DDialog = None
     GaussianSharpeningDialog = None
+    FFTDialog = None
     logging.warning("Could not import preprocessing dialogs. Preprocessing options may be unavailable.")
 
 logger = logging.getLogger(__name__)
@@ -124,6 +126,7 @@ class MainWindow(QMainWindow):
             return
 
         self.current_node_id = node_id
+        print(f"Current history node set to: {node_id}")
         logger.info(f"Current history node set to: {node_id}")
 
         self.history_list_widget.blockSignals(True)
@@ -197,6 +200,13 @@ class MainWindow(QMainWindow):
         self.bm3d_action.triggered.connect(self.open_bm3d_dialog) 
         preprocessing_menu.addAction(self.bm3d_action)
 
+        # --- Analysis Menu ---
+        analysis_menu = menu_bar.addMenu("&Analysis")
+        self.fft_action = QAction("Calculate &FFT...", self)
+        self.fft_action.setStatusTip("Calculate Fast Fourier Transform")
+        self.fft_action.triggered.connect(self.open_fft_dialog)
+        analysis_menu.addAction(self.fft_action)
+
         # --- Help Menu ---
         help_menu = menu_bar.addMenu("&Help")
 
@@ -209,13 +219,29 @@ class MainWindow(QMainWindow):
     
     def _update_action_states(self):
         """Enables/disables actions based on the current state."""
-        has_image = self.current_node_id is not None and self.current_node_id in self.history
-        self.gaussian_blur_action.setEnabled(has_image)
-        self.plane_level_action.setEnabled(has_image)
-        self.median_filter_action.setEnabled(has_image)
-        self.nlmeans_action.setEnabled(has_image)
-        self.bm3d_action.setEnabled(has_image)
-        self.gaussian_sharpen_action.setEnabled(has_image)
+        has_node = self.current_node_id is not None and self.current_node_id in self.history
+        is_stm_data = False
+        is_fft_data = False
+        if has_node:
+             current_node_data_type = self.history[self.current_node_id].data_type
+             is_stm_data = (current_node_data_type == "STM")
+             is_fft_data = (current_node_data_type == "FFT")
+        # self.gaussian_blur_action.setEnabled(has_node)
+        # self.plane_level_action.setEnabled(has_node)
+        # self.median_filter_action.setEnabled(has_node)
+        # self.nlmeans_action.setEnabled(has_node)
+        # self.bm3d_action.setEnabled(has_node)
+        # self.gaussian_sharpen_action.setEnabled(has_node)
+
+        if hasattr(self, 'gaussian_blur_action'): self.gaussian_blur_action.setEnabled(has_node)
+        if hasattr(self, 'plane_level_action'): self.plane_level_action.setEnabled(has_node)
+        if hasattr(self, 'median_filter_action'): self.median_filter_action.setEnabled(has_node)
+        if hasattr(self, 'nlmeans_action'): self.nlmeans_action.setEnabled(has_node)
+        if hasattr(self, 'bm3d_action'): self.bm3d_action.setEnabled(has_node)
+        if hasattr(self, 'gaussian_sharpen_action'): self.gaussian_sharpen_action.setEnabled(has_node)
+
+        # FFT action enabled if any image is loaded (można by ograniczyć tylko do STM)
+        if hasattr(self, 'fft_action'): self.fft_action.setEnabled(has_node)
 
     @pyqtSlot()
     def open_file_dialog(self):
@@ -268,6 +294,78 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("File open cancelled.", 3000)
 
     @pyqtSlot()
+    def open_fft_dialog(self):
+        """
+        Opens the dialog for calculating the Fast Fourier Transform (FFT).
+
+        Retrieves data from the current history node, executes the FFTDialog,
+        and adds the resulting scaled FFT magnitude to the history if accepted.
+        """
+        logger.info("--- open_fft_dialog slot entered ---")
+
+        # --- Pre-checks ---
+        if self.current_node_id is None or self.current_node_id not in self.history:
+            logger.warning("open_fft_dialog: No current node selected.")
+            QMessageBox.warning(self, "No Image", "No data loaded or selected in history.")
+            return
+
+        if not FFTDialog:
+            logger.error("open_fft_dialog: FFTDialog class is None (import failed?).")
+            QMessageBox.critical(self, "Error", "FFTDialog class not available. Check imports and file.")
+            return
+
+        current_node = self.history[self.current_node_id]
+        if current_node.image_data is None:
+            logger.error(f"open_fft_dialog: Image data missing for node {self.current_node_id}.")
+            QMessageBox.critical(self, "Internal Error", "No image data in the current history node.")
+            return
+        # ------------------
+
+        # Pass a copy of the current data to the dialog
+        dialog_input_data = current_node.image_data.copy()
+
+        logger.info(f"Opening FFT dialog based on node: {current_node.get_display_text()}")
+        # Create and execute the dialog
+        dialog = FFTDialog(dialog_input_data, parent=self)
+        result = dialog.exec() # Show the dialog modally
+
+        # --- Process Dialog Result ---
+        if result == QDialog.DialogCode.Accepted:
+            # Retrieve results from the dialog methods
+            processed_fft_data = dialog.get_processed_data() # Gets the scaled magnitude (float)
+            params = dialog.get_fft_parameters() # Gets params like window, scaling mode, roi checkbox
+            source_roi = dialog.get_source_roi_slice() # Gets the ROI slice used, or None
+
+            if processed_fft_data is not None:
+                logger.info(f"FFT accepted. Source ROI: {source_roi}. Params: {params}. Creating history node.")
+
+                # Create the new history node for the FFT result
+                new_node = HistoryNode(
+                    parent_id=self.current_node_id,
+                    operation_name="FFT",
+                    parameters=params, # Store window type, scaling mode, roi checkbox state
+                    image_data=processed_fft_data, # Store the scaled magnitude (float)
+                    data_type="FFT", # Mark data type as FFT
+                    source_roi_slice=source_roi # Store the source ROI slice if used
+                )
+
+                # Add node to history and update UI
+                new_item = self._add_history_node(new_node)
+                self._set_current_node(new_node.node_id)
+                self.history_list_widget.setCurrentItem(new_item)
+                display_name = new_node.get_display_text() # Should include "(FFT)" and "(from ROI)"
+                self.statusBar().showMessage(f"{display_name} calculated.", 3000)
+            else:
+                # This case should ideally be handled by the dialog's accept logic,
+                # but good to have a fallback log here.
+                logger.warning("FFT Dialog was accepted, but returned no processed data.")
+        else:
+            # Dialog was cancelled
+            logger.info("FFT dialog cancelled.")
+            self.statusBar().showMessage("FFT calculation cancelled.", 3000)
+
+
+    @pyqtSlot()
     def open_gaussian_sharpening_dialog(self):
         """Opens the dialog for applying Gaussian Sharpening."""
         if self.current_node_id is None or self.current_node_id not in self.history: QMessageBox.warning(self, "No Image", "..."); return
@@ -289,12 +387,18 @@ class MainWindow(QMainWindow):
 
             if processed_data is not None:
                 logger.info(f"Sharpening accepted. ROI Only: {was_roi_only}. Creating history node.")
+                
+                final_roi_slice = None
+                if was_roi_only:
+                    final_roi_slice = dialog.get_final_roi_slice()
+                
                 new_node = HistoryNode(
                     parent_id=self.current_node_id,
                     operation_name=op_name,
                     parameters=params,
                     image_data=processed_data,
-                    is_roi_applied=was_roi_only
+                    data_type="STM",
+                    source_roi_slice=final_roi_slice
                 )
                 new_item = self._add_history_node(new_node)
                 self._set_current_node(new_node.node_id)
@@ -335,12 +439,18 @@ class MainWindow(QMainWindow):
                     return
 
                 logger.info(f"BM3D accepted. ROI Only: {was_roi_only}. Creating history node.")
+                
+                final_roi_slice = None
+                if was_roi_only:
+                    final_roi_slice = dialog.get_final_roi_slice()
+                
                 new_node = HistoryNode(
                     parent_id=self.current_node_id,
                     operation_name=op_name,
                     parameters=params,
                     image_data=processed_data,
-                    is_roi_applied=was_roi_only
+                    data_type="STM",
+                    source_roi_slice=final_roi_slice
                 )
                 new_item = self._add_history_node(new_node)
                 self._set_current_node(new_node.node_id)
@@ -369,17 +479,22 @@ class MainWindow(QMainWindow):
             processed_data = dialog.get_processed_data()
             params = dialog.get_parameters()
             was_roi_only = dialog.was_roi_applied_only()
-            op_name = "NL-Means" # Można dodać parametry do nazwy, jeśli trzeba
+            op_name = "NL-Means" 
 
             if processed_data is not None:
-                 # Sprawdzenie allclose jest w dialog.accept()
                 logger.info(f"NL-Means accepted. ROI Only: {was_roi_only}. Creating history node.")
+                
+                final_roi_slice = None
+                if was_roi_only:
+                    final_roi_slice = dialog.get_final_roi_slice()
+                
                 new_node = HistoryNode(
                     parent_id=self.current_node_id,
                     operation_name=op_name,
                     parameters=params,
                     image_data=processed_data,
-                    is_roi_applied=was_roi_only
+                    data_type="STM",
+                    source_roi_slice=final_roi_slice
                 )
                 new_item = self._add_history_node(new_node)
                 self._set_current_node(new_node.node_id)
@@ -414,12 +529,18 @@ class MainWindow(QMainWindow):
                 if np.allclose(processed_data, current_node.image_data): logger.info("Data not modified."); self.statusBar().showMessage("No changes applied.", 3000); return
 
                 logger.info(f"Median Filter accepted. ROI Only: {was_roi_only}. Creating history node.")
+                
+                final_roi_slice = None
+                if was_roi_only:
+                    final_roi_slice = dialog.get_final_roi_slice()
+                
                 new_node = HistoryNode(
                     parent_id=self.current_node_id,
                     operation_name=op_name,
                     parameters=params,
                     image_data=processed_data,
-                    is_roi_applied=was_roi_only
+                    data_type="STM", 
+                    source_roi_slice=final_roi_slice
                 )
                 new_item = self._add_history_node(new_node)
                 self._set_current_node(new_node.node_id)
@@ -452,12 +573,18 @@ class MainWindow(QMainWindow):
 
             if processed_data is not None:
                 logger.info(f"Plane Leveling accepted. ROI Only: {was_roi_only}. Creating history node.")
+                
+                final_roi_slice = None
+                if was_roi_only:
+                    final_roi_slice = dialog.get_final_roi_slice()
+                
                 new_node = HistoryNode(
                     parent_id=self.current_node_id,
                     operation_name=op_name,
                     parameters=params,
                     image_data=processed_data,
-                    is_roi_applied=was_roi_only 
+                    data_type="STM", 
+                    source_roi_slice=final_roi_slice
                 )
                 new_item = self._add_history_node(new_node)
                 self._set_current_node(new_node.node_id)
@@ -499,6 +626,7 @@ class MainWindow(QMainWindow):
         if not GaussianBlurDialog:
             QMessageBox.critical(self, "Error", "Gaussian Blur functionality is not available.")
             return
+        print(f"Gaussian Blur: Current node ID: {self.current_node_id}")
         current_node = self.history[self.current_node_id]
         if current_node.image_data is None:
             QMessageBox.critical(self, "Internal Error", "No image data available.")
@@ -512,7 +640,7 @@ class MainWindow(QMainWindow):
         if result == QDialog.DialogCode.Accepted:
             processed_data = dialog.get_processed_data()
             params = dialog.get_parameters()
-            was_roi = dialog.was_roi_applied_only()
+            was_roi_only = dialog.was_roi_applied_only()
             op_name = "Gaussian Blur"
 
             if processed_data is not None:
@@ -521,13 +649,19 @@ class MainWindow(QMainWindow):
                     self.statusBar().showMessage("No changes applied.", 3000)
                     return
 
-                logger.info(f"Dialog accepted. Final apply was ROI: {was_roi}. Creating history node.")
+                logger.info(f"Dialog accepted. Final apply was ROI: {was_roi_only}. Creating history node.")
+                
+                final_roi_slice = None
+                if was_roi_only:
+                    final_roi_slice = dialog.get_final_roi_slice()
+                
                 new_node = HistoryNode(
                     parent_id=self.current_node_id,
                     operation_name=op_name,
                     parameters=params,
                     image_data=processed_data,
-                    is_roi_applied=was_roi
+                    data_type="STM", 
+                    source_roi_slice=final_roi_slice
                 )
                 new_item = self._add_history_node(new_node)
                 self._set_current_node(new_node.node_id)
@@ -541,29 +675,89 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("Gaussian Blur cancelled.", 3000)
 
     def display_image_data(self):
-        """Displays the image data from the currently selected history node."""
-        if not self.image_view:
-            logger.error("ImageView widget not available.")
+        """
+        Displays the image data from the currently selected history node
+        in the main window's ImageView, applying appropriate orientation
+        and level scaling based on data type (STM or FFT).
+        """
+        if not hasattr(self, 'image_view') or self.image_view is None:
+            logger.error("MainWindow's ImageView widget is not available.")
             return
 
         if self.current_node_id and self.current_node_id in self.history:
             node_to_display = self.history[self.current_node_id]
+            # Data is always float (STM or scaled FFT magnitude)
             display_data = node_to_display.image_data
 
             if display_data is not None:
-                logger.info(f"Displaying image for node {self.current_node_id}: {node_to_display.get_display_text()} (Shape: {display_data.shape})")
+                node_info = (f"Node: {self.current_node_id[:8]}... "
+                             f"Desc: {node_to_display.get_display_text()} "
+                             f"(Type: {node_to_display.data_type}, Shape: {display_data.shape})")
+                logger.info(f"Displaying {node_info}")
+
                 try:
-                    self.image_view.setImage(display_data.astype(np.float32).T)
+                    view_box = self.image_view.getView()
+                    image_item = self.image_view.getImageItem()
+
+                    # --- Set Image based on Data Type ---
+                    if node_to_display.data_type == "STM":
+                        # Invert Y axis for STM (origin bottom-left)
+                        view_box.invertY(True)
+                        # Transpose STM data for display
+                        image_item.setImage(display_data.astype(np.float32).T, autoLevels=True)
+                        logger.debug("Set STM image with transpose and Y inversion.")
+
+                    elif node_to_display.data_type == "FFT":
+                        # Do NOT invert Y axis for FFT (origin top-left or center)
+                        view_box.invertY(False)
+                        # Display FFT data (already scaled magnitude)
+                        # Apply transpose .T based on previous user feedback for desired orientation
+                        image_item.setImage(display_data.astype(np.float32).T) # Using .T as requested
+                        logger.debug("Set FFT image with transpose, no Y inversion.")
+
+                        # --- Apply Percentile Levels for FFT ---
+                        # This helps visualize log/power scaled data better
+                        try:
+                            finite_data = display_data[np.isfinite(display_data)]
+                            if finite_data.size > 0:
+                                # Use percentiles to ignore extreme noise/DC for level scaling
+                                min_level = np.percentile(finite_data, 1.0)
+                                max_level = np.percentile(finite_data, 99.5)
+                                logger.debug(f"Setting main FFT view levels (1%, 99.5%): {min_level:.3f} - {max_level:.3f}")
+                                image_item.setLevels([min_level, max_level])
+                            else:
+                                # Fallback if no finite data (unlikely)
+                                logger.warning("No finite data in FFT image for level calculation, using autoLevels.")
+                                image_item.setAutoLevels()
+                        except Exception as e:
+                            logger.error(f"Could not set percentile levels for main FFT view: {e}")
+                            image_item.setAutoLevels() # Fallback on error
+                        # --------------------------------------
+                    else:
+                        # Handle unknown data types (display as STM by default)
+                        logger.warning(f"Unknown data type '{node_to_display.data_type}', displaying as STM.")
+                        view_box.invertY(True)
+                        image_item.setImage(display_data.astype(np.float32).T, autoLevels=True)
+                    # ------------------------------------
+
+                    # Adjust view range after setting image
+                    view_box.autoRange()
+
                 except Exception as e:
-                    logger.exception(f"Error setting image in ImageView: {e}")
-                    QMessageBox.critical(self, "Display Error", f"Could not display image data.\nError: {e}")
+                    logger.exception(f"Error setting image in MainWindow's ImageView: {e}")
+                    QMessageBox.critical(self, "Display Error", f"Could not display image data for node {self.current_node_id}.\nError: {e}")
+                    self.image_view.clear() # Clear view on error
             else:
-                logger.error(f"No image data stored or computed for node {self.current_node_id}!")
+                # Data in node is None
+                logger.error(f"No image data found for selected history node {self.current_node_id}!")
                 self.image_view.clear()
-                self.statusBar().showMessage(f"Error: Image data not available for selected state.", 5000)
+                self.statusBar().showMessage(f"Error: Image data missing for selected state.", 5000)
         else:
+            # No node selected or history empty
             logger.debug("No current history node selected. Clearing image view.")
             self.image_view.clear()
+
+
 
     def closeEvent(self, event):
         """Handle the event when the user tries to close the window."""

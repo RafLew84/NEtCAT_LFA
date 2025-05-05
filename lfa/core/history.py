@@ -1,93 +1,119 @@
 # lfa/core/history.py
 """
-Data structures for managing processing history.
+History tracking and management for LFA operations.
 """
 import numpy as np
 from dataclasses import dataclass, field
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Literal, Tuple, List
 import time
 import uuid # For generating unique IDs
+import logging
+
+logger = logging.getLogger(__name__)
 
 @dataclass
 class HistoryNode:
     """Represents a single state in the processing history tree."""
-    node_id: str = field(default_factory=lambda: str(uuid.uuid4())) # Unique ID
-    parent_id: Optional[str] = None # ID of the parent node, None for root
-    operation_name: str = "Original" # e.g., "Original", "Gaussian Blur"
-    parameters: Dict[str, Any] = field(default_factory=dict) # Parameters used
+    node_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    parent_id: Optional[str] = None
+    operation_name: str = "Original"
+    parameters: Dict[str, Any] = field(default_factory=dict) # Will store scaling_mode for FFT
     timestamp: float = field(default_factory=time.time)
-    is_roi_applied: bool = False
-    # Store the actual image data for this state (simpler approach first)
+    # Stores the actual data: float32 for STM, scaled magnitude float32 for FFT
     image_data: Optional[np.ndarray] = field(repr=False, default=None)
+    data_type: Literal["STM", "FFT"] = "STM" # Type of data in image_data
+    # Stores the source ROI slice if operation resulted from ROI
+    source_roi_slice: Optional[Tuple[slice, slice]] = field(repr=False, default=None)
 
     def get_display_text(self) -> str:
-        """
-        Generates text representation for display in lists.
-        Truncates parameter list intelligently if too long.
-        """
+        """Generates text representation for display in lists."""
+        base_name = self.operation_name
+        suffix = ""
+
         if self.operation_name == "Original":
             return "Original Image"
-        
-        base_name = self.operation_name
-        
-        if self.is_roi_applied:
-            base_name += " (ROI)"
+
+        if self.data_type == "FFT":
+            base_name += " (FFT)"
+
+        # Check if source_roi_slice exists to determine if it came from ROI
+        # Note: A parameter 'apply_roi_only' might also exist in params
+        if self.source_roi_slice is not None:
+            suffix += " from ROI"
+        # Check if 'apply_roi_only' was True in params (more robust for non-FFT ops)
+        # elif self.parameters.get('apply_roi_only', False):
+        #    suffix += " (ROI Only)" # Alternative label
 
         if not self.parameters:
-            return f"{self.operation_name} (No parameters)"
+            param_str = "No parameters"
+        else:
+            max_param_len = 35 # Adjusted based on previous testing
+            ellipsis = "..."
+            fitting_param_parts = []
+            current_len = 0
+            params_truncated = False
+            # Sort parameters for consistent display (e.g., scaling_mode first)
+            param_items = list(self.parameters.items())
+            param_items.sort(key=lambda item: (
+                item[0] != 'scaling_mode', # scaling_mode first
+                item[0] != 'mode',         # then mode (for leveling)
+                item[0]                    # then alphabetically
+            ))
 
-        max_param_len = 40 # Max length for the parameter part inside parentheses
-        ellipsis = "..."
-        # Store only the parameter strings (e.g., "sigma=1.0")
-        fitting_param_parts = []
-        current_len = 0
-        params_truncated = False
+            for i, (k, v) in enumerate(param_items):
+                # Skip internal flags unless necessary
+                if k == 'apply_roi_only': continue
 
-        param_items = list(self.parameters.items())
-        for i, (k, v) in enumerate(param_items):
-            part = f"{k}={v}"
-            part_len = len(part)
-            # Length includes comma and space if not the first item
-            check_len = current_len + (len(", ") if i > 0 else 0) + part_len
+                # Format common parameters nicely
+                if k == 'scaling_mode': part = f"Scale:{v}"
+                elif k == 'window_type' and v is None: part = "NoWin"
+                elif k == 'window_type': part = f"Win:{v}"
+                elif k == 'mode': part = f"Mode:{v}" # For leveling
+                # Shorten points list
+                elif k == 'points' and isinstance(v, list) and len(v) == 3:
+                    part = f"Pts:[{v[0]}..]"
+                # Format floats nicely
+                elif isinstance(v, float): part = f"{k}={v:.2g}" # General float format
+                else: part = f"{k}={v}" # Default format
 
-            # Check if adding this part would exceed the limit
-            if check_len > max_param_len:
-                params_truncated = True
-                # If even the *first* item is too long, we need special handling
-                if i == 0 and part_len > max_param_len:
-                     # Truncate the first item itself if it's too long
-                     fitting_param_parts.append(part[:max(0, max_param_len - len(ellipsis))] + ellipsis)
-                     current_len = max_param_len # Mark as full
-                break # Stop adding parameters
+                part_len = len(part)
+                separator_len = len(", ") if i > 0 else 0
+                if current_len + separator_len + part_len > max_param_len:
+                    params_truncated = True
+                    break # Stop adding parameters
 
-            # Add the part and update current length
-            fitting_param_parts.append(part)
-            current_len = check_len # Update length based on check_len
+                if i > 0:
+                    fitting_param_parts.append(", ")
+                    current_len += separator_len
+                fitting_param_parts.append(part)
+                current_len += part_len
 
-        # Join the parts that fit with ", "
-        param_str = ", ".join(fitting_param_parts)
+            param_str = "".join(fitting_param_parts)
+            if params_truncated:
+                param_str += ellipsis
 
-        # Append ellipsis *after joining* if truncation occurred AND we didn't already add it
-        # (the case where the first item itself was truncated and ellipsis added)
-        if params_truncated and not param_str.endswith(ellipsis):
-            # We need to ensure adding ellipsis doesn't exceed max length,
-            # recalculate the length accurately or rely on the check within the loop.
-            # The loop ensures that param_str length <= max_param_len.
-            # If we add ellipsis, it might exceed. Let's re-check.
-            if len(param_str) + len(ellipsis) <= max_param_len + len(", "): # Allow slight overflow for ellipsis
-                 param_str += ellipsis
-            else:
-                 # If adding ellipsis makes it too long, truncate param_str first
-                 param_str = param_str[:max(0, max_param_len - len(ellipsis))] + ellipsis
+            if not param_str and params_truncated: # Handle case where first param was too long
+                 param_str = ellipsis
+            elif not param_str and not params_truncated and self.parameters:
+                 param_str = "..." # Params exist but didn't fit or were skipped
 
+        if param_str == "No parameters":
+             return f"{base_name}{suffix}" # E.g., "FFT from ROI"
+        else:
+             return f"{base_name}{suffix} ({param_str})" # E.g., "FFT from ROI (Scale:log, Win:hann)"
 
-        # Final check for empty parameters after potential truncation
-        if not param_str and params_truncated:
-             param_str = ellipsis # Should happen only if max_param_len is tiny
-
-        return f"{self.operation_name} ({param_str})"
 
     def __post_init__(self):
-        # Ensure image_data is None or a NumPy array
+        # Input validation
         if self.image_data is not None and not isinstance(self.image_data, np.ndarray):
             raise TypeError("image_data must be a NumPy array or None")
+        if self.data_type not in ("STM", "FFT"):
+            raise ValueError("data_type must be 'STM' or 'FFT'")
+        if self.source_roi_slice is not None and not (
+            isinstance(self.source_roi_slice, tuple) and
+            len(self.source_roi_slice) == 2 and
+            isinstance(self.source_roi_slice[0], slice) and
+            isinstance(self.source_roi_slice[1], slice)
+            ):
+             raise TypeError("source_roi_slice must be None or Tuple[slice, slice]")
+
