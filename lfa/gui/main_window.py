@@ -10,7 +10,8 @@ from typing import Optional, Dict
 
 from PyQt6.QtWidgets import (
     QMainWindow, QVBoxLayout, QWidget, QFileDialog, QMessageBox, QApplication, 
-    QDialog, QHBoxLayout, QSplitter, QListWidget, QListWidgetItem, QDockWidget
+    QDialog, QHBoxLayout, QSplitter, QListWidget, QListWidgetItem, QDockWidget,
+    QComboBox, QToolBar, QToolButton, QLabel, QLineEdit, QPushButton, QTextEdit
 )
 from PyQt6.QtGui import QAction, QIcon
 from PyQt6.QtCore import Qt, pyqtSlot
@@ -43,6 +44,15 @@ except ImportError:
     logging.warning("Could not import preprocessing dialogs. Preprocessing options may be unavailable.")
 
 logger = logging.getLogger(__name__)
+
+try:
+    from ..analysis.lattice import get_reciprocal_points, KNOWN_LATTICES
+    LATTICE_ANALYSIS_AVAILABLE = True
+except ImportError:
+    logging.error("Could not import lattice analysis functions.")
+    KNOWN_LATTICES = {"None": {}} # Placeholder
+    def get_reciprocal_points(name, max_hk=2): return None
+    LATTICE_ANALYSIS_AVAILABLE = False
 
 class MainWindow(QMainWindow):
     """
@@ -90,6 +100,20 @@ class MainWindow(QMainWindow):
         splitter.addWidget(image_view_container)
         splitter.setSizes([250, 950])
         main_layout.addWidget(splitter)
+
+        # --- Lettice ---
+        self.lattice_toolbar = QToolBar("Lattice Overlay")
+        self.lattice_toolbar.setMovable(False)
+        self.addToolBar(Qt.ToolBarArea.TopToolBarArea, self.lattice_toolbar)
+
+        self.lattice_toolbar.addWidget(QLabel("Substrate Overlay:"))
+        self.substrate_combo = QComboBox()
+        substrates = ["None"] + sorted(KNOWN_LATTICES.keys())
+        self.substrate_combo.addItems(substrates)
+        self.substrate_combo.currentTextChanged.connect(self.display_image_data) # Re-display on change
+        self.lattice_toolbar.addWidget(self.substrate_combo)
+        self.lattice_toolbar.setVisible(False)
+        # ---------------------------------------
 
         # --- Menu Bar ---
         self.create_menus()
@@ -735,9 +759,29 @@ class MainWindow(QMainWindow):
         in the main window's ImageView, applying appropriate orientation
         and level scaling based on data type (STM or FFT).
         """
+        if not self.image_view: logger.error("ImageView not available."); return
+
         if not hasattr(self, 'image_view') or self.image_view is None:
             logger.error("MainWindow's ImageView widget is not available.")
             return
+        
+        # --- NOWE: Usuwanie poprzedniej nakładki ---
+        # Sprawdź, czy atrybut istnieje i czy jest to poprawny item
+        if hasattr(self, 'lattice_overlay_item') and self.lattice_overlay_item is not None:
+            try:
+                # Spróbuj usunąć item z jego sceny/widoku
+                view = self.image_view.getView() # Pobierz ViewBox
+                view.removeItem(self.lattice_overlay_item)
+                logger.debug("Removed previous lattice overlay item.")
+            except Exception as e:
+                # Loguj błąd, jeśli usunięcie się nie uda, ale kontynuuj
+                logger.warning(f"Could not remove previous lattice overlay item: {e}")
+            # Usuń referencję niezależnie od tego, czy usunięcie z widoku się udało
+            self.lattice_overlay_item = None
+            # Można też użyć delattr(self, 'lattice_overlay_item'), ale None jest bezpieczniejsze
+        # -----------------------------------------
+        
+        self.lattice_toolbar.setVisible(False)
 
         if self.current_node_id and self.current_node_id in self.history:
             node_to_display = self.history[self.current_node_id]
@@ -789,10 +833,59 @@ class MainWindow(QMainWindow):
                             image_item.setAutoLevels() # Fallback on error
                         # --------------------------------------
                     else:
-                        # Handle unknown data types (display as STM by default)
                         logger.warning(f"Unknown data type '{node_to_display.data_type}', displaying as STM.")
                         view_box.invertY(True)
                         image_item.setImage(display_data.astype(np.float32).T, autoLevels=True)
+                    
+                    if node_to_display.data_type == "FFT" and LATTICE_ANALYSIS_AVAILABLE:
+                         self.lattice_toolbar.setVisible(True)
+                         selected_substrate = self.substrate_combo.currentText()
+
+                         if selected_substrate != "None":
+                             root_node = node_to_display
+                             visited = {node_to_display.node_id}
+                             while root_node.parent_id and root_node.parent_id in self.history and root_node.parent_id not in visited:
+                                 visited.add(root_node.parent_id); root_node = self.history[root_node.parent_id]
+
+                             if root_node.operation_name == "Original":
+                                 orig_params = root_node.parameters
+                                 Lx = orig_params.get("size_nm_x")
+                                 Ly = orig_params.get("size_nm_y")
+                                 N_rows, N_cols = display_data.shape
+
+                                 if Lx and Ly and N_cols > 0 and N_rows > 0:
+                                     ideal_points_g = get_reciprocal_points(selected_substrate, max_hk=2)
+
+                                     if ideal_points_g:
+                                         pixel_coords = []
+                                         row_c = N_rows / 2.0
+                                         col_c = N_cols / 2.0
+                                         for Gx, Gy in ideal_points_g:
+                                             # col ~ kx, row ~ ky
+                                             # Uwzględnij potencjalną transpozycję przy wyświetlaniu FFT (.T)
+                                             # Jeśli wyświetlamy FFT.T, to oś X obrazu to oś ky, a oś Y to oś kx
+                                             # Trzeba zamienić mapowanie: Gx -> row, Gy -> col
+                                             col_pixel = Gy * Ly + col_c # Gy (nm^-1) * Ly (nm) + center_col
+                                             row_pixel = Gx * Lx + row_c # Gx (nm^-1) * Lx (nm) + center_row
+
+                                             # Sprawdź czy punkt jest w granicach widoku (niekoniecznie)
+                                             # logger.debug(f"Mapping G=({Gx:.3f},{Gy:.3f}) -> Px=({row_pixel:.1f}, {col_pixel:.1f})")
+                                             pixel_coords.append({'pos': (col_pixel, row_pixel), 'symbol': 'o', 'size': 8, 'pen': pg.mkPen('r'), 'brush': pg.mkBrush(None)})
+
+                                         # 4. Narysuj punkty używając ScatterPlotItem
+                                         if pixel_coords:
+                                             self.lattice_overlay_item = pg.ScatterPlotItem(pixel_coords)
+                                             # Dodaj do widoku FFT (nie do widoku wejściowego!)
+                                             # self.plot_fft nie istnieje, użyj viewbox z image_view
+                                             view_box = self.image_view.getView()
+                                             view_box.addItem(self.lattice_overlay_item)
+                                             logger.info(f"Displayed {len(pixel_coords)} overlay points for {selected_substrate}.")
+
+                                 else:
+                                     logger.warning("Cannot display lattice overlay: Missing calibration data (Lx, Ly) or FFT shape is invalid.")
+                             else:
+                                  logger.warning("Cannot display lattice overlay: Could not find original image node in history.")
+                     # ---------------------------------
                     # ------------------------------------
 
                     # Adjust view range after setting image
@@ -810,6 +903,7 @@ class MainWindow(QMainWindow):
         else:
             # No node selected or history empty
             logger.debug("No current history node selected. Clearing image view.")
+            self.lattice_toolbar.setVisible(False)
             self.image_view.clear()
 
 
