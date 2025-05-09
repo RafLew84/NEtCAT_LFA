@@ -168,7 +168,7 @@ def test_metadata_widget_child_node(qtbot, sample_history):
 def test_metadata_widget_fft_node(qtbot, sample_history):
     """Test displaying metadata for an FFT node created from an ROI."""
     history, _, _, fft_id = sample_history
-    fft_node = history[fft_id]
+    fft_node = history[fft_id] # fft_node.parameters = {'apply_window': True, 'window_type': 'hann', 'scaling_mode': 'log', 'apply_roi_only': False}
     widget = MetadataWidget()
     qtbot.addWidget(widget)
 
@@ -177,7 +177,7 @@ def test_metadata_widget_fft_node(qtbot, sample_history):
     # Check Original File Info (should trace back to root node)
     assert widget.filename_label.text() == "test_image.stp"
     assert widget.orig_dims_px_label.text() == "128 x 128"
-    # ... (check other original fields)
+    # ... (check other original fields if needed)
 
     # Check Current State Info (should reflect the FFT node)
     assert "<i>FFT</i>" in widget.node_op_label.text()
@@ -185,6 +185,11 @@ def test_metadata_widget_fft_node(qtbot, sample_history):
     assert widget.node_shape_label.text() == str(fft_node.image_data.shape) # Shape of FFT result
     # Check formatted ROI string
     assert "Rows [32:96], Cols [32:96]" in widget.node_roi_label.text()
-    # Check parameters (window, scaling mode)
-    assert "Scale:log" in widget.node_params_label.text()
-    assert "Win:hann" in widget.node_params_label.text()
+
+    # --- POPRAWIONE ASERCJE dla formatu parametrów z MetadataWidget ---
+    params_text = widget.node_params_label.text()
+    # Sprawdzamy, czy kluczowe parametry są obecne w stringu w formacie k=v
+    # apply_roi_only jest filtrowane w MetadataWidget.update_metadata, więc go nie sprawdzamy
+    assert "apply_window=True" in params_text
+    assert "window_type=hann" in params_text
+    assert "scaling_mode=log" in params_text

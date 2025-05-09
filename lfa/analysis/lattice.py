@@ -70,7 +70,7 @@ def get_reciprocal_vectors(lattice_info: Dict) -> Optional[Tuple[np.ndarray, np.
         # b vectors have magnitude 1/d, where d is spacing between (10) lines = a*sqrt(3)/2
         # |b*| = 1/d = 2 / (a * sqrt(3)) - Correct magnitude WITHOUT 2pi factor
         # Or using formulas for reciprocal lattice vectors:
-        # a1 = a * [1, 0], a2 = a * [cos(60), sin(60)]
+        # a1 = a * [1, 0], a2 = a * [np.cos(60), np.sin(60)]
         # area = |a1 x a2| = a^2 * sin(60) = a^2 * sqrt(3)/2
         # b1* = (1/area) * rot90(a2) = (2/(a^2*sqrt(3))) * a * [-sin(60), cos(60)]
         # b2* = (1/area) * rot90(-a1) = (2/(a^2*sqrt(3))) * rot90([-a, 0]) = (2/(a^2*sqrt(3))) * [0, -a]
