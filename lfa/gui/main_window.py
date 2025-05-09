@@ -6,12 +6,14 @@ Defines the main window for the Lattice Fourier Analyzer (LFA) application.
 import logging
 import os
 import numpy as np
-from typing import Optional, Dict
+from typing import Optional, Dict, Any, Tuple, List, Union
+import time
 
 from PyQt6.QtWidgets import (
     QMainWindow, QVBoxLayout, QWidget, QFileDialog, QMessageBox, QApplication, 
     QDialog, QHBoxLayout, QSplitter, QListWidget, QListWidgetItem, QDockWidget,
-    QComboBox, QToolBar, QToolButton, QLabel, QLineEdit, QPushButton, QTextEdit
+    QComboBox, QToolBar, QToolButton, QLabel, QLineEdit, QPushButton, QTextEdit, QCheckBox,
+    QGroupBox, QFormLayout, QRadioButton
 )
 from PyQt6.QtGui import QAction, QIcon
 from PyQt6.QtCore import Qt, pyqtSlot
@@ -33,6 +35,7 @@ try:
     from .preprocessing_dialogs import (GaussianBlurDialog, PlaneLevelingDialog, 
     MedianFilterDialog, NLMeansDialog, BM3DDialog, GaussianSharpeningDialog)
     from .fft_dialog import FFTDialog
+    DIALOG_CLASSES_EXIST = True
 except ImportError:
     GaussianBlurDialog = None
     PlaneLevelingDialog = None
@@ -41,9 +44,11 @@ except ImportError:
     BM3DDialog = None
     GaussianSharpeningDialog = None
     FFTDialog = None
+    DIALOG_CLASSES_EXIST = False
     logging.warning("Could not import preprocessing dialogs. Preprocessing options may be unavailable.")
 
 logger = logging.getLogger(__name__)
+
 
 try:
     from ..analysis.lattice import get_reciprocal_points, KNOWN_LATTICES
@@ -69,8 +74,21 @@ class MainWindow(QMainWindow):
         self.current_node_id: Optional[str] = None
         self.original_file_path: Optional[str] = None
 
+        # --- Spot Selection Attributes ---
+        self.substrate_spots: List[Tuple[float, float]] = []
+        self.adsorbate_spot_sets: List[List[Tuple[float, float]]] = [[]] # Start with one empty set
+        self.current_adsorbate_set_index: int = 0
+        self.spot_selection_mode: str = "Substrate" # "Substrate" or "Adsorbate"
+        # self.spot_refinement_method: str = "Max Pixel" # For later phases
+        self._points_for_current_adsorbate_set: List[Tuple[float, float]] = []
+
+        # --- Visual Markers for Spots ---
+        self.ideal_lattice_overlay_item: Optional['pg.ScatterPlotItem'] = None
+        self.substrate_spot_markers: Optional['pg.ScatterPlotItem'] = None
+        self.adsorbate_spot_set_markers: List['pg.ScatterPlotItem'] = []
+
         self.setWindowTitle("Lattice Fourier Analyzer (LFA)")
-        self.resize(1000, 700)
+        self.resize(1250, 800)
 
         # --- Central Widget and Layout ---
         central_widget = QWidget(self)
@@ -104,10 +122,10 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(splitter)
 
         # --- Lettice ---
-        self.lattice_toolbar = QToolBar("Lattice Overlay")
-        self.lattice_toolbar.setMovable(False)
-        self.addToolBar(Qt.ToolBarArea.TopToolBarArea, self.lattice_toolbar)
-        self.lattice_toolbar.addWidget(QLabel("Substrate Overlay:"))
+        # self.lattice_toolbar = QToolBar("Lattice Overlay")
+        # self.lattice_toolbar.setMovable(False)
+        # self.addToolBar(Qt.ToolBarArea.TopToolBarArea, self.lattice_toolbar)
+        # self.lattice_toolbar.addWidget(QLabel("Substrate Overlay:"))
         self.substrate_combo = QComboBox()
         # Dodaj "None", predefiniowane i opcję "<Custom Define...>"
         self.predefined_substrates = sorted(KNOWN_LATTICES.keys())
@@ -117,8 +135,8 @@ class MainWindow(QMainWindow):
         self.substrate_combo.addItem(self.custom_option_text)
         # Podłącz sygnał zmiany wyboru do nowego slotu
         self.substrate_combo.currentTextChanged.connect(self.on_substrate_combo_changed)
-        self.lattice_toolbar.addWidget(self.substrate_combo)
-        self.lattice_toolbar.setVisible(False) # Pokaż tylko przy FFT
+        # self.lattice_toolbar.addWidget(self.substrate_combo)
+        # self.lattice_toolbar.setVisible(False) # Pokaż tylko przy FFT
         # ---------------------------------------
 
         # --- Menu Bar ---
@@ -137,6 +155,94 @@ class MainWindow(QMainWindow):
         toggle_metadata_action.setText("Metadata Panel")
         toggle_metadata_action.setStatusTip("Show/hide the metadata panel")
         view_menu.addAction(toggle_metadata_action)
+
+        # --- FFT Analysis Tools Dock Widget ---
+        self.fft_analysis_dock = QDockWidget("FFT Analysis Tools", self)
+        fft_analysis_widget = QWidget()
+        fft_analysis_layout = QVBoxLayout(fft_analysis_widget)
+
+        # --- Lattice Overlay Controls ---
+        lattice_group = QGroupBox("Ideal Lattice Overlay")
+        lattice_layout = QFormLayout() # QFormLayout dla par etykieta-kontrolka
+        self.substrate_combo = QComboBox()
+        substrates = ["None"] + sorted(KNOWN_LATTICES.keys())
+        self.substrate_combo.addItems(substrates)
+        self.custom_option_text = "<Custom Define...>" # Definicja dla spójności
+        self.substrate_combo.addItem(self.custom_option_text)
+        lattice_layout.addRow("Substrate:", self.substrate_combo)
+        self.show_ideal_lattice_checkbox = QCheckBox("Show Ideal Lattice")
+        self.show_ideal_lattice_checkbox.setChecked(True)
+        self.show_ideal_lattice_checkbox.stateChanged.connect(self.on_ideal_lattice_visibility_changed)
+        lattice_layout.addRow(self.show_ideal_lattice_checkbox)
+        lattice_group.setLayout(lattice_layout)
+        fft_analysis_layout.addWidget(lattice_group)
+        # -----------------------------------
+
+        # --- Spot Selection Controls ---
+        spot_selection_group = QGroupBox("Spot Selection")
+        spot_selection_layout = QVBoxLayout()
+
+        # Spot Type
+        spot_type_layout = QHBoxLayout()
+        self.rb_select_substrate = QRadioButton("Substrate"); self.rb_select_substrate.setChecked(True)
+        self.rb_select_adsorbate = QRadioButton("Adsorbate")
+        spot_type_layout.addWidget(self.rb_select_substrate); spot_type_layout.addWidget(self.rb_select_adsorbate)
+        spot_selection_layout.addLayout(spot_type_layout)
+
+        # Adsorbate Set Management
+        self.adsorbate_set_panel = QWidget() # Panel do pokazywania/ukrywania
+        adsorbate_set_layout = QFormLayout(self.adsorbate_set_panel) # Użyj QFormLayout
+        adsorbate_set_layout.setContentsMargins(0,5,0,5)
+        self.adsorbate_set_combo = QComboBox()
+        self.adsorbate_set_combo.addItem("Set 1") # Zacznij z jednym zestawem
+        self.adsorbate_set_combo.addItem("<Add New Set...>")
+        adsorbate_set_layout.addRow("Current Set:", self.adsorbate_set_combo)
+        # Przyciski dla zestawów adsorbatu
+        adsorbate_buttons_layout = QHBoxLayout()
+        self.reselect_adsorbate_set_button = QPushButton("Reselect Set")
+        self.clear_all_adsorbate_sets_button = QPushButton("Clear All Sets")
+        adsorbate_buttons_layout.addWidget(self.reselect_adsorbate_set_button)
+        adsorbate_buttons_layout.addWidget(self.clear_all_adsorbate_sets_button)
+        adsorbate_set_layout.addRow(adsorbate_buttons_layout) # Dodaj layout przycisków
+        spot_selection_layout.addWidget(self.adsorbate_set_panel)
+        self.adsorbate_set_panel.setVisible(False) # Ukryj na starcie
+
+        # Spot Visibility Checkboxes
+        self.show_substrate_spots_checkbox = QCheckBox("Show Substrate Spots"); self.show_substrate_spots_checkbox.setChecked(True)
+        self.show_adsorbate_spots_checkbox = QCheckBox("Show Adsorbate Spots"); self.show_adsorbate_spots_checkbox.setChecked(True)
+        spot_selection_layout.addWidget(self.show_substrate_spots_checkbox)
+        spot_selection_layout.addWidget(self.show_adsorbate_spots_checkbox)
+        # Dalsze kontrolki (Refinement, Clear Points) dodasz w Fazie B.2/B.3
+        spot_selection_group.setLayout(spot_selection_layout)
+        fft_analysis_layout.addWidget(spot_selection_group)
+        # --------------------------------
+
+        fft_analysis_layout.addStretch()
+        self.fft_analysis_dock.setWidget(fft_analysis_widget)
+        self.fft_analysis_dock.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.fft_analysis_dock)
+        self.fft_analysis_dock.setVisible(False) # Ukryj na starcie
+
+        # Dodaj akcję do menu View dla FFT Analysis Tools
+        toggle_fft_tools_action = self.fft_analysis_dock.toggleViewAction()
+        toggle_fft_tools_action.setText("FFT Analysis Tools")
+        view_menu.addAction(toggle_fft_tools_action) # Dodaj do istniejącego view_menu
+        # ------------------------------------------------
+
+        # --- Połączenia Sygnałów dla Nowych Kontrolek ---
+        self.substrate_combo.currentTextChanged.connect(self.on_substrate_combo_changed) # Slot do aktualizacji nakładki
+        self.show_ideal_lattice_checkbox.stateChanged.connect(self.on_ideal_lattice_visibility_changed) # Również aktualizuje nakładkę
+
+        self.rb_select_substrate.toggled.connect(self._on_spot_type_changed)
+        # self.rb_select_adsorbate.toggled.connect(...) # Już obsłużone przez substrate
+
+        self.adsorbate_set_combo.currentTextChanged.connect(self._on_adsorbate_set_combo_changed)
+        self.reselect_adsorbate_set_button.clicked.connect(self._on_reselect_adsorbate_set_clicked)
+        self.clear_all_adsorbate_sets_button.clicked.connect(self._on_clear_all_adsorbate_sets_clicked)
+
+        self.show_substrate_spots_checkbox.stateChanged.connect(self._on_selected_spots_visibility_changed)
+        self.show_adsorbate_spots_checkbox.stateChanged.connect(self._on_selected_spots_visibility_changed)
+        # ---------------------------------------------------
 
         self._update_action_states()
 
@@ -188,8 +294,91 @@ class MainWindow(QMainWindow):
 
         self.display_image_data()
         current_node_obj = self.history.get(self.current_node_id)
-        self.metadata_widget.update_metadata(current_node_obj, self.history)
+        # self.metadata_widget.update_metadata(current_node_obj, self.history)
+
+        if self.metadata_widget: 
+            self.metadata_widget.update_metadata(current_node_obj, self.history)
         self._update_action_states()
+
+    def _update_spot_markers(self):
+        """Clears and redraws all selected spot markers based on checkbox visibility."""
+        if not hasattr(self, 'image_view') or not self.image_view.getView(): return
+
+        view = self.image_view.getView()
+        # Clear previous substrate markers
+        if hasattr(self, 'substrate_spot_markers') and self.substrate_spot_markers:
+            try: view.removeItem(self.substrate_spot_markers)
+            except RuntimeError: pass # Already removed
+            self.substrate_spot_markers = None
+        # Clear previous adsorbate markers
+        if hasattr(self, 'adsorbate_spot_set_markers'):
+            for marker_set in self.adsorbate_spot_set_markers:
+                try: view.removeItem(marker_set)
+                except RuntimeError: pass
+            self.adsorbate_spot_set_markers = []
+
+        # Redraw substrate spots if visible
+        if hasattr(self, 'show_substrate_spots_checkbox') and self.show_substrate_spots_checkbox.isChecked() and self.substrate_spots:
+            self.substrate_spot_markers = pg.ScatterPlotItem(
+                pos=np.array(self.substrate_spots), symbol='o', size=10,
+                pen=pg.mkPen('g', width=2), brush=pg.mkBrush(None) # Green circles
+            )
+            view.addItem(self.substrate_spot_markers)
+            logger.debug(f"Redrew {len(self.substrate_spots)} substrate spots.")
+
+        # Redraw adsorbate spots if visible
+        if hasattr(self, 'show_adsorbate_spots_checkbox') and self.show_adsorbate_spots_checkbox.isChecked() and self.adsorbate_spot_sets:
+            adsorbate_colors = ['b', 'c', 'm', (255, 165, 0)] # Blue, Cyan, Magenta, Orange
+            for i, spot_set in enumerate(self.adsorbate_spot_sets):
+                if spot_set: # Only draw if the set is not empty
+                    color = adsorbate_colors[i % len(adsorbate_colors)]
+                    markers = pg.ScatterPlotItem(
+                        pos=np.array(spot_set), symbol='s', size=10, # Squares
+                        pen=pg.mkPen(color, width=2), brush=pg.mkBrush(None)
+                    )
+                    view.addItem(markers)
+                    self.adsorbate_spot_set_markers.append(markers)
+            logger.debug(f"Redrew adsorbate spots for {len(self.adsorbate_spot_set_markers)} sets.")
+
+    def _update_selected_spots_display(self):
+        """Updates the QTextEdit with current spot coordinates."""
+        if not hasattr(self, 'selected_spots_display'): return # Jeśli dock nie jest jeszcze stworzony
+
+        text = ""
+        if self.spot_selection_mode == "Substrate":
+            text += "Substrate Spots:\n"
+            if self.substrate_spots:
+                for i, (x, y) in enumerate(self.substrate_spots):
+                    text += f"  S{i+1}: ({x:.1f}, {y:.1f})\n"
+            else:
+                text += "  None selected.\n"
+        elif self.spot_selection_mode == "Adsorbate":
+            set_idx = self.current_adsorbate_set_index
+            set_name = self.adsorbate_set_combo.itemText(set_idx) if set_idx < self.adsorbate_set_combo.count() else f"Set {set_idx + 1}"
+            text += f"Adsorbate {set_name}:\n"
+
+            current_points_to_display = []
+            # Pokaż punkty tymczasowe, jeśli są wybierane
+            if self._points_for_current_adsorbate_set:
+                current_points_to_display = self._points_for_current_adsorbate_set
+            # Lub punkty z zapisanego zestawu, jeśli nie ma tymczasowych
+            elif set_idx < len(self.adsorbate_spot_sets) and self.adsorbate_spot_sets[set_idx]:
+                current_points_to_display = self.adsorbate_spot_sets[set_idx]
+
+            if current_points_to_display:
+                for i, (x, y) in enumerate(current_points_to_display):
+                    text += f"  A{i+1}: ({x:.1f}, {y:.1f})\n"
+                if len(current_points_to_display) < 3:
+                    text += f"  (Select {3 - len(current_points_to_display)} more point(s))\n"
+            else:
+                 text += f"  (Select 3 points for this set)\n"
+
+        if hasattr(self, 'selected_spots_display') and self.selected_spots_display:
+             self.selected_spots_display.setPlainText(text) # Użyj QTextEdit jeśli istnieje
+        else:
+             logger.warning("selected_spots_display widget not found for updating text.")
+
+
 
     def create_menus(self):
         """Creates the main menu bar and its actions."""
@@ -289,6 +478,9 @@ class MainWindow(QMainWindow):
         # FFT action enabled if any image is loaded (można by ograniczyć tylko do STM)
         if hasattr(self, 'fft_action'): self.fft_action.setEnabled(has_node)
 
+        if hasattr(self, 'fft_analysis_dock'): self.fft_analysis_dock.setVisible(is_fft_data)
+        # if hasattr(self, 'lattice_toolbar'): self.lattice_toolbar.setVisible(is_fft_data)
+
     @pyqtSlot()
     def open_file_dialog(self):
         logger.debug("Open file dialog triggered.")
@@ -354,6 +546,122 @@ class MainWindow(QMainWindow):
         else:
             logger.debug("File dialog cancelled.")
             self.statusBar().showMessage("File open cancelled.", 3000)
+
+    # --- Sloty dla Kontrolek FFT Analysis ---
+    @pyqtSlot(str)
+    def on_substrate_combo_changed(self, selected_text: str): # text jest opcjonalny
+        """Slot to refresh lattice overlay when substrate or visibility changes."""
+        if self.current_node_id and self.history[self.current_node_id].data_type == "FFT":
+            self.display_image_data() # display_image_data teraz obsługuje rysowanie/ukrywanie nakładki
+        logger.debug("Substrate overlay settings changed.")
+        if selected_text == self.custom_option_text:
+            dialog = CustomLatticeDialog(self)
+            if dialog.exec() == QDialog.DialogCode.Accepted:
+                self.custom_lattice_info = dialog.get_lattice_definition()
+                if self.custom_lattice_info:
+                    self.last_selected_substrate = self.custom_option_text
+                    logger.info(f"Custom lattice defined: {self.custom_lattice_info.get('name')}")
+                else:
+                    self.custom_lattice_info = None
+                    self.substrate_combo.setCurrentText(self.last_selected_substrate)
+            else: # Custom dialog anulowany
+                self.custom_lattice_info = None
+                self.substrate_combo.setCurrentText(self.last_selected_substrate)
+        else: # Wybrano predefiniowaną sieć lub "None"
+            self.custom_lattice_info = None
+            self.last_selected_substrate = selected_text
+
+        self.display_image_data() # Zawsze odśwież po zmianie
+
+    @pyqtSlot(int) # Akceptuje int ze stateChanged
+    def on_ideal_lattice_visibility_changed(self, state: int):
+        """Slot to refresh ideal lattice overlay when its visibility checkbox changes."""
+        logger.debug(f"Ideal lattice visibility changed. New state: {state}")
+        # Wystarczy odświeżyć główny widok, display_image_data sprawdzi stan checkboxa
+        self.display_image_data()
+
+    @pyqtSlot(bool)
+    def _on_spot_type_changed(self, is_substrate_selected):
+        """Handles change between Substrate and Adsorbate spot selection."""
+        if is_substrate_selected:
+            self.spot_selection_mode = "Substrate"
+            self.adsorbate_set_panel.setVisible(False)
+            logger.debug("Spot selection mode: Substrate")
+        else: # Adsorbate selected
+            self.spot_selection_mode = "Adsorbate"
+            self.adsorbate_set_panel.setVisible(True)
+            # Zresetuj/ustaw odpowiednio _points_for_current_adsorbate_set
+            self._points_for_current_adsorbate_set = [] # Wyczyść przy zmianie na adsorbat
+            if self.current_adsorbate_set_index < len(self.adsorbate_spot_sets):
+                 # Jeśli przełączamy z powrotem, załaduj punkty z bieżącego zestawu
+                 self._points_for_current_adsorbate_set = list(self.adsorbate_spot_sets[self.current_adsorbate_set_index])
+            logger.debug(f"Spot selection mode: Adsorbate, Set Index: {self.current_adsorbate_set_index}")
+        self._update_selected_spots_display() # Zaktualizuj wyświetlanie
+        self._update_spot_markers() # Zaktualizuj markery
+
+    @pyqtSlot(str)
+    def _on_adsorbate_set_combo_changed(self, text: str):
+        """Handles selection or addition of an adsorbate set."""
+        if text == "<Add New Set...>":
+            new_set_name = f"Set {len(self.adsorbate_spot_sets) + 1}"
+            self.adsorbate_spot_sets.append([]) # Dodaj nowy pusty zestaw
+            self.adsorbate_set_combo.blockSignals(True)
+            self.adsorbate_set_combo.insertItem(self.adsorbate_set_combo.count() - 1, new_set_name)
+            self.adsorbate_set_combo.setCurrentText(new_set_name)
+            self.adsorbate_set_combo.blockSignals(False)
+            self.current_adsorbate_set_index = self.adsorbate_set_combo.currentIndex()
+            logger.info(f"Added new adsorbate set: {new_set_name}")
+        else:
+            self.current_adsorbate_set_index = self.adsorbate_set_combo.currentIndex()
+            logger.info(f"Switched to adsorbate set: {text} (Index: {self.current_adsorbate_set_index})")
+
+        # Wyczyść tymczasowe punkty i załaduj punkty z nowo wybranego setu (jeśli istnieją)
+        self._points_for_current_adsorbate_set = []
+        if self.current_adsorbate_set_index < len(self.adsorbate_spot_sets):
+            self._points_for_current_adsorbate_set = list(self.adsorbate_spot_sets[self.current_adsorbate_set_index])
+
+        self._update_selected_spots_display()
+        self._update_spot_markers()
+
+
+    @pyqtSlot()
+    def _on_reselect_adsorbate_set_clicked(self):
+        """Clears points for the current adsorbate set to allow re-selection."""
+        if self.current_adsorbate_set_index >= 0 and self.current_adsorbate_set_index < len(self.adsorbate_spot_sets):
+            logger.info(f"Reselecting points for adsorbate set {self.current_adsorbate_set_index + 1}")
+            self.adsorbate_spot_sets[self.current_adsorbate_set_index] = [] # Wyczyść zapisane punkty
+            self._points_for_current_adsorbate_set = [] # Wyczyść punkty tymczasowe
+            # Można dodać aktualizację etykiety informującej o wybieraniu punktów
+            self._update_selected_spots_display()
+            self._update_spot_markers()
+        else:
+            logger.warning("No valid adsorbate set selected to reselect.")
+
+    @pyqtSlot()
+    def _on_clear_all_adsorbate_sets_clicked(self):
+        """Clears all adsorbate spot sets and resets the combo box."""
+        logger.info("Clearing all adsorbate spot sets.")
+        self.adsorbate_spot_sets = [[]] # Zostaw jeden pusty zestaw
+        self._points_for_current_adsorbate_set = []
+        self.current_adsorbate_set_index = 0
+
+        self.adsorbate_set_combo.blockSignals(True)
+        self.adsorbate_set_combo.clear()
+        self.adsorbate_set_combo.addItem("Set 1")
+        self.adsorbate_set_combo.addItem("<Add New Set...>")
+        self.adsorbate_set_combo.setCurrentIndex(0)
+        self.adsorbate_set_combo.blockSignals(False)
+
+        self._update_selected_spots_display()
+        self._update_spot_markers()
+
+    @pyqtSlot()
+    def _on_visibility_checkbox_changed(self):
+        """Slot for all visibility checkboxes."""
+        logger.debug("Visibility checkbox changed, updating markers and ideal lattice.")
+        # Odśwież idealną sieć (jeśli FFT) i markery spotów
+        self.display_image_data() # To odświeży idealną sieć, jeśli trzeba
+        self._update_spot_markers() # To odświeży zaznaczone spoty
 
     @pyqtSlot(str)
     def on_substrate_combo_changed(self, selected_text: str):
@@ -559,6 +867,13 @@ class MainWindow(QMainWindow):
                 self.statusBar().showMessage(f"{display_name} applied.", 3000)
             else: logger.warning("Dialog accepted, but no processed data returned.")
         else: logger.info("BM3D dialog cancelled."); self.statusBar().showMessage("BM3D cancelled.", 3000)
+
+    @pyqtSlot(int) # Akceptuje int ze stateChanged
+    def _on_selected_spots_visibility_changed(self, state: int):
+        """Slot for selected spots visibility checkboxes."""
+        logger.debug(f"Selected spots visibility checkbox changed. New state: {state}")
+        # Odśwież tylko markery zaznaczonych spotów
+        self._update_spot_markers()
 
 
     @pyqtSlot()
@@ -793,30 +1108,47 @@ class MainWindow(QMainWindow):
     def display_image_data(self):
         """
         Displays the image data from the currently selected history node
-        in the main window's ImageView, applying appropriate orientation
-        and level scaling based on data type (STM or FFT).
+        in the main window's ImageView.
+
+        Handles:
+        - Displaying STM or FFT data with appropriate orientation and scaling.
+        - Showing/hiding the ideal lattice overlay on FFT images based on
+          user selection and checkbox state.
+        - Triggering an update of selected spot markers.
+        - Showing/hiding UI elements relevant to FFT analysis.
         """
-        if not self.image_view: logger.error("ImageView not available."); return
-
+        # Ensure the main image view widget exists
         if not hasattr(self, 'image_view') or self.image_view is None:
-            logger.error("MainWindow's ImageView widget is not available.")
+            logger.error("MainWindow's ImageView widget is not available for displaying data.")
             return
-        
-        if hasattr(self, 'lattice_overlay_item') and self.lattice_overlay_item is not None:
-            try:
-                view = self.image_view.getView()
-                view.removeItem(self.lattice_overlay_item)
-                logger.debug("Removed previous lattice overlay item.")
-            except Exception as e:
-                logger.warning(f"Could not remove previous lattice overlay item: {e}")
-            self.lattice_overlay_item = None
-        
-        self.lattice_toolbar.setVisible(False)
 
+        # --- Clear Previous Graphics Items Specific to This Method ---
+        # Remove previous ideal lattice overlay if it exists
+        if hasattr(self, 'ideal_lattice_overlay_item') and self.ideal_lattice_overlay_item is not None:
+            try:
+                # The overlay is added to the ImageView's ViewBox
+                view_box = self.image_view.getView()
+                view_box.removeItem(self.ideal_lattice_overlay_item)
+                logger.debug("Removed previous ideal_lattice_overlay_item.")
+            except RuntimeError: # Catch if item was already removed somehow
+                logger.debug("Previous ideal_lattice_overlay_item already removed or not in scene.")
+            except Exception as e:
+                logger.warning(f"Could not remove previous ideal_lattice_overlay_item: {e}")
+            self.ideal_lattice_overlay_item = None # Clear the reference
+
+        # Note: Selected spot markers are handled by _update_spot_markers()
+
+        # --- Set Default UI State for Non-FFT / No Node ---
+        # Toolbars/Docks specific to FFT analysis should be hidden by default
+        # Their visibility will be updated by _update_action_states later if an FFT node is active
+        # if hasattr(self, 'lattice_toolbar'):
+        #     self.lattice_toolbar.setVisible(False)
+        # The fft_analysis_dock visibility is managed by _update_action_states and _set_current_node
+
+        # --- Process Current Node ---
         if self.current_node_id and self.current_node_id in self.history:
             node_to_display = self.history[self.current_node_id]
-            # Data is always float (STM or scaled FFT magnitude)
-            display_data = node_to_display.image_data
+            display_data = node_to_display.image_data # This is float32 (STM or scaled FFT)
 
             if display_data is not None:
                 node_info = (f"Node: {self.current_node_id[:8]}... "
@@ -828,89 +1160,125 @@ class MainWindow(QMainWindow):
                     view_box = self.image_view.getView()
                     image_item = self.image_view.getImageItem()
 
-                    # --- Set Image based on Data Type ---
+                    # --- Set Image Data based on Type ---
                     if node_to_display.data_type == "STM":
-                        # Invert Y axis for STM (origin bottom-left)
-                        view_box.invertY(True)
-                        # Transpose STM data for display
+                        view_box.invertY(True) # Origin bottom-left for STM
                         image_item.setImage(display_data.astype(np.float32).T, autoLevels=True)
                         logger.debug("Set STM image with transpose and Y inversion.")
-
                     elif node_to_display.data_type == "FFT":
-                        # Do NOT invert Y axis for FFT (origin top-left or center)
-                        view_box.invertY(False)
-                        # Display FFT data (already scaled magnitude)
-                        # Apply transpose .T based on previous user feedback for desired orientation
-                        image_item.setImage(np.fliplr(display_data.astype(np.float32).T)) # Using .T as requested
+                        view_box.invertY(False) # Origin top-left/center for FFT
+                        # FFT data (scaled magnitude) is displayed with transpose as per previous decision
+                        image_item.setImage(display_data.astype(np.float32).T)
                         logger.debug("Set FFT image with transpose, no Y inversion.")
 
-                        # --- Apply Percentile Levels for FFT ---
-                        # This helps visualize log/power scaled data better
+                        # Apply percentile levels for FFT visualization
                         try:
                             finite_data = display_data[np.isfinite(display_data)]
                             if finite_data.size > 0:
-                                # Use percentiles to ignore extreme noise/DC for level scaling
                                 min_level = np.percentile(finite_data, 1.0)
                                 max_level = np.percentile(finite_data, 99.5)
                                 logger.debug(f"Setting main FFT view levels (1%, 99.5%): {min_level:.3f} - {max_level:.3f}")
                                 image_item.setLevels([min_level, max_level])
                             else:
-                                # Fallback if no finite data (unlikely)
-                                logger.warning("No finite data in FFT image for level calculation, using autoLevels.")
-                                image_item.setAutoLevels()
+                                image_item.setAutoLevels() # Fallback
                         except Exception as e:
-                            logger.error(f"Could not set percentile levels for main FFT view: {e}")
+                            logger.error(f"Could not set percentile levels for FFT view: {e}")
                             image_item.setAutoLevels() # Fallback on error
-                        # --------------------------------------
                     else:
+                        # Default/Unknown data type: display as STM
                         logger.warning(f"Unknown data type '{node_to_display.data_type}', displaying as STM.")
                         view_box.invertY(True)
                         image_item.setImage(display_data.astype(np.float32).T, autoLevels=True)
-                    
+                    # --- End Set Image Data ---
+
+
+                    # --- Draw Ideal Lattice Overlay for FFT Data ---
                     if node_to_display.data_type == "FFT" and LATTICE_ANALYSIS_AVAILABLE:
-                        self.lattice_toolbar.setVisible(True)
-                        selected_substrate_text = self.substrate_combo.currentText()
-                        lattice_info_to_use: Optional[Dict] = None
+                        # self.lattice_toolbar.setVisible(True)
+                        # Visibility of toolbar is now handled in _update_action_states
+                        # self.lattice_toolbar.setVisible(True)
 
-                        if selected_substrate_text == "None":
-                            pass # Nie rób nic, nakładka już usunięta
-                        elif selected_substrate_text == self.custom_option_text and self.custom_lattice_info:
-                            lattice_info_to_use = self.custom_lattice_info
-                            logger.info(f"Using custom lattice: {self.custom_lattice_info.get('name')}")
-                        elif selected_substrate_text in KNOWN_LATTICES:
-                            lattice_info_to_use = selected_substrate_text # Przekaż nazwę lub KNOWN_LATTICES[selected_substrate_text]
-                            logger.info(f"Using predefined lattice: {selected_substrate_text}")
+                        # Check if the "Show Ideal Lattice" checkbox is checked
+                        if hasattr(self, 'show_ideal_lattice_checkbox') and \
+                           self.show_ideal_lattice_checkbox.isChecked():
+                            selected_substrate_text = self.substrate_combo.currentText()
+                            lattice_info_to_use: Optional[Union[str, Dict]] = None
 
-                        if lattice_info_to_use:
-                            # ... (kod pobierania Lx, Ly, N_rows, N_cols z root_node - bez zmian) ...
-                            root_node = node_to_display; visited = {node_to_display.node_id}
-                            while root_node.parent_id and root_node.parent_id in self.history and root_node.parent_id not in visited: visited.add(root_node.parent_id); root_node = self.history[root_node.parent_id]
-                            if root_node.operation_name == "Original":
-                                orig_params = root_node.parameters; Lx = orig_params.get("size_nm_x"); Ly = orig_params.get("size_nm_y"); N_rows, N_cols = display_data.shape
-                                if Lx and Ly and N_cols > 0 and N_rows > 0:
-                                    # Przekaż lattice_info_to_use (string lub dict)
-                                    ideal_points_g = get_reciprocal_points(lattice_info_to_use, max_hk=2)
-                                    # ... (kod obliczania pixel_coords i rysowania ScatterPlotItem - bez zmian) ...
-                                    if ideal_points_g:
-                                        pixel_coords = []
-                                        row_c = N_rows / 2.0; col_c = N_cols / 2.0
-                                        for Gx, Gy in ideal_points_g:
-                                            col_pixel = Gy * Ly + col_c; row_pixel = Gx * Lx + row_c
-                                            pixel_coords.append({'pos': (col_pixel, row_pixel), 'symbol': 'o', 'size': 8, 'pen': pg.mkPen('r'), 'brush': pg.mkBrush(None)})
-                                        if pixel_coords:
-                                            self.lattice_overlay_item = pg.ScatterPlotItem(pixel_coords)
-                                            self.image_view.getView().addItem(self.lattice_overlay_item) # Dodaj do ViewBox
-                                            logger.info(f"Displayed overlay for '{selected_substrate_text}'.")
-                                else: logger.warning("Overlay: Missing calibration.")
-                            else: logger.warning("Overlay: Could not find root node.")
-                    # -------------------------------------
-                    # ------------------------------------
+                            if selected_substrate_text == self.custom_option_text and \
+                               hasattr(self, 'custom_lattice_info') and self.custom_lattice_info:
+                                lattice_info_to_use = self.custom_lattice_info
+                            elif selected_substrate_text != "None" and selected_substrate_text != self.custom_option_text:
+                                lattice_info_to_use = selected_substrate_text # Pass name to get_reciprocal_points
 
-                    # Adjust view range after setting image
+                            if lattice_info_to_use:
+                                # Find root node for calibration data
+                                root_node = node_to_display
+                                visited = {node_to_display.node_id}
+                                for _ in range(100): # Safety break for deep histories
+                                    if not root_node.parent_id or root_node.parent_id not in self.history or root_node.parent_id in visited:
+                                        break
+                                    visited.add(root_node.parent_id)
+                                    root_node = self.history[root_node.parent_id]
+
+                                if root_node.operation_name == "Original":
+                                    orig_params = root_node.parameters
+                                    Lx = orig_params.get("size_nm_x")
+                                    Ly = orig_params.get("size_nm_y")
+                                    # N_rows, N_cols are for the FFT data itself
+                                    N_rows_fft, N_cols_fft = display_data.shape
+
+                                    if Lx and Ly and N_cols_fft > 0 and N_rows_fft > 0:
+                                        ideal_points_g = get_reciprocal_points(lattice_info_to_use, max_hk=2)
+                                        if ideal_points_g:
+                                            pixel_coords = []
+                                            # Center of the FFT image (N_rows_fft, N_cols_fft)
+                                            row_c = N_rows_fft / 2.0
+                                            col_c = N_cols_fft / 2.0
+                                            for Gx, Gy in ideal_points_g:
+                                                # If FFT is displayed as (ky, kx).T -> effectively (kx, ky) on screen
+                                                # So, Gx (k-space x) maps to screen X (columns)
+                                                # And Gy (k-space y) maps to screen Y (rows)
+                                                # Lx, Ly from original image are total lengths for scaling
+                                                # N_cols_fft, N_rows_fft are pixel dimensions of FFT array
+                                                #
+                                                # Original mapping before .T for display:
+                                                # col_pixel_raw = Gx * Lx + col_c_orig_fft_shape
+                                                # row_pixel_raw = Gy * Ly + row_c_orig_fft_shape
+                                                #
+                                                # With .T for display: FFT axes are swapped relative to array indices
+                                                # display_data.T means:
+                                                # - original FFT rows (ky) become display columns (visual X)
+                                                # - original FFT columns (kx) become display rows (visual Y)
+                                                #
+                                                # So, Gx (which corresponds to FFT columns before .T) maps to Y-axis of display.
+                                                # And Gy (which corresponds to FFT rows before .T) maps to X-axis of display.
+                                                display_col_pixel = Gy * Ly + col_c # Mapped to screen X
+                                                display_row_pixel = Gx * Lx + row_c # Mapped to screen Y
+
+                                                pixel_coords.append({'pos': (display_col_pixel, display_row_pixel),
+                                                                     'symbol': 'o', 'size': 7,
+                                                                     'pen': pg.mkPen('r', width=1.5), 'brush': pg.mkBrush(None)})
+                                            if pixel_coords:
+                                                self.ideal_lattice_overlay_item = pg.ScatterPlotItem(pixel_coords)
+                                                view_box.addItem(self.ideal_lattice_overlay_item)
+                                                logger.info(f"Displayed ideal lattice overlay for '{selected_substrate_text}'.")
+                                    else:
+                                        logger.warning("Could not get ideal reciprocal points.")
+                                else:
+                                    logger.warning("Cannot display lattice overlay: Missing calibration data (Lx, Ly) or FFT shape is invalid.")
+                            else:
+                                logger.warning("Cannot display lattice overlay: Could not trace back to original image node.")
+                        # else: "Show Ideal Lattice" checkbox is unchecked or no substrate selected
+                    # --- End Lattice Overlay Logic ---
+
+                    # Always call this to update selected spot markers based on their visibility checkboxes
+                    self._update_spot_markers()
+
+                    # Adjust view range after setting image and all overlays
                     view_box.autoRange()
 
                 except Exception as e:
-                    logger.exception(f"Error setting image in MainWindow's ImageView: {e}")
+                    logger.exception(f"Error setting image or overlays in MainWindow: {e}")
                     QMessageBox.critical(self, "Display Error", f"Could not display image data for node {self.current_node_id}.\nError: {e}")
                     self.image_view.clear() # Clear view on error
             else:
@@ -921,8 +1289,12 @@ class MainWindow(QMainWindow):
         else:
             # No node selected or history empty
             logger.debug("No current history node selected. Clearing image view.")
-            self.lattice_toolbar.setVisible(False)
             self.image_view.clear()
+            # Hide FFT-specific UI elements if no node is active
+            # if hasattr(self, 'lattice_toolbar'):
+            #     self.lattice_toolbar.setVisible(False)
+            if hasattr(self, 'fft_analysis_dock'):
+                self.fft_analysis_dock.setVisible(False)
 
 
 
