@@ -47,11 +47,13 @@ logger = logging.getLogger(__name__)
 
 try:
     from ..analysis.lattice import get_reciprocal_points, KNOWN_LATTICES
+    from .custom_lattice_dialog import CustomLatticeDialog
     LATTICE_ANALYSIS_AVAILABLE = True
 except ImportError:
     logging.error("Could not import lattice analysis functions.")
     KNOWN_LATTICES = {"None": {}} # Placeholder
     def get_reciprocal_points(name, max_hk=2): return None
+    CustomLatticeDialog = None
     LATTICE_ANALYSIS_AVAILABLE = False
 
 class MainWindow(QMainWindow):
@@ -105,14 +107,18 @@ class MainWindow(QMainWindow):
         self.lattice_toolbar = QToolBar("Lattice Overlay")
         self.lattice_toolbar.setMovable(False)
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, self.lattice_toolbar)
-
         self.lattice_toolbar.addWidget(QLabel("Substrate Overlay:"))
         self.substrate_combo = QComboBox()
-        substrates = ["None"] + sorted(KNOWN_LATTICES.keys())
-        self.substrate_combo.addItems(substrates)
-        self.substrate_combo.currentTextChanged.connect(self.display_image_data) # Re-display on change
+        # Dodaj "None", predefiniowane i opcję "<Custom Define...>"
+        self.predefined_substrates = sorted(KNOWN_LATTICES.keys())
+        self.substrate_combo.addItem("None")
+        self.substrate_combo.addItems(self.predefined_substrates)
+        self.custom_option_text = "<Custom Define...>"
+        self.substrate_combo.addItem(self.custom_option_text)
+        # Podłącz sygnał zmiany wyboru do nowego slotu
+        self.substrate_combo.currentTextChanged.connect(self.on_substrate_combo_changed)
         self.lattice_toolbar.addWidget(self.substrate_combo)
-        self.lattice_toolbar.setVisible(False)
+        self.lattice_toolbar.setVisible(False) # Pokaż tylko przy FFT
         # ---------------------------------------
 
         # --- Menu Bar ---
@@ -348,6 +354,37 @@ class MainWindow(QMainWindow):
         else:
             logger.debug("File dialog cancelled.")
             self.statusBar().showMessage("File open cancelled.", 3000)
+
+    @pyqtSlot(str)
+    def on_substrate_combo_changed(self, selected_text: str):
+        """Handles selection change in the substrate combobox."""
+        logger.debug(f"Substrate selection changed to: {selected_text}")
+
+        if selected_text == self.custom_option_text:
+            dialog = CustomLatticeDialog(self)
+            if dialog.exec() == QDialog.DialogCode.Accepted:
+                self.custom_lattice_info = dialog.get_lattice_definition()
+                if self.custom_lattice_info:
+                    # Opcjonalnie: dodaj tymczasowo nazwę custom do listy,
+                    # ale może być prościej po prostu użyć self.custom_lattice_info
+                    # Możemy ustawić tekst na chwilę, ale to tylko wizualne
+                    # self.substrate_combo.setItemText(self.substrate_combo.currentIndex(), self.custom_lattice_info.get("name", "Custom"))
+                    self.last_selected_substrate = self.custom_option_text # Zapamiętaj wybór
+                    logger.info(f"Custom lattice defined and selected: {self.custom_lattice_info.get('name')}")
+                else: # Dialog zaakceptowany, ale brak definicji (nie powinno się zdarzyć)
+                    self.custom_lattice_info = None
+                    self.substrate_combo.setCurrentText(self.last_selected_substrate) # Wróć do poprzedniego
+            else: # Custom dialog anulowany
+                self.custom_lattice_info = None
+                # Wróć do poprzednio wybranej opcji (lub "None")
+                self.substrate_combo.setCurrentText(self.last_selected_substrate)
+        else:
+            # Wybrano predefiniowaną sieć lub "None"
+            self.custom_lattice_info = None # Wyczyść definicję własną
+            self.last_selected_substrate = selected_text # Zapamiętaj wybór
+
+        # Zawsze odśwież wyświetlanie (co wywoła logikę nakładki)
+        self.display_image_data()
 
     @pyqtSlot()
     def open_fft_dialog(self):
@@ -765,21 +802,14 @@ class MainWindow(QMainWindow):
             logger.error("MainWindow's ImageView widget is not available.")
             return
         
-        # --- NOWE: Usuwanie poprzedniej nakładki ---
-        # Sprawdź, czy atrybut istnieje i czy jest to poprawny item
         if hasattr(self, 'lattice_overlay_item') and self.lattice_overlay_item is not None:
             try:
-                # Spróbuj usunąć item z jego sceny/widoku
-                view = self.image_view.getView() # Pobierz ViewBox
+                view = self.image_view.getView()
                 view.removeItem(self.lattice_overlay_item)
                 logger.debug("Removed previous lattice overlay item.")
             except Exception as e:
-                # Loguj błąd, jeśli usunięcie się nie uda, ale kontynuuj
                 logger.warning(f"Could not remove previous lattice overlay item: {e}")
-            # Usuń referencję niezależnie od tego, czy usunięcie z widoku się udało
             self.lattice_overlay_item = None
-            # Można też użyć delattr(self, 'lattice_overlay_item'), ale None jest bezpieczniejsze
-        # -----------------------------------------
         
         self.lattice_toolbar.setVisible(False)
 
@@ -838,54 +868,42 @@ class MainWindow(QMainWindow):
                         image_item.setImage(display_data.astype(np.float32).T, autoLevels=True)
                     
                     if node_to_display.data_type == "FFT" and LATTICE_ANALYSIS_AVAILABLE:
-                         self.lattice_toolbar.setVisible(True)
-                         selected_substrate = self.substrate_combo.currentText()
+                        self.lattice_toolbar.setVisible(True)
+                        selected_substrate_text = self.substrate_combo.currentText()
+                        lattice_info_to_use: Optional[Dict] = None
 
-                         if selected_substrate != "None":
-                             root_node = node_to_display
-                             visited = {node_to_display.node_id}
-                             while root_node.parent_id and root_node.parent_id in self.history and root_node.parent_id not in visited:
-                                 visited.add(root_node.parent_id); root_node = self.history[root_node.parent_id]
+                        if selected_substrate_text == "None":
+                            pass # Nie rób nic, nakładka już usunięta
+                        elif selected_substrate_text == self.custom_option_text and self.custom_lattice_info:
+                            lattice_info_to_use = self.custom_lattice_info
+                            logger.info(f"Using custom lattice: {self.custom_lattice_info.get('name')}")
+                        elif selected_substrate_text in KNOWN_LATTICES:
+                            lattice_info_to_use = selected_substrate_text # Przekaż nazwę lub KNOWN_LATTICES[selected_substrate_text]
+                            logger.info(f"Using predefined lattice: {selected_substrate_text}")
 
-                             if root_node.operation_name == "Original":
-                                 orig_params = root_node.parameters
-                                 Lx = orig_params.get("size_nm_x")
-                                 Ly = orig_params.get("size_nm_y")
-                                 N_rows, N_cols = display_data.shape
-
-                                 if Lx and Ly and N_cols > 0 and N_rows > 0:
-                                     ideal_points_g = get_reciprocal_points(selected_substrate, max_hk=2)
-
-                                     if ideal_points_g:
-                                         pixel_coords = []
-                                         row_c = N_rows / 2.0
-                                         col_c = N_cols / 2.0
-                                         for Gx, Gy in ideal_points_g:
-                                             # col ~ kx, row ~ ky
-                                             # Uwzględnij potencjalną transpozycję przy wyświetlaniu FFT (.T)
-                                             # Jeśli wyświetlamy FFT.T, to oś X obrazu to oś ky, a oś Y to oś kx
-                                             # Trzeba zamienić mapowanie: Gx -> row, Gy -> col
-                                             col_pixel = Gy * Ly + col_c # Gy (nm^-1) * Ly (nm) + center_col
-                                             row_pixel = Gx * Lx + row_c # Gx (nm^-1) * Lx (nm) + center_row
-
-                                             # Sprawdź czy punkt jest w granicach widoku (niekoniecznie)
-                                             # logger.debug(f"Mapping G=({Gx:.3f},{Gy:.3f}) -> Px=({row_pixel:.1f}, {col_pixel:.1f})")
-                                             pixel_coords.append({'pos': (col_pixel, row_pixel), 'symbol': 'o', 'size': 8, 'pen': pg.mkPen('r'), 'brush': pg.mkBrush(None)})
-
-                                         # 4. Narysuj punkty używając ScatterPlotItem
-                                         if pixel_coords:
-                                             self.lattice_overlay_item = pg.ScatterPlotItem(pixel_coords)
-                                             # Dodaj do widoku FFT (nie do widoku wejściowego!)
-                                             # self.plot_fft nie istnieje, użyj viewbox z image_view
-                                             view_box = self.image_view.getView()
-                                             view_box.addItem(self.lattice_overlay_item)
-                                             logger.info(f"Displayed {len(pixel_coords)} overlay points for {selected_substrate}.")
-
-                                 else:
-                                     logger.warning("Cannot display lattice overlay: Missing calibration data (Lx, Ly) or FFT shape is invalid.")
-                             else:
-                                  logger.warning("Cannot display lattice overlay: Could not find original image node in history.")
-                     # ---------------------------------
+                        if lattice_info_to_use:
+                            # ... (kod pobierania Lx, Ly, N_rows, N_cols z root_node - bez zmian) ...
+                            root_node = node_to_display; visited = {node_to_display.node_id}
+                            while root_node.parent_id and root_node.parent_id in self.history and root_node.parent_id not in visited: visited.add(root_node.parent_id); root_node = self.history[root_node.parent_id]
+                            if root_node.operation_name == "Original":
+                                orig_params = root_node.parameters; Lx = orig_params.get("size_nm_x"); Ly = orig_params.get("size_nm_y"); N_rows, N_cols = display_data.shape
+                                if Lx and Ly and N_cols > 0 and N_rows > 0:
+                                    # Przekaż lattice_info_to_use (string lub dict)
+                                    ideal_points_g = get_reciprocal_points(lattice_info_to_use, max_hk=2)
+                                    # ... (kod obliczania pixel_coords i rysowania ScatterPlotItem - bez zmian) ...
+                                    if ideal_points_g:
+                                        pixel_coords = []
+                                        row_c = N_rows / 2.0; col_c = N_cols / 2.0
+                                        for Gx, Gy in ideal_points_g:
+                                            col_pixel = Gy * Ly + col_c; row_pixel = Gx * Lx + row_c
+                                            pixel_coords.append({'pos': (col_pixel, row_pixel), 'symbol': 'o', 'size': 8, 'pen': pg.mkPen('r'), 'brush': pg.mkBrush(None)})
+                                        if pixel_coords:
+                                            self.lattice_overlay_item = pg.ScatterPlotItem(pixel_coords)
+                                            self.image_view.getView().addItem(self.lattice_overlay_item) # Dodaj do ViewBox
+                                            logger.info(f"Displayed overlay for '{selected_substrate_text}'.")
+                                else: logger.warning("Overlay: Missing calibration.")
+                            else: logger.warning("Overlay: Could not find root node.")
+                    # -------------------------------------
                     # ------------------------------------
 
                     # Adjust view range after setting image

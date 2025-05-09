@@ -4,7 +4,7 @@ Functions and data related to crystal lattices and reciprocal space.
 """
 import logging
 import numpy as np
-from typing import Dict, Tuple, List, Optional
+from typing import Dict, Tuple, List, Optional, Union
 
 logger = logging.getLogger(__name__)
 
@@ -97,39 +97,43 @@ def get_reciprocal_vectors(lattice_info: Dict) -> Optional[Tuple[np.ndarray, np.
         logger.error(f"Unsupported lattice type: {l_type}")
         return None
 
-
-def get_reciprocal_points(lattice_name: str, max_hk: int = 2) -> Optional[List[Tuple[float, float]]]:
+def get_reciprocal_points(lattice_name_or_info: Union[str, Dict],
+                           max_hk: int = 2) -> Optional[List[Tuple[float, float]]]:
     """
-    Generates reciprocal lattice points G* = h*b1* + k*b2* up to max_hk order.
-
-    Args:
-        lattice_name (str): Name of the lattice (must be a key in KNOWN_LATTICES).
-        max_hk (int, optional): Maximum order (h, k indices) to generate. Defaults to 2.
-
-    Returns:
-        Optional[List[Tuple[float, float]]]: List of (Gx, Gy) coordinates in nm^-1,
-                                              or None if calculation fails.
+    Generates reciprocal lattice points G* = h*b1* + k*b2*.
+    Can accept a lattice name (from KNOWN_LATTICES) or a direct lattice info dictionary.
     """
-    if lattice_name not in KNOWN_LATTICES:
-        logger.error(f"Unknown lattice name: {lattice_name}")
+    lattice_info: Optional[Dict] = None
+    display_name = ""
+
+    if isinstance(lattice_name_or_info, str):
+        display_name = lattice_name_or_info
+        if display_name not in KNOWN_LATTICES:
+            logger.error(f"Unknown lattice name: {display_name}")
+            return None
+        lattice_info = KNOWN_LATTICES[display_name]
+    elif isinstance(lattice_name_or_info, dict):
+        lattice_info = lattice_name_or_info
+        display_name = lattice_info.get("name", "Custom") # Użyj nazwy z dict lub "Custom"
+    else:
+        logger.error("Invalid argument for lattice_name_or_info. Must be str or dict.")
         return None
 
-    lattice_info = KNOWN_LATTICES[lattice_name]
+    if not lattice_info: # Dodatkowe sprawdzenie
+        logger.error(f"Lattice info is empty for '{display_name}'.")
+        return None
+
     vectors = get_reciprocal_vectors(lattice_info)
     if vectors is None:
         return None
     b1_star, b2_star = vectors
 
     points = []
-    # Generate points for h, k from -max_hk to +max_hk
     for h in range(-max_hk, max_hk + 1):
         for k in range(-max_hk, max_hk + 1):
-            # Skip the (0, 0) point (DC component)
-            if h == 0 and k == 0:
-                continue
-            # Calculate G* = h*b1* + k*b2*
+            if h == 0 and k == 0: continue
             g_star = h * b1_star + k * b2_star
-            points.append(tuple(g_star)) # Append as (Gx, Gy) tuple
+            points.append(tuple(g_star))
 
-    logger.info(f"Generated {len(points)} reciprocal points for {lattice_name} up to order {max_hk}.")
+    logger.info(f"Generated {len(points)} reciprocal points for '{display_name}' up to order {max_hk}.")
     return points
