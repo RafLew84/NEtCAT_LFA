@@ -5,4 +5,6 @@ pyqtgraph>=0.13
 scipy>=1.7     # Needed for Gaussian filter (or use scikit-image)
 scikit-image>=0.18 # Alternative/complement for image processing
 pytest>=7.0
+pytest-qt>=5.0
+pytest-mock>=3.10
 bm3d>=3.0
