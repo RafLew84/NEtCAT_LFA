@@ -16,7 +16,7 @@ from PyQt6.QtWidgets import (
     QGroupBox, QFormLayout, QRadioButton
 )
 from PyQt6.QtGui import QAction, QIcon
-from PyQt6.QtCore import Qt, pyqtSlot
+from PyQt6.QtCore import Qt, pyqtSlot, QPointF
 
 # Import pyqtgraph after checking for installation
 try:
@@ -86,6 +86,7 @@ class MainWindow(QMainWindow):
         self.ideal_lattice_overlay_item: Optional['pg.ScatterPlotItem'] = None
         self.substrate_spot_markers: Optional['pg.ScatterPlotItem'] = None
         self.adsorbate_spot_set_markers: List['pg.ScatterPlotItem'] = []
+        self._fft_mouse_click_connection = None
 
         self.setWindowTitle("Lattice Fourier Analyzer (LFA)")
         self.resize(1250, 800)
@@ -178,6 +179,15 @@ class MainWindow(QMainWindow):
         fft_analysis_layout.addWidget(lattice_group)
         # -----------------------------------
 
+        # Zaktualizuj lub dodaj sekcję Action Buttons:
+        action_buttons_layout = QHBoxLayout()
+        self.clear_substrate_spots_button = QPushButton("Clear Substrate Spots")
+        # NOWY Przycisk:
+        self.reselect_substrate_spots_button = QPushButton("Reselect Substrate Spots")
+
+        action_buttons_layout.addWidget(self.clear_substrate_spots_button)
+        action_buttons_layout.addWidget(self.reselect_substrate_spots_button) # Dodaj nowy przycisk
+
         # --- Spot Selection Controls ---
         spot_selection_group = QGroupBox("Spot Selection")
         spot_selection_layout = QVBoxLayout()
@@ -247,6 +257,51 @@ class MainWindow(QMainWindow):
         self._update_action_states()
 
         logger.info("Main window initialized with history panel.")
+
+    def _clear_all_spot_markers_from_view(self, view_box: Optional[pg.ViewBox]):
+        """Helper to remove all known spot markers from the view."""
+        if not view_box:
+            logger.debug("_clear_all_spot_markers_from_view: No ViewBox provided.")
+            return
+        # Substrate markers
+        if hasattr(self, 'substrate_spot_markers') and self.substrate_spot_markers:
+            try: view_box.removeItem(self.substrate_spot_markers)
+            except RuntimeError: pass
+            self.substrate_spot_markers = None
+        # Adsorbate set markers
+        if hasattr(self, 'adsorbate_spot_set_markers'):
+            for marker_set in self.adsorbate_spot_set_markers:
+                if marker_set:
+                    try: view_box.removeItem(marker_set)
+                    except RuntimeError: pass
+            self.adsorbate_spot_set_markers = []
+        # Current adsorbate preview markers
+        if hasattr(self, 'current_adsorbate_preview_markers') and self.current_adsorbate_preview_markers:
+            try: view_box.removeItem(self.current_adsorbate_preview_markers)
+            except RuntimeError: pass
+            self.current_adsorbate_preview_markers = None
+        logger.debug("Cleared all user-selected spot markers from view.")
+
+    def _update_spot_markers(self):
+        logger.debug("_update_spot_markers called (Phase B.2.5 - currently a placeholder).")
+        # W Fazie B.2.5 tutaj będzie logika rysowania markerów
+        # Na razie upewnijmy się, że czyści stare markery, jeśli to nie jest FFT
+        if self.current_node_id and self.current_node_id in self.history:
+            if self.history[self.current_node_id].data_type != "FFT":
+                if hasattr(self, 'image_view') and self.image_view:
+                    self._clear_all_spot_markers_from_view(self.image_view.getView())
+        elif hasattr(self, 'image_view') and self.image_view: # No current node
+             self._clear_all_spot_markers_from_view(self.image_view.getView())
+
+    def _update_selected_spots_display(self):
+        logger.debug("_update_selected_spots_display called (Phase B.2.3 - currently a placeholder).")
+        if hasattr(self, 'current_selection_label'):
+             self.current_selection_label.setText(f"Mode: {self.spot_selection_mode}")
+        if hasattr(self, 'selected_spots_display'):
+             self.selected_spots_display.setPlainText("Coordinates will appear here in Phase B.2.3.")
+
+
+
     
     def _clear_history(self):
         """Clears the history tree and list widget."""
@@ -344,39 +399,37 @@ class MainWindow(QMainWindow):
         """Updates the QTextEdit with current spot coordinates."""
         if not hasattr(self, 'selected_spots_display'): return # Jeśli dock nie jest jeszcze stworzony
 
-        text = ""
+        text_output = []
+        current_selection_status = ""
+
         if self.spot_selection_mode == "Substrate":
-            text += "Substrate Spots:\n"
+            current_selection_status = "Selecting: Substrate Spots"
+            text_output.append("Substrate Spots:")
             if self.substrate_spots:
-                for i, (x, y) in enumerate(self.substrate_spots):
-                    text += f"  S{i+1}: ({x:.1f}, {y:.1f})\n"
+                for i, (kx, ky) in enumerate(self.substrate_spots):
+                    text_output.append(f"  S{i+1}: (kx={kx}, ky={ky})")
             else:
-                text += "  None selected.\n"
+                text_output.append("  None selected.")
         elif self.spot_selection_mode == "Adsorbate":
             set_idx = self.current_adsorbate_set_index
-            set_name = self.adsorbate_set_combo.itemText(set_idx) if set_idx < self.adsorbate_set_combo.count() else f"Set {set_idx + 1}"
-            text += f"Adsorbate {set_name}:\n"
+            set_name = self.adsorbate_set_combo.itemText(set_idx) if hasattr(self, 'adsorbate_set_combo') and set_idx < self.adsorbate_set_combo.count() else f"Set {set_idx + 1}"
+            current_selection_status = f"Selecting: Adsorbate {set_name}"
+            text_output.append(f"Adsorbate {set_name}:")
 
-            current_points_to_display = []
-            # Pokaż punkty tymczasowe, jeśli są wybierane
-            if self._points_for_current_adsorbate_set:
-                current_points_to_display = self._points_for_current_adsorbate_set
-            # Lub punkty z zapisanego zestawu, jeśli nie ma tymczasowych
-            elif set_idx < len(self.adsorbate_spot_sets) and self.adsorbate_spot_sets[set_idx]:
+            # Wyświetl punkty z aktualnie edytowanego/wybranego zestawu
+            if 0 <= set_idx < len(self.adsorbate_spot_sets):
                 current_points_to_display = self.adsorbate_spot_sets[set_idx]
-
-            if current_points_to_display:
-                for i, (x, y) in enumerate(current_points_to_display):
-                    text += f"  A{i+1}: ({x:.1f}, {y:.1f})\n"
-                if len(current_points_to_display) < 3:
-                    text += f"  (Select {3 - len(current_points_to_display)} more point(s))\n"
+                if current_points_to_display:
+                    for i, (kx, ky) in enumerate(current_points_to_display):
+                        text_output.append(f"  A{i+1}: (kx={kx}, ky={ky})")
+                else:
+                    text_output.append("  No spots selected for this set.")
             else:
-                 text += f"  (Select 3 points for this set)\n"
+                text_output.append("  Invalid adsorbate set selected.")
 
-        if hasattr(self, 'selected_spots_display') and self.selected_spots_display:
-             self.selected_spots_display.setPlainText(text) # Użyj QTextEdit jeśli istnieje
-        else:
-             logger.warning("selected_spots_display widget not found for updating text.")
+        if hasattr(self, 'current_selection_label') and self.current_selection_label:
+            self.current_selection_label.setText(current_selection_status)
+        self.selected_spots_display.setPlainText("\n".join(text_output))
 
 
 
@@ -622,6 +675,7 @@ class MainWindow(QMainWindow):
 
         self._update_selected_spots_display()
         self._update_spot_markers()
+        self._update_action_states()
 
 
     @pyqtSlot()
@@ -634,6 +688,7 @@ class MainWindow(QMainWindow):
             # Można dodać aktualizację etykiety informującej o wybieraniu punktów
             self._update_selected_spots_display()
             self._update_spot_markers()
+            self._update_action_states()
         else:
             logger.warning("No valid adsorbate set selected to reselect.")
 
@@ -654,6 +709,7 @@ class MainWindow(QMainWindow):
 
         self._update_selected_spots_display()
         self._update_spot_markers()
+        self._update_action_states()
 
     @pyqtSlot()
     def _on_visibility_checkbox_changed(self):
@@ -1122,19 +1178,35 @@ class MainWindow(QMainWindow):
             logger.error("MainWindow's ImageView widget is not available for displaying data.")
             return
 
+        current_view_box = self.image_view.getView()
+        image_item = self.image_view.getImageItem()
+
+        if current_view_box is None or image_item is None:
+            logger.error("ImageView's ViewBox or ImageItem is not available.")
+            self._update_spot_markers() # Ensure markers are cleared if view is invalid
+            self._update_action_states() # Update UI state
+            return
+
         # --- Clear Previous Graphics Items Specific to This Method ---
         # Remove previous ideal lattice overlay if it exists
         if hasattr(self, 'ideal_lattice_overlay_item') and self.ideal_lattice_overlay_item is not None:
             try:
-                # The overlay is added to the ImageView's ViewBox
-                view_box = self.image_view.getView()
-                view_box.removeItem(self.ideal_lattice_overlay_item)
+                current_view_box.removeItem(self.ideal_lattice_overlay_item)
                 logger.debug("Removed previous ideal_lattice_overlay_item.")
-            except RuntimeError: # Catch if item was already removed somehow
-                logger.debug("Previous ideal_lattice_overlay_item already removed or not in scene.")
+            except RuntimeError:
+                logger.debug("Previous ideal_lattice_overlay_item already removed (RuntimeError).")
             except Exception as e:
                 logger.warning(f"Could not remove previous ideal_lattice_overlay_item: {e}")
-            self.ideal_lattice_overlay_item = None # Clear the reference
+            self.ideal_lattice_overlay_item = None
+
+        scene = getattr(image_item, 'scene', lambda: None)()
+        if scene and hasattr(self, '_fft_mouse_click_connection') and self._fft_mouse_click_connection:
+            try:
+                scene.sigMouseClicked.disconnect(self._fft_mouse_click_connection)
+                logger.debug("Disconnected previous FFT mouse click handler.")
+            except (TypeError, RuntimeError):
+                logger.debug("Could not disconnect FFT mouse click (normal if not previously connected).")
+            self._fft_mouse_click_connection = None
 
         # Note: Selected spot markers are handled by _update_spot_markers()
 
@@ -1184,6 +1256,19 @@ class MainWindow(QMainWindow):
                         except Exception as e:
                             logger.error(f"Could not set percentile levels for FFT view: {e}")
                             image_item.setAutoLevels() # Fallback on error
+                        
+                                                # --- Connect Mouse Click Handler for FFT images ---
+                        scene = getattr(image_item, 'scene', lambda: None)() # Re-fetch scene
+                        if scene:
+                             # Check if PYQTGRAPH_AVAILABLE and GraphicsSceneMouseEvent type is valid before connecting
+                            #  if PYQTGRAPH_AVAILABLE: # GraphicsSceneMouseEvent import check done at top level
+                            self._fft_mouse_click_connection = scene.sigMouseClicked.connect(self._on_fft_view_clicked)
+                            logger.debug("Connected FFT mouse click handler.")
+                            #  else:
+                                #  logger.error("Cannot connect FFT mouse click handler: PyQtGraph types not available.")
+                        else:
+                             logger.error("Cannot connect FFT click: ImageItem scene is None.")
+                        # -------------------------------------------------
                     else:
                         # Default/Unknown data type: display as STM
                         logger.warning(f"Unknown data type '{node_to_display.data_type}', displaying as STM.")
@@ -1295,6 +1380,132 @@ class MainWindow(QMainWindow):
             #     self.lattice_toolbar.setVisible(False)
             if hasattr(self, 'fft_analysis_dock'):
                 self.fft_analysis_dock.setVisible(False)
+
+
+        # --- SLOT do obsługi kliknięć na obrazie FFT ---
+    @pyqtSlot(object) # Use 'object' for the decorator for robustness
+    def _on_fft_view_clicked(self, event): # Python type hint can be more specific if imported
+        """
+        Handles mouse clicks on the FFT image for spot selection.
+        Phase B.2.1: Converts click coordinates to original FFT data coordinates and logs them.
+        """
+        # if not PYQTGRAPH_AVAILABLE:
+        #     logger.warning("Ignoring click: pyqtgraph not available.")
+        #     return
+
+        # Check if the event object has the methods we expect (duck typing)
+        if not all(hasattr(event, attr) for attr in ['button', 'scenePos', 'accept']):
+            logger.warning(f"Click ignored: event object of type {type(event)} missing required attributes.")
+            return
+
+        # Only process if current node is FFT
+        if not (self.current_node_id and
+                self.current_node_id in self.history and
+                self.history[self.current_node_id].data_type == "FFT"):
+            logger.debug("_on_fft_view_clicked: Not an FFT image currently displayed, ignoring click.")
+            return
+
+        # Only process left clicks
+        if event.button() != Qt.MouseButton.LeftButton:
+            logger.debug(f"_on_fft_view_clicked: Ignored button {event.button()}.")
+            return
+
+        # Ensure ImageView and its ImageItem are available
+        if not hasattr(self, 'image_view') or self.image_view is None or \
+           self.image_view.getImageItem() is None or \
+           self.image_view.getImageItem().image is None:
+            logger.warning("_on_fft_view_clicked: ImageView, ImageItem or its image data is not available.")
+            return
+
+        img_item = self.image_view.getImageItem()
+
+        # Convert click position from scene coordinates to image data coordinates
+        # mapToData expects coordinates in the item's local coordinate system
+        # event.scenePos() gives coordinates in the scene's coordinate system
+        # We need to map from scene to the item first
+        pos_in_item_coords = img_item.mapFromScene(event.scenePos())
+        pos_data = img_item.mapToData(pos_in_item_coords)
+
+        if pos_data is None:
+            logger.debug("_on_fft_view_clicked: Click mapped to None (likely outside image data in item).")
+            return
+
+        # Coordinates are now relative to the displayed image data (which is FFT_data.T)
+        # Displayed X (pos_data.x()) is original FFT ky
+        # Displayed Y (pos_data.y()) is original FFT kx
+        kx_original_fft_coord = round(pos_data.x())
+        ky_original_fft_coord = round(pos_data.y())
+
+        # Validate coordinates against the *original* FFT data dimensions (before transpose)
+        original_fft_data = self.history[self.current_node_id].image_data
+        if original_fft_data is None:
+            logger.error("_on_fft_view_clicked: Original FFT data is None in history node.")
+            return
+        # Original shape: (rows_ky, cols_kx)
+        fft_data_rows_ky, fft_data_cols_kx = original_fft_data.shape
+
+        if not (0 <= int(kx_original_fft_coord) < fft_data_cols_kx and \
+                0 <= int(ky_original_fft_coord) < fft_data_rows_ky):
+            logger.debug(f"FFT click original coords (kx={kx_original_fft_coord}, ky={ky_original_fft_coord}) "
+                         f"is outside original FFT data bounds ({fft_data_cols_kx}, {fft_data_rows_ky}). "
+                         f"Displayed click was (col:{pos_data.x():.1f}, row:{pos_data.y():.1f})")
+            return
+
+        final_point_kx_ky = (int(kx_original_fft_coord), int(ky_original_fft_coord))
+        logger.info(f"FFT image clicked. Mapped to original FFT data coords (kx, ky): {final_point_kx_ky}. "
+                    f"Current selection mode: {self.spot_selection_mode}")
+
+        # --- LOGIKA DODAWANIA PUNKTÓW (Faza B.2.2) ---
+        if self.spot_selection_mode == "Substrate":
+            # Ustalmy maksymalną liczbę punktów podłoża, np. 8
+            MAX_SUBSTRATE_SPOTS = 8
+            if len(self.substrate_spots) < MAX_SUBSTRATE_SPOTS:
+                if final_point_kx_ky not in self.substrate_spots: # Unikaj duplikatów
+                    self.substrate_spots.append(final_point_kx_ky)
+                    logger.debug(f"Added to substrate_spots: {final_point_kx_ky}. Count: {len(self.substrate_spots)}")
+                else:
+                    logger.debug(f"Point {final_point_kx_ky} already in substrate_spots.")
+            else:
+                QMessageBox.information(self, "Limit Reached", f"Maximum number of substrate spots ({MAX_SUBSTRATE_SPOTS}) selected.")
+        elif self.spot_selection_mode == "Adsorbate":
+            # Użytkownik wybiera punkty dla self.adsorbate_spot_sets[self.current_adsorbate_set_index]
+            # Zbieramy je najpierw w self._points_for_current_adsorbate_set
+            # Ustalmy, że chcemy zbierać dowolną liczbę punktów dla adsorbatu
+            # (np. minimum 2, aby zdefiniować wektory, ale bez sztywnego górnego limitu)
+            MIN_ADSORBATE_SPOTS_FOR_LATTICE = 2 # Minimum do zdefiniowania sieci (np. + początek układu)
+                                            # lub 6 jeśli użytkownik chce zaznaczyć heksagon
+
+            current_set_list = self.adsorbate_spot_sets[self.current_adsorbate_set_index]
+            if final_point_kx_ky not in current_set_list: # Unikaj duplikatów w zestawie
+                current_set_list.append(final_point_kx_ky)
+                logger.debug(f"Added to adsorbate_spot_sets[{self.current_adsorbate_set_index}]: {final_point_kx_ky}. Current set count: {len(current_set_list)}")
+            else:
+                logger.debug(f"Point {final_point_kx_ky} already in current adsorbate set.")
+        # ------------------------------------------------
+
+        self._update_selected_spots_display() # Aktualizuj UI (Faza B.2.3)
+        self._update_spot_markers()           # Aktualizuj markery (Faza B.2.5)
+        self._update_action_states()          # Aktualizuj stan przycisków
+
+        event.accept() # Consume the event
+
+
+    # --- Placeholder Slots dla Przycisków Czyszczenia (Faza B.2.4) ---
+    @pyqtSlot()
+    def _on_clear_substrate_spots_clicked(self):
+        logger.info("Clearing substrate spots (Phase B.2.4 - Placeholder).")
+        self.substrate_spots = []
+        self._update_spot_markers()
+        self._update_selected_spots_display()
+
+    @pyqtSlot()
+    def _on_clear_last_adsorbate_point_clicked(self):
+        logger.info("Clearing last adsorbate point (Phase B.2.4 - Placeholder).")
+        if self.spot_selection_mode == "Adsorbate" and self._points_for_current_adsorbate_set:
+            self._points_for_current_adsorbate_set.pop()
+        self._update_spot_markers()
+        self._update_selected_spots_display()
+        self._update_action_states()
 
 
 
