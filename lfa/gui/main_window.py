@@ -292,16 +292,16 @@ class MainWindow(QMainWindow):
             self.current_adsorbate_preview_markers = None
         logger.debug("Cleared all user-selected spot markers from view.")
 
-    def _update_spot_markers(self):
-        logger.debug("_update_spot_markers called (Phase B.2.5 - currently a placeholder).")
-        # W Fazie B.2.5 tutaj będzie logika rysowania markerów
-        # Na razie upewnijmy się, że czyści stare markery, jeśli to nie jest FFT
-        if self.current_node_id and self.current_node_id in self.history:
-            if self.history[self.current_node_id].data_type != "FFT":
-                if hasattr(self, 'image_view') and self.image_view:
-                    self._clear_all_spot_markers_from_view(self.image_view.getView())
-        elif hasattr(self, 'image_view') and self.image_view: # No current node
-             self._clear_all_spot_markers_from_view(self.image_view.getView())
+    # def _update_spot_markers(self):
+    #     logger.debug("_update_spot_markers called (Phase B.2.5 - currently a placeholder).")
+    #     # W Fazie B.2.5 tutaj będzie logika rysowania markerów
+    #     # Na razie upewnijmy się, że czyści stare markery, jeśli to nie jest FFT
+    #     if self.current_node_id and self.current_node_id in self.history:
+    #         if self.history[self.current_node_id].data_type != "FFT":
+    #             if hasattr(self, 'image_view') and self.image_view:
+    #                 self._clear_all_spot_markers_from_view(self.image_view.getView())
+    #     elif hasattr(self, 'image_view') and self.image_view: # No current node
+    #          self._clear_all_spot_markers_from_view(self.image_view.getView())
 
     def _update_selected_spots_display(self):
         logger.debug("_update_selected_spots_display called (Phase B.2.3 - currently a placeholder).")
