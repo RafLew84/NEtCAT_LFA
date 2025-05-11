@@ -179,18 +179,11 @@ class MainWindow(QMainWindow):
         fft_analysis_layout.addWidget(lattice_group)
         # -----------------------------------
 
-        # Zaktualizuj lub dodaj sekcję Action Buttons:
-        action_buttons_layout = QHBoxLayout()
-        self.clear_substrate_spots_button = QPushButton("Clear Substrate Spots")
-        # NOWY Przycisk:
-        self.reselect_substrate_spots_button = QPushButton("Reselect Substrate Spots")
-
-        action_buttons_layout.addWidget(self.clear_substrate_spots_button)
-        action_buttons_layout.addWidget(self.reselect_substrate_spots_button) # Dodaj nowy przycisk
-
         # --- Spot Selection Controls ---
         spot_selection_group = QGroupBox("Spot Selection")
         spot_selection_layout = QVBoxLayout()
+
+        self.clear_current_adsorbate_point_button = QPushButton("Clear Last Adsorbate Point")
 
         # Spot Type
         spot_type_layout = QHBoxLayout()
@@ -198,6 +191,18 @@ class MainWindow(QMainWindow):
         self.rb_select_adsorbate = QRadioButton("Adsorbate")
         spot_type_layout.addWidget(self.rb_select_substrate); spot_type_layout.addWidget(self.rb_select_adsorbate)
         spot_selection_layout.addLayout(spot_type_layout)
+
+        # Substrate Set Management
+        self.substrate_set_panel = QWidget()
+        substrate_set_layout = QFormLayout(self.substrate_set_panel)
+        substrate_set_layout.setContentsMargins(0,5,0,5)
+        substrate_buttons_layout = QHBoxLayout()
+        self.clear_substrate_spots_button = QPushButton("Clear Substrate Spots")
+        substrate_buttons_layout.addWidget(self.clear_substrate_spots_button)
+        substrate_set_layout.addRow(substrate_buttons_layout)
+        spot_selection_layout.addWidget(self.substrate_set_panel)
+        self.substrate_set_panel.setVisible(True)
+        
 
         # Adsorbate Set Management
         self.adsorbate_set_panel = QWidget() # Panel do pokazywania/ukrywania
@@ -213,6 +218,7 @@ class MainWindow(QMainWindow):
         self.clear_all_adsorbate_sets_button = QPushButton("Clear All Sets")
         adsorbate_buttons_layout.addWidget(self.reselect_adsorbate_set_button)
         adsorbate_buttons_layout.addWidget(self.clear_all_adsorbate_sets_button)
+        adsorbate_buttons_layout.addWidget(self.clear_current_adsorbate_point_button)
         adsorbate_set_layout.addRow(adsorbate_buttons_layout) # Dodaj layout przycisków
         spot_selection_layout.addWidget(self.adsorbate_set_panel)
         self.adsorbate_set_panel.setVisible(False) # Ukryj na starcie
@@ -252,6 +258,10 @@ class MainWindow(QMainWindow):
 
         self.show_substrate_spots_checkbox.stateChanged.connect(self._on_selected_spots_visibility_changed)
         self.show_adsorbate_spots_checkbox.stateChanged.connect(self._on_selected_spots_visibility_changed)
+
+        self.clear_substrate_spots_button.clicked.connect(self._on_clear_substrate_spots_clicked)
+        # self.reselect_substrate_spots_button.clicked.connect(self._on_reselect_substrate_spots_clicked)
+        self.clear_current_adsorbate_point_button.clicked.connect(self._on_clear_last_adsorbate_point_clicked)
         # ---------------------------------------------------
 
         self._update_action_states()
@@ -533,6 +543,38 @@ class MainWindow(QMainWindow):
 
         if hasattr(self, 'fft_analysis_dock'): self.fft_analysis_dock.setVisible(is_fft_data)
         # if hasattr(self, 'lattice_toolbar'): self.lattice_toolbar.setVisible(is_fft_data)
+               # Aktywność przycisków w fft_analysis_dock
+        if is_fft_data:
+            # Przyciski czyszczenia dla podłoża
+            can_clear_substrate = self.spot_selection_mode == "Substrate" and bool(self.substrate_spots)
+            can_reselect_substrate = self.spot_selection_mode == "Substrate"
+            if hasattr(self, 'clear_substrate_spots_button'):
+                self.clear_substrate_spots_button.setEnabled(can_clear_substrate)
+            if hasattr(self, 'reselect_substrate_spots_button'): # Sprawdź czy atrybut istnieje
+                self.reselect_substrate_spots_button.setEnabled(can_reselect_substrate)
+
+            # Przycisk czyszczenia ostatniego punktu adsorbatu
+            can_clear_last_adsorbate = False
+            if self.spot_selection_mode == "Adsorbate" and \
+               0 <= self.current_adsorbate_set_index < len(self.adsorbate_spot_sets):
+                if self.adsorbate_spot_sets[self.current_adsorbate_set_index]: # Czy są punkty w bieżącym zestawie
+                    can_clear_last_adsorbate = True
+            if hasattr(self, 'clear_current_adsorbate_point_button'):
+                self.clear_current_adsorbate_point_button.setEnabled(can_clear_last_adsorbate)
+
+            # Przyciski zarządzania zestawami adsorbatu
+            is_adsorbate_mode = (self.spot_selection_mode == "Adsorbate")
+            if hasattr(self, 'reselect_adsorbate_set_button'):
+                self.reselect_adsorbate_set_button.setEnabled(is_adsorbate_mode)
+            if hasattr(self, 'clear_all_adsorbate_sets_button'):
+                self.clear_all_adsorbate_sets_button.setEnabled(is_adsorbate_mode)
+        else: # Jeśli nie FFT, wyłącz wszystkie te przyciski
+            if hasattr(self, 'clear_substrate_spots_button'): self.clear_substrate_spots_button.setEnabled(False)
+            if hasattr(self, 'reselect_substrate_spots_button'): self.reselect_substrate_spots_button.setEnabled(False)
+            if hasattr(self, 'clear_current_adsorbate_point_button'): self.clear_current_adsorbate_point_button.setEnabled(False)
+            if hasattr(self, 'reselect_adsorbate_set_button'): self.reselect_adsorbate_set_button.setEnabled(False)
+            if hasattr(self, 'clear_all_adsorbate_sets_button'): self.clear_all_adsorbate_sets_button.setEnabled(False)
+
 
     @pyqtSlot()
     def open_file_dialog(self):
@@ -639,10 +681,12 @@ class MainWindow(QMainWindow):
         if is_substrate_selected:
             self.spot_selection_mode = "Substrate"
             self.adsorbate_set_panel.setVisible(False)
+            self.substrate_set_panel.setVisible(True)
             logger.debug("Spot selection mode: Substrate")
         else: # Adsorbate selected
             self.spot_selection_mode = "Adsorbate"
             self.adsorbate_set_panel.setVisible(True)
+            self.substrate_set_panel.setVisible(False)
             # Zresetuj/ustaw odpowiednio _points_for_current_adsorbate_set
             self._points_for_current_adsorbate_set = [] # Wyczyść przy zmianie na adsorbat
             if self.current_adsorbate_set_index < len(self.adsorbate_spot_sets):
@@ -1500,12 +1544,37 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def _on_clear_last_adsorbate_point_clicked(self):
-        logger.info("Clearing last adsorbate point (Phase B.2.4 - Placeholder).")
-        if self.spot_selection_mode == "Adsorbate" and self._points_for_current_adsorbate_set:
-            self._points_for_current_adsorbate_set.pop()
-        self._update_spot_markers()
-        self._update_selected_spots_display()
-        self._update_action_states()
+        logger.debug("Attempting to clear last adsorbate point.")
+        if self.spot_selection_mode == "Adsorbate":
+            if 0 <= self.current_adsorbate_set_index < len(self.adsorbate_spot_sets):
+                current_set_list = self.adsorbate_spot_sets[self.current_adsorbate_set_index]
+                if current_set_list:
+                    removed_point = current_set_list.pop()
+                    logger.info(f"Removed last adsorbate point: {removed_point} from set {self.current_adsorbate_set_index + 1}")
+                    self._update_selected_spots_display()
+                    self._update_spot_markers()
+                    self._update_action_states() # Ważne, aby zaktualizować enabled przycisku
+                else:
+                    logger.debug("No points in current adsorbate set to remove.")
+            else:
+                logger.warning(f"Invalid adsorbate set index: {self.current_adsorbate_set_index}")
+        else:
+            logger.debug("Not in Adsorbate selection mode, cannot clear last adsorbate point.")
+
+
+    @pyqtSlot()
+    def _on_reselect_substrate_spots_clicked(self):
+        """Clears current substrate spots to allow re-selection."""
+        if self.spot_selection_mode == "Substrate":
+            logger.info("Reselecting substrate spots. Clearing current substrate spots.")
+            self.substrate_spots = []
+            self._update_selected_spots_display()
+            self._update_spot_markers()
+            self._update_action_states() # Zaktualizuj status np. przycisku "Clear"
+        else:
+            logger.debug("Not in Substrate selection mode. 'Reselect Substrate' ignored.")
+
+
 
 
 
