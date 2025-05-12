@@ -13,7 +13,7 @@ from PyQt6.QtWidgets import (
     QMainWindow, QVBoxLayout, QWidget, QFileDialog, QMessageBox, QApplication, 
     QDialog, QHBoxLayout, QSplitter, QListWidget, QListWidgetItem, QDockWidget,
     QComboBox, QToolBar, QToolButton, QLabel, QLineEdit, QPushButton, QTextEdit, QCheckBox,
-    QGroupBox, QFormLayout, QRadioButton
+    QGroupBox, QFormLayout, QRadioButton, QSpinBox
 )
 from PyQt6.QtGui import QAction, QIcon
 from PyQt6.QtCore import Qt, pyqtSlot, QPointF
@@ -46,6 +46,16 @@ except ImportError:
     FFTDialog = None
     DIALOG_CLASSES_EXIST = False
     logging.warning("Could not import preprocessing dialogs. Preprocessing options may be unavailable.")
+
+try:
+    from ..analysis.peak_fitting import find_max_pixel_in_roi, fit_2d_gaussian_in_roi
+    PEAK_FITTING_AVAILABLE = True
+except ImportError:
+    logging.error("Could not import peak fitting functions.")
+    # Dummy functions if module is missing
+    def find_max_pixel_in_roi(data, center, radius): return center
+    def fit_2d_gaussian_in_roi(data, center, radius): return None
+    PEAK_FITTING_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +97,10 @@ class MainWindow(QMainWindow):
         self.substrate_spot_markers: Optional['pg.ScatterPlotItem'] = None
         self.adsorbate_spot_set_markers: List['pg.ScatterPlotItem'] = []
         self._fft_mouse_click_connection = None
+
+        self.spot_refinement_method: str = "Direct Click" # "Direct Click", "Max Pixel", "Gaussian Fit"
+        self.refinement_roi_size: int = 5 # Domyślny rozmiar obszaru uściślania (średnica)
+
 
         self.setWindowTitle("Lattice Fourier Analyzer (LFA)")
         self.resize(1250, 800)
@@ -233,6 +247,31 @@ class MainWindow(QMainWindow):
         fft_analysis_layout.addWidget(spot_selection_group)
         # --------------------------------
 
+        refinement_group = QGroupBox("Spot Refinement Method")
+        refinement_layout = QVBoxLayout()
+
+        self.rb_refine_direct = QRadioButton("Direct Click (No Refinement)")
+        self.rb_refine_direct.setChecked(True)
+        self.rb_refine_max_pixel = QRadioButton("Max Pixel in Area")
+        self.rb_refine_gaussian = QRadioButton("2D Gaussian Fit")
+
+        refinement_param_layout = QHBoxLayout()
+        refinement_param_layout.addWidget(QLabel("Area Size:"))
+        self.refinement_roi_size_spinbox = QSpinBox()
+        self.refinement_roi_size_spinbox.setMinimum(3) # Musi być nieparzysty i >=3
+        self.refinement_roi_size_spinbox.setMaximum(21)
+        self.refinement_roi_size_spinbox.setSingleStep(2) # Krok 2 dla nieparzystych
+        self.refinement_roi_size_spinbox.setValue(self.refinement_roi_size)
+        refinement_param_layout.addWidget(self.refinement_roi_size_spinbox)
+
+        refinement_layout.addWidget(self.rb_refine_direct)
+        refinement_layout.addWidget(self.rb_refine_max_pixel)
+        refinement_layout.addWidget(self.rb_refine_gaussian)
+        refinement_layout.addLayout(refinement_param_layout)
+        refinement_group.setLayout(refinement_layout)
+        spot_selection_layout.addWidget(refinement_group) # Dodaj do głównego layoutu spot selection
+        # --------------------------------------------------------------------
+
         fft_analysis_layout.addStretch()
         self.fft_analysis_dock.setWidget(fft_analysis_widget)
         self.fft_analysis_dock.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
@@ -263,6 +302,11 @@ class MainWindow(QMainWindow):
         # self.reselect_substrate_spots_button.clicked.connect(self._on_reselect_substrate_spots_clicked)
         self.clear_current_adsorbate_point_button.clicked.connect(self._on_clear_last_adsorbate_point_clicked)
         # ---------------------------------------------------
+        self.rb_refine_direct.toggled.connect(self._on_refinement_setting_changed)
+        self.rb_refine_max_pixel.toggled.connect(self._on_refinement_setting_changed)
+        self.rb_refine_gaussian.toggled.connect(self._on_refinement_setting_changed)
+        self.refinement_roi_size_spinbox.valueChanged.connect(self._on_refinement_setting_changed)
+        # -------------------------------------------------------------------
 
         self._update_action_states()
 
@@ -309,8 +353,6 @@ class MainWindow(QMainWindow):
              self.current_selection_label.setText(f"Mode: {self.spot_selection_mode}")
         if hasattr(self, 'selected_spots_display'):
              self.selected_spots_display.setPlainText("Coordinates will appear here in Phase B.2.3.")
-
-
 
     
     def _clear_history(self):
@@ -575,6 +617,21 @@ class MainWindow(QMainWindow):
             if hasattr(self, 'reselect_adsorbate_set_button'): self.reselect_adsorbate_set_button.setEnabled(False)
             if hasattr(self, 'clear_all_adsorbate_sets_button'): self.clear_all_adsorbate_sets_button.setEnabled(False)
 
+
+    @pyqtSlot()
+    def _on_refinement_setting_changed(self):
+        """Updates refinement method and ROI size based on UI controls."""
+        if self.rb_refine_direct.isChecked():
+            self.spot_refinement_method = "Direct Click"
+        elif self.rb_refine_max_pixel.isChecked():
+            self.spot_refinement_method = "Max Pixel"
+        elif self.rb_refine_gaussian.isChecked():
+            self.spot_refinement_method = "2D Gaussian Fit"
+        
+        if hasattr(self, 'refinement_roi_size_spinbox'): # Sprawdź, czy istnieje
+            self.refinement_roi_size = self.refinement_roi_size_spinbox.value()
+
+        logger.info(f"Spot refinement method set to: {self.spot_refinement_method} with ROI size: {self.refinement_roi_size}")
 
     @pyqtSlot()
     def open_file_dialog(self):
@@ -1431,7 +1488,6 @@ class MainWindow(QMainWindow):
     def _on_fft_view_clicked(self, event): # Python type hint can be more specific if imported
         """
         Handles mouse clicks on the FFT image for spot selection.
-        Phase B.2.1: Converts click coordinates to original FFT data coordinates and logs them.
         """
         # if not PYQTGRAPH_AVAILABLE:
         #     logger.warning("Ignoring click: pyqtgraph not available.")
@@ -1494,11 +1550,53 @@ class MainWindow(QMainWindow):
                          f"is outside original FFT data bounds ({fft_data_cols_kx}, {fft_data_rows_ky}). "
                          f"Displayed click was (col:{pos_data.x():.1f}, row:{pos_data.y():.1f})")
             return
+        
+        kx_raw_int = int(round(pos_data.x()))
+        ky_raw_int = int(round(pos_data.y()))
 
-        final_point_kx_ky = (int(kx_original_fft_coord), int(ky_original_fft_coord))
-        logger.info(f"FFT image clicked. Mapped to original FFT data coords (kx, ky): {final_point_kx_ky}. "
-                    f"Current selection mode: {self.spot_selection_mode}")
+        # --- LOGIKA UŚCIŚLANIA (Faza B.3.2) ---
+        # Dane do uściślania - użyj modułu FFT zapisanego w historii (przeskalowanego)
+        # Idealnie byłoby użyć surowego modułu, ale na razie użyjmy tego, co mamy.
+        fft_magnitude_to_refine = original_fft_data # To są dane modułu po skalowaniu log/lin/etc.
+                                                    # Dla lepszego wyniku, powinniśmy przekazać surowy moduł
+                                                    # np. np.abs(self.history[current_node.parent_id].image_data)
+                                                    # jeśli rodzic był zespolonym FFT.
+                                                    # Na razie zostawmy to, co jest, dla prostoty.
 
+        center_yx_original_fft = (ky_raw_int, kx_raw_int) # (wiersz, kolumna) w oryginalnym FFT
+        print(f"center_yx_original_fft: {center_yx_original_fft}")
+        refined_kx = kx_raw_int
+        refined_ky = ky_raw_int
+        refinement_radius = self.refinement_roi_size // 2 # Zawsze nieparzysty rozmiar, więc promień jest int
+
+        if self.spot_refinement_method == "Max Pixel":
+            if PEAK_FITTING_AVAILABLE:
+                refined_ky_temp, refined_kx_temp = find_max_pixel_in_roi(
+                    fft_magnitude_to_refine, center_yx_original_fft, refinement_radius
+                )
+                refined_kx, refined_ky = int(refined_kx_temp), int(refined_ky_temp)
+                logger.info(f"Max Pixel refined: ({kx_raw_int},{ky_raw_int}) -> ({refined_kx},{refined_ky})")
+            else:
+                logger.warning("Peak fitting (Max Pixel) backend not available.")
+        elif self.spot_refinement_method == "2D Gaussian Fit":
+            print(f"2D Gaussian Fit selected")
+            if PEAK_FITTING_AVAILABLE:
+                fit_result = fit_2d_gaussian_in_roi(
+                    fft_magnitude_to_refine, center_yx_original_fft, refinement_radius
+                )
+                if fit_result:
+                    refined_ky_float, refined_kx_float = fit_result
+                    # Dla list przechowujemy inty, ale można by floaty, jeśli potrzebna subpikselowa
+                    refined_kx, refined_ky = int(round(refined_kx_float)), int(round(refined_ky_float))
+                    logger.info(f"2D Gaussian Fit refined: ({kx_raw_int},{ky_raw_int}) -> ({refined_kx:.2f},{refined_ky:.2f})")
+                else:
+                    logger.warning("2D Gaussian Fit failed, using raw click position.")
+            else:
+                logger.warning("Peak fitting (Gaussian) backend or SciPy not available.")
+        # else "Direct Click" - używamy kx_raw_int, ky_raw_int
+
+        final_point_kx_ky = (refined_kx, refined_ky)
+        # -------------------------------------------
         # --- LOGIKA DODAWANIA PUNKTÓW (Faza B.2.2) ---
         if self.spot_selection_mode == "Substrate":
             # Ustalmy maksymalną liczbę punktów podłoża, np. 8
@@ -1531,7 +1629,7 @@ class MainWindow(QMainWindow):
         self._update_spot_markers()           # Aktualizuj markery (Faza B.2.5)
         self._update_action_states()          # Aktualizuj stan przycisków
 
-        event.accept() # Consume the event
+        if hasattr(event, 'accept'): event.accept()
 
 
     # --- Placeholder Slots dla Przycisków Czyszczenia (Faza B.2.4) ---
