@@ -93,7 +93,34 @@ class MetadataWidget(QWidget):
 
     def update_metadata(self, node: Optional['HistoryNode'], history: Dict[str, 'HistoryNode']):
         """Updates the labels with information from the given node and history."""
-        if node is None or history is None or HistoryNode is None:
+        # --- POCZĄTEK ZMIANY ---
+        history_dict: Optional[Dict[str, HistoryNode]] = None
+        root_node: Optional[HistoryNode] = None
+
+        if isinstance(history, dict): # Dla kompatybilności wstecznej lub testów
+            history_dict = history
+            # W tym przypadku musielibyśmy ręcznie szukać korzenia, jeśli 'node' nie jest nim
+            if node:
+                temp_node = node
+                visited = {node.node_id}
+                for _ in range(100):
+                    if not temp_node.parent_id or temp_node.parent_id not in history_dict or temp_node.parent_id in visited:
+                        root_node = temp_node
+                        break
+                    visited.add(temp_node.parent_id)
+                    temp_node = history_dict[temp_node.parent_id]
+                if not root_node: root_node = temp_node # Fallback
+        else: # Zakładamy, że to obiekt HistoryManager
+            # Użyj asercji typu lub sprawdzania typu, jeśli chcesz być bardziej rygorystyczny
+            # from .history_manager import HistoryManager # Unikaj importu wewnątrz metody, jeśli to możliwe
+            # if isinstance(history_manager_or_dict, HistoryManager):
+            history_mgr = history # Zmień nazwę dla jasności
+            if node and history_mgr: # Upewnij się, że history_mgr nie jest None
+                 root_node = history_mgr.get_root_node_for_node(node.node_id)
+                 history_dict = history_mgr.history # Pobierz słownik historii z managera
+            # else: # Jeśli node lub history_mgr to None, root_node i history_dict pozostaną None
+
+        if node is None or history_dict is None: # Sprawdź też history_dict
             self.clear_labels()
             return
 
@@ -126,18 +153,8 @@ class MetadataWidget(QWidget):
         self.node_params_label.setText(param_str)
 
 
-        # --- Find Root Node and Display Original Metadata ---
-        root_node = node
-        visited = {node.node_id}
-        # Iterate max 100 steps back to prevent infinite loop on error
-        for _ in range(100):
-            if not root_node.parent_id or root_node.parent_id not in history or root_node.parent_id in visited:
-                break # Reached root or cycle or missing parent
-            visited.add(root_node.parent_id)
-            root_node = history[root_node.parent_id]
-
-        if root_node.operation_name == "Original":
-            orig_params = root_node.parameters # Metadata stored here
+        if root_node and root_node.operation_name == "Original": # Sprawdź, czy znaleziony korzeń to "Original"
+            orig_params = root_node.parameters # Metadata oryginalnego pliku jest w parametrach węzła "Original"
             self.filename_label.setText(orig_params.get("filename", "-"))
             px_x = orig_params.get("pixels_x", 0); px_y = orig_params.get("pixels_y", 0)
             self.orig_dims_px_label.setText(f"{px_x} x {px_y}" if px_x and px_y else "-")
@@ -146,14 +163,14 @@ class MetadataWidget(QWidget):
             bias = orig_params.get("bias_v", None)
             self.orig_bias_label.setText(f"{bias:.4f}" if bias is not None else "-")
             setpoint = orig_params.get("setpoint_a", None)
-            self.orig_setpoint_label.setText(f"{setpoint:.3e}" if setpoint is not None else "-")
+            self.orig_setpoint_label.setText(f"{setpoint:.3e}" if setpoint is not None else "-") # Format naukowy dla prądu
             angle = orig_params.get("scan_angle_deg", None)
             self.orig_angle_label.setText(f"{angle:.1f}" if angle is not None else "-")
         else:
-            # Could not find root node? Clear original info
-            logger.warning(f"Could not trace back to root node from node {node.node_id}")
+            logger.warning(f"Could not trace back to a valid 'Original' root node from node {node.node_id if node else 'None'}. Root found: {root_node.operation_name if root_node else 'None'}")
             self.filename_label.setText("?")
             self.orig_dims_px_label.setText("?")
+            # ... (wyczyść resztę etykiet oryginalnych danych) ...
             self.orig_dims_nm_label.setText("?")
             self.orig_bias_label.setText("?")
             self.orig_setpoint_label.setText("?")

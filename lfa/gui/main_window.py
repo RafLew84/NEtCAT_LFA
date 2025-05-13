@@ -30,6 +30,7 @@ from ..core.data_models import STMImage
 from ..io.factory import load_stm_file
 from ..core.history import HistoryNode
 from .widgets.metadata_widget import MetadataWidget
+from .history_manager import HistoryManager
 
 try:
     from .preprocessing_dialogs import (GaussianBlurDialog, PlaneLevelingDialog, 
@@ -80,8 +81,6 @@ class MainWindow(QMainWindow):
         super().__init__(parent)
 
         # --- History Management ---
-        self.history: Dict[str, HistoryNode] = {}
-        self.current_node_id: Optional[str] = None
         self.original_file_path: Optional[str] = None
 
         # --- Spot Selection Attributes ---
@@ -117,6 +116,11 @@ class MainWindow(QMainWindow):
         self.history_list_widget.currentItemChanged.connect(self.on_history_selection_changed)
         self.history_list_widget.setMaximumWidth(250)
         splitter.addWidget(self.history_list_widget)
+
+        # Utwórz instancję HistoryManager
+        self.history_manager = HistoryManager(self.history_list_widget, self)
+        # Podłącz sygnał z HistoryManager do nowego slotu w MainWindow
+        self.history_manager.current_node_changed.connect(self._on_current_history_node_changed)
 
         # --- Image View Widget (Right Panel) ---
         image_view_container = QWidget()
@@ -336,76 +340,12 @@ class MainWindow(QMainWindow):
             self.current_adsorbate_preview_markers = None
         logger.debug("Cleared all user-selected spot markers from view.")
 
-    # def _update_spot_markers(self):
-    #     logger.debug("_update_spot_markers called (Phase B.2.5 - currently a placeholder).")
-    #     # W Fazie B.2.5 tutaj będzie logika rysowania markerów
-    #     # Na razie upewnijmy się, że czyści stare markery, jeśli to nie jest FFT
-    #     if self.current_node_id and self.current_node_id in self.history:
-    #         if self.history[self.current_node_id].data_type != "FFT":
-    #             if hasattr(self, 'image_view') and self.image_view:
-    #                 self._clear_all_spot_markers_from_view(self.image_view.getView())
-    #     elif hasattr(self, 'image_view') and self.image_view: # No current node
-    #          self._clear_all_spot_markers_from_view(self.image_view.getView())
-
     def _update_selected_spots_display(self):
         logger.debug("_update_selected_spots_display called (Phase B.2.3 - currently a placeholder).")
         if hasattr(self, 'current_selection_label'):
              self.current_selection_label.setText(f"Mode: {self.spot_selection_mode}")
         if hasattr(self, 'selected_spots_display'):
              self.selected_spots_display.setPlainText("Coordinates will appear here in Phase B.2.3.")
-
-    
-    def _clear_history(self):
-        """Clears the history tree and list widget."""
-        self.history.clear()
-        self.current_node_id = None
-        self.history_list_widget.clear()
-        if self.image_view:
-            self.image_view.clear()
-        logger.info("History cleared.")
-        self._update_action_states()
-    
-    def _add_history_node(self, node: HistoryNode):
-        """Adds a node to the history dict and the list widget."""
-        if not node or not node.node_id:
-            return
-        self.history[node.node_id] = node
-        item = QListWidgetItem(node.get_display_text())
-        item.setData(Qt.ItemDataRole.UserRole, node.node_id)
-        self.history_list_widget.addItem(item)
-        logger.debug(f"Added history node: {node.get_display_text()} (ID: {node.node_id})")
-        return item
-    
-    def _set_current_node(self, node_id: Optional[str]):
-        """Sets the current node ID and updates selection in the list."""
-        if node_id not in self.history and node_id is not None:
-            logger.error(f"Cannot set current node: ID {node_id} not found in history.")
-            return
-
-        self.current_node_id = node_id
-        print(f"Current history node set to: {node_id}")
-        logger.info(f"Current history node set to: {node_id}")
-
-        self.history_list_widget.blockSignals(True)
-        found_item = None
-        for i in range(self.history_list_widget.count()):
-            item = self.history_list_widget.item(i)
-            if item.data(Qt.ItemDataRole.UserRole) == node_id:
-                item.setSelected(True)
-                self.history_list_widget.setCurrentItem(item)
-                found_item = item
-                break
-        if not found_item and self.history_list_widget.count() > 0:
-            pass
-        self.history_list_widget.blockSignals(False)
-
-        self.display_image_data()
-        current_node_obj = self.history.get(self.current_node_id)
-        # self.metadata_widget.update_metadata(current_node_obj, self.history)
-
-        if self.metadata_widget: 
-            self.metadata_widget.update_metadata(current_node_obj, self.history)
-        self._update_action_states()
 
     def _update_spot_markers(self):
         """Clears and redraws all selected spot markers based on checkbox visibility."""
@@ -559,19 +499,14 @@ class MainWindow(QMainWindow):
     
     def _update_action_states(self):
         """Enables/disables actions based on the current state."""
-        has_node = self.current_node_id is not None and self.current_node_id in self.history
+        current_node = self.history_manager.get_current_node()
+        has_node = current_node is not None
         is_stm_data = False
         is_fft_data = False
         if has_node:
-             current_node_data_type = self.history[self.current_node_id].data_type
+             current_node_data_type = current_node.data_type
              is_stm_data = (current_node_data_type == "STM")
              is_fft_data = (current_node_data_type == "FFT")
-        # self.gaussian_blur_action.setEnabled(has_node)
-        # self.plane_level_action.setEnabled(has_node)
-        # self.median_filter_action.setEnabled(has_node)
-        # self.nlmeans_action.setEnabled(has_node)
-        # self.bm3d_action.setEnabled(has_node)
-        # self.gaussian_sharpen_action.setEnabled(has_node)
 
         if hasattr(self, 'gaussian_blur_action'): self.gaussian_blur_action.setEnabled(has_node)
         if hasattr(self, 'plane_level_action'): self.plane_level_action.setEnabled(has_node)
@@ -584,8 +519,6 @@ class MainWindow(QMainWindow):
         if hasattr(self, 'fft_action'): self.fft_action.setEnabled(has_node)
 
         if hasattr(self, 'fft_analysis_dock'): self.fft_analysis_dock.setVisible(is_fft_data)
-        # if hasattr(self, 'lattice_toolbar'): self.lattice_toolbar.setVisible(is_fft_data)
-               # Aktywność przycisków w fft_analysis_dock
         if is_fft_data:
             # Przyciski czyszczenia dla podłoża
             can_clear_substrate = self.spot_selection_mode == "Substrate" and bool(self.substrate_spots)
@@ -617,6 +550,26 @@ class MainWindow(QMainWindow):
             if hasattr(self, 'reselect_adsorbate_set_button'): self.reselect_adsorbate_set_button.setEnabled(False)
             if hasattr(self, 'clear_all_adsorbate_sets_button'): self.clear_all_adsorbate_sets_button.setEnabled(False)
 
+    @pyqtSlot(object) # Sygnał z HistoryManager przekazuje HistoryNode lub None
+    def _on_current_history_node_changed(self, current_node: Optional[HistoryNode]):
+        """
+        Slot called when the current node in HistoryManager changes.
+        Updates the UI elements that depend on the current history state.
+        """
+        logger.debug(f"MainWindow: Slot _on_current_history_node_changed received node: {current_node.node_id if current_node else 'None'}")
+        
+        # 1. Zaktualizuj wyświetlanie obrazu
+        #    Metoda display_image_data będzie musiała zostać zmodyfikowana, aby pobierać
+        #    dane z self.history_manager.get_current_node()
+        self.display_image_data() 
+
+        # 2. Zaktualizuj widget metadanych
+        #    Przekazujemy teraz słownik historii z HistoryManager
+        if self.metadata_widget and self.history_manager:
+            self.metadata_widget.update_metadata(current_node, self.history_manager)
+
+        # 3. Zaktualizuj stan akcji w menu/toolbarach
+        self._update_action_states()
 
     @pyqtSlot()
     def _on_refinement_setting_changed(self):
@@ -638,10 +591,8 @@ class MainWindow(QMainWindow):
         logger.debug("Open file dialog triggered.")
         file_filter = "STM Files (*.stp *.s94);;All Files (*)"
         start_dir = ""
-        if self.current_node_id and self.current_node_id in self.history:
-            curr = self.history[self.current_node_id]
-            while curr.parent_id and curr.parent_id in self.history:
-                curr = self.history[curr.parent_id]
+        current_active_node = self.history_manager.get_current_node()
+        if current_active_node:
             try:
                 if hasattr(self, 'original_file_path') and self.original_file_path:
                     start_dir = os.path.dirname(self.original_file_path)
@@ -661,7 +612,7 @@ class MainWindow(QMainWindow):
 
             if stm_image_obj and stm_image_obj.data is not None:
                 self.original_file_path = file_path
-                self._clear_history()
+                self.history_manager.clear_history()
 
                 root_params = {
                     "filename": os.path.basename(file_path),
@@ -683,15 +634,14 @@ class MainWindow(QMainWindow):
                     parameters=root_params,
                     data_type="STM"
                 )
-                root_item = self._add_history_node(root_node)
-                self._set_current_node(root_node.node_id)
-                # self.history_list_widget.setCurrentItem(root_item)
+                root_item = self.history_manager.add_node(root_node)
+                self.history_manager.set_current_node_by_id(root_node.node_id)
 
                 logger.info("File loaded successfully and history initialized.")
                 self.statusBar().showMessage(f"Loaded: {os.path.basename(file_path)}", 5000)
                 self.setWindowTitle(f"LFA - {os.path.basename(file_path)}")
             else:
-                self._clear_history()
+                self.history_manager.clear_history()
                 self.statusBar().showMessage("Failed to load file.", 5000)
                 QMessageBox.warning(self, "Loading Error", f"Could not load file: {file_path}")
                 self.setWindowTitle("Lattice Fourier Analyzer (LFA)")
@@ -703,7 +653,8 @@ class MainWindow(QMainWindow):
     @pyqtSlot(str)
     def on_substrate_combo_changed(self, selected_text: str): # text jest opcjonalny
         """Slot to refresh lattice overlay when substrate or visibility changes."""
-        if self.current_node_id and self.history[self.current_node_id].data_type == "FFT":
+        current_node = self.history_manager.get_current_node() # Użyj HistoryManager
+        if current_node and current_node.data_type == "FFT":
             self.display_image_data() # display_image_data teraz obsługuje rysowanie/ukrywanie nakładki
         logger.debug("Substrate overlay settings changed.")
         if selected_text == self.custom_option_text:
@@ -862,7 +813,8 @@ class MainWindow(QMainWindow):
         logger.info("--- open_fft_dialog slot entered ---")
 
         # --- Pre-checks ---
-        if self.current_node_id is None or self.current_node_id not in self.history:
+        current_node = self.history_manager.get_current_node() # Pobierz aktualny węzeł
+        if current_node is None: # Sprawdź, czy węzeł istnieje
             logger.warning("open_fft_dialog: No current node selected.")
             QMessageBox.warning(self, "No Image", "No data loaded or selected in history.")
             return
@@ -872,9 +824,8 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Error", "FFTDialog class not available. Check imports and file.")
             return
 
-        current_node = self.history[self.current_node_id]
         if current_node.image_data is None:
-            logger.error(f"open_fft_dialog: Image data missing for node {self.current_node_id}.")
+            logger.error(f"open_fft_dialog: Image data missing for node {self.history_manager.current_node_id}.")
             QMessageBox.critical(self, "Internal Error", "No image data in the current history node.")
             return
         # ------------------
@@ -899,7 +850,7 @@ class MainWindow(QMainWindow):
 
                 # Create the new history node for the FFT result
                 new_node = HistoryNode(
-                    parent_id=self.current_node_id,
+                    parent_id=self.history_manager.current_node_id,
                     operation_name="FFT",
                     parameters=params, # Store window type, scaling mode, roi checkbox state
                     image_data=processed_fft_data, # Store the scaled magnitude (float)
@@ -908,8 +859,8 @@ class MainWindow(QMainWindow):
                 )
 
                 # Add node to history and update UI
-                new_item = self._add_history_node(new_node)
-                self._set_current_node(new_node.node_id)
+                new_item = self.history_manager.add_node(new_node)
+                self.history_manager.set_current_node_by_id(new_node.node_id)
                 self.history_list_widget.setCurrentItem(new_item)
                 display_name = new_node.get_display_text() # Should include "(FFT)" and "(from ROI)"
                 self.statusBar().showMessage(f"{display_name} calculated.", 3000)
@@ -926,11 +877,16 @@ class MainWindow(QMainWindow):
     @pyqtSlot()
     def open_gaussian_sharpening_dialog(self):
         """Opens the dialog for applying Gaussian Sharpening."""
-        if self.current_node_id is None or self.current_node_id not in self.history: QMessageBox.warning(self, "No Image", "..."); return
-        if not GaussianSharpeningDialog: QMessageBox.critical(self, "Error", "GaussianSharpeningDialog not available."); return
+        current_node = self.history_manager.get_current_node() # Pobierz aktualny węzeł
+        if current_node is None: # Sprawdź, czy węzeł istnieje
+            QMessageBox.warning(self, "No Image", "...")
+            return
+        if not GaussianSharpeningDialog: 
+            QMessageBox.critical(self, "Error", "GaussianSharpeningDialog not available.")
+            return
 
-        current_node = self.history[self.current_node_id]
-        if current_node.image_data is None: QMessageBox.critical(self, "Internal Error", "..."); return
+        if current_node.image_data is None: 
+            QMessageBox.critical(self, "Internal Error", "..."); return
         dialog_input_data = current_node.image_data.copy()
 
         logger.info(f"Opening Gaussian Sharpening dialog based on node: {current_node.get_display_text()}")
@@ -954,16 +910,15 @@ class MainWindow(QMainWindow):
                     final_roi_slice = dialog.get_final_roi_slice()
                 
                 new_node = HistoryNode(
-                    parent_id=self.current_node_id,
+                    parent_id=self.history_manager.current_node_id,
                     operation_name=op_name,
                     parameters=params,
                     image_data=processed_data,
                     data_type=parent_data_type,
                     source_roi_slice=final_roi_slice
                 )
-                new_item = self._add_history_node(new_node)
-                self._set_current_node(new_node.node_id)
-                self.history_list_widget.setCurrentItem(new_item)
+                self.history_manager.add_node(new_node)
+                self.history_manager.set_current_node_by_id(new_node.node_id)
                 display_name = new_node.get_display_text()
                 self.statusBar().showMessage(f"{display_name} applied.", 3000)
             else: logger.warning("Dialog accepted, but no processed data returned.")
@@ -973,14 +928,19 @@ class MainWindow(QMainWindow):
     @pyqtSlot()
     def open_bm3d_dialog(self):
         """Opens the dialog for applying BM3D Denoising."""
-        if self.current_node_id is None or self.current_node_id not in self.history: QMessageBox.warning(self, "No Image", "..."); return
+        current_node = self.history_manager.get_current_node() # Pobierz aktualny węzeł
+        if current_node is None: # Sprawdź, czy węzeł istnieje
+            QMessageBox.warning(self, "No Image", "...")
+            return
         if not BM3DDialog: QMessageBox.critical(self, "Error", "BM3DDialog not available."); return
         try: import bm3d
-        except ImportError: QMessageBox.critical(self, "Missing Dependency", "The 'bm3d' package is required for this feature.\nPlease install it (pip install bm3d)."); return
+        except ImportError: 
+            QMessageBox.critical(self, "Missing Dependency", "The 'bm3d' package is required for this feature.\nPlease install it (pip install bm3d).")
+            return
 
-
-        current_node = self.history[self.current_node_id]
-        if current_node.image_data is None: QMessageBox.critical(self, "Internal Error", "..."); return
+        if current_node.image_data is None: 
+            QMessageBox.critical(self, "Internal Error", "...")
+            return
         dialog_input_data = current_node.image_data.copy()
 
         logger.info(f"Opening BM3D dialog based on node: {current_node.get_display_text()}")
@@ -1010,16 +970,15 @@ class MainWindow(QMainWindow):
                     final_roi_slice = dialog.get_final_roi_slice()
                 
                 new_node = HistoryNode(
-                    parent_id=self.current_node_id,
+                    parent_id=self.history_manager.current_node_id,
                     operation_name=op_name,
                     parameters=params,
                     image_data=processed_data,
                     data_type=parent_data_type,
                     source_roi_slice=final_roi_slice
                 )
-                new_item = self._add_history_node(new_node)
-                self._set_current_node(new_node.node_id)
-                self.history_list_widget.setCurrentItem(new_item)
+                self.history_manager.add_node(new_node)
+                self.history_manager.set_current_node_by_id(new_node.node_id)
                 display_name = new_node.get_display_text()
                 self.statusBar().showMessage(f"{display_name} applied.", 3000)
             else: logger.warning("Dialog accepted, but no processed data returned.")
@@ -1036,10 +995,14 @@ class MainWindow(QMainWindow):
     @pyqtSlot()
     def open_nlmeans_dialog(self):
         """Opens the dialog for applying NL-Means Denoising."""
-        if self.current_node_id is None or self.current_node_id not in self.history: QMessageBox.warning(self, "No Image", "..."); return
-        if not NLMeansDialog: QMessageBox.critical(self, "Error", "NLMeansDialog not available."); return
+        current_node = self.history_manager.get_current_node() # Pobierz aktualny węzeł
+        if current_node is None: # Sprawdź, czy węzeł istnieje
+            QMessageBox.warning(self, "No Image", "...")
+            return
+        if not NLMeansDialog: 
+            QMessageBox.critical(self, "Error", "NLMeansDialog not available.")
+            return
 
-        current_node = self.history[self.current_node_id]
         if current_node.image_data is None: QMessageBox.critical(self, "Internal Error", "..."); return
         dialog_input_data = current_node.image_data.copy()
 
@@ -1065,16 +1028,15 @@ class MainWindow(QMainWindow):
                     final_roi_slice = dialog.get_final_roi_slice()
                 
                 new_node = HistoryNode(
-                    parent_id=self.current_node_id,
+                    parent_id=self.history_manager.current_node_id,
                     operation_name=op_name,
                     parameters=params,
                     image_data=processed_data,
                     data_type=parent_data_type,
                     source_roi_slice=final_roi_slice
                 )
-                new_item = self._add_history_node(new_node)
-                self._set_current_node(new_node.node_id)
-                self.history_list_widget.setCurrentItem(new_item)
+                self.history_manager.add_node(new_node)
+                self.history_manager.set_current_node_by_id(new_node.node_id)
                 display_name = new_node.get_display_text()
                 self.statusBar().showMessage(f"{display_name} applied.", 3000)
             else: logger.warning("Dialog accepted, but no processed data returned.")
@@ -1084,10 +1046,14 @@ class MainWindow(QMainWindow):
     @pyqtSlot()
     def open_median_filter_dialog(self):
         """Opens the dialog for applying Median Filter."""
-        if self.current_node_id is None or self.current_node_id not in self.history: QMessageBox.warning(self, "No Image", "..."); return
-        if not MedianFilterDialog: QMessageBox.critical(self, "Error", "MedianFilterDialog not available."); return
+        current_node = self.history_manager.get_current_node() # Pobierz aktualny węzeł
+        if current_node is None: # Sprawdź, czy węzeł istnieje
+            QMessageBox.warning(self, "No Image", "...")
+            return
+        if not MedianFilterDialog: 
+            QMessageBox.critical(self, "Error", "MedianFilterDialog not available.")
+            return
 
-        current_node = self.history[self.current_node_id]
         if current_node.image_data is None: QMessageBox.critical(self, "Internal Error", "..."); return
         dialog_input_data = current_node.image_data.copy()
 
@@ -1115,16 +1081,15 @@ class MainWindow(QMainWindow):
                     final_roi_slice = dialog.get_final_roi_slice()
                 
                 new_node = HistoryNode(
-                    parent_id=self.current_node_id,
+                    parent_id=self.history_manager.current_node_id,
                     operation_name=op_name,
                     parameters=params,
                     image_data=processed_data,
                     data_type=parent_data_type, 
                     source_roi_slice=final_roi_slice
                 )
-                new_item = self._add_history_node(new_node)
-                self._set_current_node(new_node.node_id)
-                self.history_list_widget.setCurrentItem(new_item)
+                self.history_manager.add_node(new_node)
+                self.history_manager.set_current_node_by_id(new_node.node_id)
                 display_name = new_node.get_display_text() 
                 self.statusBar().showMessage(f"{display_name} applied.", 3000)
             else: logger.warning("Dialog accepted, but no processed data returned.")
@@ -1134,11 +1099,17 @@ class MainWindow(QMainWindow):
     @pyqtSlot()
     def open_plane_leveling_dialog(self):
         """Opens the dialog for applying Plane Leveling."""
-        if self.current_node_id is None or self.current_node_id not in self.history: QMessageBox.warning(self, "No Image", "..."); return
-        if not PlaneLevelingDialog: QMessageBox.critical(self, "Error", "PlaneLevelingDialog not available."); return
+        current_node = self.history_manager.get_current_node() # Pobierz aktualny węzeł
+        if current_node is None: # Sprawdź, czy węzeł istnieje
+            QMessageBox.warning(self, "No Image", "...")
+            return
+        if not PlaneLevelingDialog: 
+            QMessageBox.critical(self, "Error", "PlaneLevelingDialog not available.")
+            return
 
-        current_node = self.history[self.current_node_id]
-        if current_node.image_data is None: QMessageBox.critical(self, "Internal Error", "..."); return
+        if current_node.image_data is None: 
+            QMessageBox.critical(self, "Internal Error", "...")
+            return
         dialog_input_data = current_node.image_data.copy()
 
         logger.info(f"Opening Plane Leveling dialog based on node: {current_node.get_display_text()}")
@@ -1163,16 +1134,15 @@ class MainWindow(QMainWindow):
                     final_roi_slice = dialog.get_final_roi_slice()
                 
                 new_node = HistoryNode(
-                    parent_id=self.current_node_id,
+                    parent_id=self.history_manager.current_node_id,
                     operation_name=op_name,
                     parameters=params,
                     image_data=processed_data,
                     data_type=parent_data_type, 
                     source_roi_slice=final_roi_slice
                 )
-                new_item = self._add_history_node(new_node)
-                self._set_current_node(new_node.node_id)
-                self.history_list_widget.setCurrentItem(new_item)
+                self.history_manager.add_node(new_node)
+                self.history_manager.set_current_node_by_id(new_node.node_id)
                 display_name = new_node.get_display_text() 
                 self.statusBar().showMessage(f"{display_name} applied.", 3000)
             else: logger.warning("Dialog accepted, but no processed data returned.")
@@ -1184,9 +1154,9 @@ class MainWindow(QMainWindow):
         """Slot called when the selection in the history list changes."""
         if current_item:
             node_id = current_item.data(Qt.ItemDataRole.UserRole)
-            if node_id != self.current_node_id:
-                logger.info(f"History item selected: {current_item.text()}")
-                self._set_current_node(node_id)
+            if self.history_manager and node_id != self.history_manager.current_node_id: # Dodatkowy warunek, aby uniknąć zbędnych wywołań
+                logger.info(f"MainWindow: History item selected: {current_item.text()}, delegating to HistoryManager.")
+                self.history_manager.set_current_node_by_id(node_id, emit_signal=True)
 
     @pyqtSlot()
     def show_about_dialog(self):
@@ -1204,14 +1174,14 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def open_gaussian_blur_dialog(self):
-        if self.current_node_id is None or self.current_node_id not in self.history:
+        current_node = self.history_manager.get_current_node() # Pobierz aktualny węzeł
+        if current_node is None: # Sprawdź, czy węzeł istnieje
             QMessageBox.warning(self, "No Image", "Please load an image first.")
             return
         if not GaussianBlurDialog:
             QMessageBox.critical(self, "Error", "Gaussian Blur functionality is not available.")
             return
-        print(f"Gaussian Blur: Current node ID: {self.current_node_id}")
-        current_node = self.history[self.current_node_id]
+        print(f"Gaussian Blur: Current node ID: {current_node.node_id}")
         if current_node.image_data is None:
             QMessageBox.critical(self, "Internal Error", "No image data available.")
             return
@@ -1244,16 +1214,15 @@ class MainWindow(QMainWindow):
                     final_roi_slice = dialog.get_final_roi_slice()
                 
                 new_node = HistoryNode(
-                    parent_id=self.current_node_id,
+                    parent_id=self.history_manager.current_node_id,
                     operation_name=op_name,
                     parameters=params,
                     image_data=processed_data,
                     data_type=parent_data_type, 
                     source_roi_slice=final_roi_slice
                 )
-                new_item = self._add_history_node(new_node)
-                self._set_current_node(new_node.node_id)
-                self.history_list_widget.setCurrentItem(new_item)
+                self.history_manager.add_node(new_node)
+                self.history_manager.set_current_node_by_id(new_node.node_id)
                 display_name = new_node.get_display_text()
                 self.statusBar().showMessage(f"{display_name} applied.", 3000)
             else:
@@ -1309,22 +1278,13 @@ class MainWindow(QMainWindow):
                 logger.debug("Could not disconnect FFT mouse click (normal if not previously connected).")
             self._fft_mouse_click_connection = None
 
-        # Note: Selected spot markers are handled by _update_spot_markers()
-
-        # --- Set Default UI State for Non-FFT / No Node ---
-        # Toolbars/Docks specific to FFT analysis should be hidden by default
-        # Their visibility will be updated by _update_action_states later if an FFT node is active
-        # if hasattr(self, 'lattice_toolbar'):
-        #     self.lattice_toolbar.setVisible(False)
-        # The fft_analysis_dock visibility is managed by _update_action_states and _set_current_node
-
         # --- Process Current Node ---
-        if self.current_node_id and self.current_node_id in self.history:
-            node_to_display = self.history[self.current_node_id]
+        node_to_display = self.history_manager.get_current_node()
+        if node_to_display:
             display_data = node_to_display.image_data # This is float32 (STM or scaled FFT)
 
             if display_data is not None:
-                node_info = (f"Node: {self.current_node_id[:8]}... "
+                node_info = (f"Node: {self.history_manager.current_node_id[:8]}... "
                              f"Desc: {node_to_display.get_display_text()} "
                              f"(Type: {node_to_display.data_type}, Shape: {display_data.shape})")
                 logger.info(f"Displaying {node_info}")
@@ -1401,10 +1361,10 @@ class MainWindow(QMainWindow):
                                 root_node = node_to_display
                                 visited = {node_to_display.node_id}
                                 for _ in range(100): # Safety break for deep histories
-                                    if not root_node.parent_id or root_node.parent_id not in self.history or root_node.parent_id in visited:
+                                    if not root_node.parent_id or root_node.parent_id not in self.history_manager.history or root_node.parent_id in visited:
                                         break
                                     visited.add(root_node.parent_id)
-                                    root_node = self.history[root_node.parent_id]
+                                    root_node = self.history_manager.history[root_node.parent_id]
 
                                 if root_node.operation_name == "Original":
                                     orig_params = root_node.parameters
@@ -1465,11 +1425,11 @@ class MainWindow(QMainWindow):
 
                 except Exception as e:
                     logger.exception(f"Error setting image or overlays in MainWindow: {e}")
-                    QMessageBox.critical(self, "Display Error", f"Could not display image data for node {self.current_node_id}.\nError: {e}")
+                    QMessageBox.critical(self, "Display Error", f"Could not display image data for node {self.history_manager.current_node_id}.\nError: {e}")
                     self.image_view.clear() # Clear view on error
             else:
                 # Data in node is None
-                logger.error(f"No image data found for selected history node {self.current_node_id}!")
+                logger.error(f"No image data found for selected history node {self.history_manager.current_node_id}!")
                 self.image_view.clear()
                 self.statusBar().showMessage(f"Error: Image data missing for selected state.", 5000)
         else:
@@ -1499,9 +1459,8 @@ class MainWindow(QMainWindow):
             return
 
         # Only process if current node is FFT
-        if not (self.current_node_id and
-                self.current_node_id in self.history and
-                self.history[self.current_node_id].data_type == "FFT"):
+        current_node = self.history_manager.get_current_node() # Użyj HistoryManager
+        if current_node and current_node.data_type != "FFT":
             logger.debug("_on_fft_view_clicked: Not an FFT image currently displayed, ignoring click.")
             return
 
@@ -1537,7 +1496,7 @@ class MainWindow(QMainWindow):
         ky_original_fft_coord = round(pos_data.y())
 
         # Validate coordinates against the *original* FFT data dimensions (before transpose)
-        original_fft_data = self.history[self.current_node_id].image_data
+        original_fft_data = current_node.image_data
         if original_fft_data is None:
             logger.error("_on_fft_view_clicked: Original FFT data is None in history node.")
             return
@@ -1671,10 +1630,6 @@ class MainWindow(QMainWindow):
             self._update_action_states() # Zaktualizuj status np. przycisku "Clear"
         else:
             logger.debug("Not in Substrate selection mode. 'Reselect Substrate' ignored.")
-
-
-
-
 
     def closeEvent(self, event):
         """Handle the event when the user tries to close the window."""

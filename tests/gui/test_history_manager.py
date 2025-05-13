@@ -1,0 +1,136 @@
+# tests/gui/test_history_manager.py
+import pytest
+import logging
+from PyQt6.QtWidgets import QListWidget, QListWidgetItem
+from PyQt6.QtCore import Qt, pyqtSignal, pyqtSlot
+# from PyQt6.QtCore import QSignalSpy # Do testowania sygnałów
+
+# Import klas do testowania i pomocniczych
+# Dostosuj ścieżki importu, jeśli HistoryManager jest w innym miejscu (np. lfa.logic)
+try:
+    from lfa.gui.history_manager import HistoryManager
+    from lfa.core.history import HistoryNode
+except ImportError as e:
+    pytest.fail(f"Could not import HistoryManager or HistoryNode: {e}", pytrace=False)
+
+# Fixtury dla pytest-qt (automatycznie dostępne, jeśli pytest-qt jest zainstalowany)
+# qtbot: do interakcji z widgetami Qt
+
+# --- Fixtures ---
+
+@pytest.fixture
+def list_widget(qtbot) -> QListWidget:
+    """Tworzy pusty QListWidget dla testów."""
+    widget = QListWidget()
+    qtbot.addWidget(widget) # Rejestruje widget do automatycznego czyszczenia przez qtbot
+    return widget
+
+@pytest.fixture
+def history_manager(list_widget) -> HistoryManager:
+    """Tworzy instancję HistoryManager z podłączonym list_widget."""
+    manager = HistoryManager(history_list_widget=list_widget)
+    return manager
+
+@pytest.fixture
+def sample_nodes() -> list[HistoryNode]:
+    """Zwraca listę przykładowych węzłów historii."""
+    node1 = HistoryNode(node_id="node1", operation_name="Original")
+    node2 = HistoryNode(node_id="node2", parent_id="node1", operation_name="Blur", parameters={"sigma": 1.0})
+    node3 = HistoryNode(node_id="node3", parent_id="node2", operation_name="FFT", parameters={"window": "hann"})
+    return [node1, node2, node3]
+
+# --- Test Functions ---
+
+def test_history_manager_initialization(history_manager: HistoryManager, list_widget: QListWidget):
+    """Testuje poprawność inicjalizacji HistoryManager."""
+    assert history_manager.history == {}, "Historia powinna być pusta na starcie."
+    assert history_manager.current_node_id is None, "current_node_id powinien być None na starcie."
+    assert history_manager.history_list_widget is list_widget, "Niepoprawnie przypisany list_widget."
+    assert list_widget.count() == 0, "List_widget powinien być pusty na starcie."
+
+def test_add_node(history_manager: HistoryManager, list_widget: QListWidget):
+    """Testuje dodawanie pojedynczego węzła."""
+    node = HistoryNode(node_id="test_node_01", operation_name="TestOp")
+    
+    list_item = history_manager.add_node(node)
+
+    assert node.node_id in history_manager.history, "Węzeł nie został dodany do słownika historii."
+    assert history_manager.history[node.node_id] is node, "Niepoprawny obiekt węzła w słowniku."
+    assert list_widget.count() == 1, "Nie dodano elementu do QListWidget."
+    assert list_widget.item(0) is list_item, "Zwrócony QListWidgetItem nie zgadza się z tym w widgecie."
+    assert list_widget.item(0).text() == node.get_display_text(), "Tekst elementu w QListWidget jest niepoprawny."
+    assert list_widget.item(0).data(Qt.ItemDataRole.UserRole) == node.node_id, "Dane użytkownika (ID węzła) w QListWidgetItem są niepoprawne."
+
+def test_add_multiple_nodes(history_manager: HistoryManager, list_widget: QListWidget, sample_nodes: list[HistoryNode]):
+    """Testuje dodawanie wielu węzłów."""
+    for node in sample_nodes:
+        history_manager.add_node(node)
+    
+    assert len(history_manager.history) == len(sample_nodes), "Niepoprawna liczba węzłów w słowniku historii."
+    assert list_widget.count() == len(sample_nodes), "Niepoprawna liczba elementów w QListWidget."
+    for i, node in enumerate(sample_nodes):
+        assert list_widget.item(i).data(Qt.ItemDataRole.UserRole) == node.node_id
+
+def test_add_duplicate_node_id(history_manager: HistoryManager, list_widget: QListWidget):
+    """Testuje próbę dodania węzła o ID, które już istnieje."""
+    node1 = HistoryNode(node_id="duplicate_id", operation_name="Op1")
+    node2 = HistoryNode(node_id="duplicate_id", operation_name="Op2_Different") # To samo ID
+    
+    history_manager.add_node(node1)
+    item_returned = history_manager.add_node(node2) # Próba dodania duplikatu
+
+    assert len(history_manager.history) == 1, "Duplikat ID nie powinien zostać dodany do słownika."
+    assert list_widget.count() == 1, "Duplikat ID nie powinien stworzyć nowego elementu w QListWidget."
+    assert history_manager.history["duplicate_id"].operation_name == "Op1", "Operacja oryginalnego węzła powinna pozostać."
+    assert item_returned is list_widget.item(0), "Powinien zwrócić istniejący QListWidgetItem."
+
+def test_add_invalid_node(history_manager: HistoryManager, list_widget: QListWidget):
+    """Testuje próbę dodania None lub niepoprawnego węzła."""
+    assert history_manager.add_node(None) is None # type: ignore
+    assert list_widget.count() == 0
+    # Można by dodać test dla węzła bez node_id, jeśli konstruktor HistoryNode by na to pozwalał.
+
+def test_get_node_by_id(history_manager: HistoryManager, sample_nodes: list[HistoryNode]):
+    """Testuje pobieranie węzła po ID."""
+    for node in sample_nodes:
+        history_manager.add_node(node)
+    
+    assert history_manager.get_node_by_id(sample_nodes[1].node_id) is sample_nodes[1]
+    assert history_manager.get_node_by_id("non_existent_id") is None
+    assert history_manager.get_node_by_id(None) is None # type: ignore
+
+def test_get_root_node_for_node(history_manager: HistoryManager, sample_nodes: list[HistoryNode]):
+    """Testuje znajdowanie węzła głównego."""
+    node1, node2, node3 = sample_nodes
+    history_manager.add_node(node1)
+    history_manager.add_node(node2) # parent_id="node1"
+    history_manager.add_node(node3) # parent_id="node2"
+
+    assert history_manager.get_root_node_for_node(node3.node_id) is node1
+    assert history_manager.get_root_node_for_node(node2.node_id) is node1
+    assert history_manager.get_root_node_for_node(node1.node_id) is node1 # Korzeń jest swoim korzeniem
+    assert history_manager.get_root_node_for_node("non_existent") is None
+    assert history_manager.get_root_node_for_node(None) is None
+
+def test_get_root_node_with_original_name(history_manager: HistoryManager):
+    """Testuje znajdowanie korzenia, gdy korzeń ma nazwę "Original"."""
+    root = HistoryNode(node_id="root", operation_name="Original")
+    child = HistoryNode(node_id="child", parent_id="root", operation_name="Blur")
+    grandchild = HistoryNode(node_id="grandchild", parent_id="child", operation_name="FFT")
+    history_manager.add_node(root)
+    history_manager.add_node(child)
+    history_manager.add_node(grandchild)
+    
+    assert history_manager.get_root_node_for_node(grandchild.node_id) is root
+
+def test_get_root_node_broken_history(history_manager: HistoryManager):
+    """Testuje znajdowanie korzenia w przypadku przerwanego łańcucha rodziców."""
+    node_a = HistoryNode(node_id="a")
+    node_b = HistoryNode(node_id="b", parent_id="a")
+    node_c = HistoryNode(node_id="c", parent_id="broken_parent_id") # Rodzic nie istnieje
+    history_manager.add_node(node_a)
+    history_manager.add_node(node_b)
+    history_manager.add_node(node_c)
+
+    # Powinien zwrócić sam node_c jako najstarszego przodka, którego można prześledzić
+    assert history_manager.get_root_node_for_node(node_c.node_id) is node_c
