@@ -1304,19 +1304,19 @@ class MainWindow(QMainWindow):
                         image_item.setImage(display_data.astype(np.float32).T)
                         logger.debug("Set FFT image with transpose, no Y inversion.")
 
-                        # Apply percentile levels for FFT visualization
-                        try:
-                            finite_data = display_data[np.isfinite(display_data)]
-                            if finite_data.size > 0:
-                                min_level = np.percentile(finite_data, 1.0)
-                                max_level = np.percentile(finite_data, 99.5)
-                                logger.debug(f"Setting main FFT view levels (1%, 99.5%): {min_level:.3f} - {max_level:.3f}")
-                                image_item.setLevels([min_level, max_level])
-                            else:
-                                image_item.setAutoLevels() # Fallback
-                        except Exception as e:
-                            logger.error(f"Could not set percentile levels for FFT view: {e}")
-                            image_item.setAutoLevels() # Fallback on error
+                        # # Apply percentile levels for FFT visualization
+                        # try:
+                        #     finite_data = display_data[np.isfinite(display_data)]
+                        #     if finite_data.size > 0:
+                        #         min_level = np.percentile(finite_data, 1.0)
+                        #         max_level = np.percentile(finite_data, 99.5)
+                        #         logger.debug(f"Setting main FFT view levels (1%, 99.5%): {min_level:.3f} - {max_level:.3f}")
+                        #         image_item.setLevels([min_level, max_level])
+                        #     else:
+                        #         image_item.setAutoLevels() # Fallback
+                        # except Exception as e:
+                        #     logger.error(f"Could not set percentile levels for FFT view: {e}")
+                        #     image_item.setAutoLevels() # Fallback on error
                         
                                                 # --- Connect Mouse Click Handler for FFT images ---
                         scene = getattr(image_item, 'scene', lambda: None)() # Re-fetch scene
