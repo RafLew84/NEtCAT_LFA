@@ -30,7 +30,7 @@ from ..core.data_models import STMImage
 from ..io.factory import load_stm_file
 from ..core.history import HistoryNode
 from .widgets.metadata_widget import MetadataWidget
-from .history_manager import HistoryManager
+from ..logic.history_manager import HistoryManager
 
 try:
     from .preprocessing_dialogs import (GaussianBlurDialog, PlaneLevelingDialog, 
