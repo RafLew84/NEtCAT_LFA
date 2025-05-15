@@ -92,8 +92,6 @@ class MainWindow(QMainWindow):
         self._create_metadata_dock()
         self._create_fft_analysis_dock() # Ta metoda będzie refaktoryzowana w kolejnych krokach
 
-        # === TUTAJ TWORZYMY VISUALIZATION MANAGER ===
-        # Musi być po utworzeniu self.image_view i self.history_manager
         if pg and self.image_view and self.history_manager and VisualizationManager:
             self.visualization_manager = VisualizationManager(
                 image_view=self.image_view,
@@ -104,7 +102,6 @@ class MainWindow(QMainWindow):
         else: # pragma: no cover
             self.visualization_manager = None
             logger.error("Could not create VisualizationManager due to missing dependencies (pg, ImageView, HistoryManager, or VisualizationManager class).")
-        # ==========================================
 
 
         self._connect_signals() # Dedykowana metoda do podłączania sygnałów
@@ -128,14 +125,7 @@ class MainWindow(QMainWindow):
         self.custom_lattice_info: Optional[Dict[str, Any]] = None # Dla CustomLatticeDialog
         self.last_selected_substrate: str = "None" # Do zapamiętania ostatniego wyboru
 
-        # Visual Markers (później mogą trafić do VisualizationManager)
-        # self.ideal_lattice_overlay_item: Optional['pg.ScatterPlotItem'] = None
-        # self.substrate_spot_markers: Optional['pg.ScatterPlotItem'] = None
-        # self.adsorbate_spot_set_markers: List['pg.ScatterPlotItem'] = []
         self._fft_mouse_click_connection = None
-        # Atrybut dla QTextEdit wyświetlającego koordynaty (jeśli jest w głównym oknie)
-        # self.selected_spots_display: Optional[QTextEdit] = None
-        # self.current_selection_label: Optional[QLabel] = None
 
     def _setup_main_layout(self):
         """Sets up the central widget, main layout, and image view."""
@@ -179,7 +169,6 @@ class MainWindow(QMainWindow):
         # Utwórz instancję HistoryManager
         self.history_manager = HistoryManager(self.history_list_widget, self)
 
-        # Dodaj akcję przełączania widoczności doku historii do menu "View"
         if hasattr(self, 'view_menu'): # Sprawdź, czy view_menu już istnieje
             toggle_history_action = self.history_dock.toggleViewAction()
             toggle_history_action.setText("History Panel")
@@ -257,19 +246,7 @@ class MainWindow(QMainWindow):
         if not view_box:
             logger.debug("_clear_all_spot_markers_from_view: No ViewBox provided.")
             return
-        # Substrate markers
-        # if hasattr(self, 'substrate_spot_markers') and self.substrate_spot_markers:
-        #     try: view_box.removeItem(self.substrate_spot_markers)
-        #     except RuntimeError: pass
-        #     self.substrate_spot_markers = None
-        # Adsorbate set markers
-        # if hasattr(self, 'adsorbate_spot_set_markers'):
-        #     for marker_set in self.adsorbate_spot_set_markers:
-        #         if marker_set:
-        #             try: view_box.removeItem(marker_set)
-        #             except RuntimeError: pass
-        #     self.adsorbate_spot_set_markers = []
-        # Current adsorbate preview markers
+        
         if hasattr(self, 'current_adsorbate_preview_markers') and self.current_adsorbate_preview_markers:
             try: view_box.removeItem(self.current_adsorbate_preview_markers)
             except RuntimeError: pass
@@ -403,9 +380,6 @@ class MainWindow(QMainWindow):
             is_stm_data = (current_node_data_type == "STM")
             is_fft_data = (current_node_data_type == "FFT")
 
-        # --- Akcje Preprocessingu i Analizy (Menu) ---
-        # Dostępne jeśli jakikolwiek węzeł jest aktywny (można by bardziej szczegółowo)
-        # Jeśli operacja ma sens tylko dla STM lub tylko dla FFT, można to tu zawęzić.
         preprocessing_possible = has_node # Ogólnie, większość preprocessingu na STM
         fft_calculation_possible = is_stm_data # FFT typowo z danych STM
 
@@ -646,8 +620,6 @@ class MainWindow(QMainWindow):
                     # Dodaj inne potrzebne standardowe pola
                 }
 
-                 # root_params['raw_header'] = stm_image_obj.raw_header
-
                 root_node = HistoryNode(
                     operation_name="Original",
                     image_data=stm_image_obj.data.copy(),
@@ -668,8 +640,6 @@ class MainWindow(QMainWindow):
         else:
             logger.debug("File dialog cancelled.")
             self.statusBar().showMessage("File open cancelled.", 3000)
-
-    # --- Sloty dla Kontrolek FFT Analysis ---
 
     @pyqtSlot(bool)
     def _on_spot_type_changed(self, is_substrate_selected):
@@ -756,8 +726,6 @@ class MainWindow(QMainWindow):
     def _handle_spot_selection_mode_changed_from_panel(self, mode: str):
         logger.debug(f"MainWindow: Spot selection mode changed to '{mode}' via panel.")
         self.spot_selection_mode = mode # Aktualizuj stan w MainWindow (lub przekaż do SpotSelectionController)
-        # Logika związana z przełączeniem trybu (np. resetowanie tymczasowych list pików)
-        # powinna być teraz w SpotSelectionController, jeśli istnieje, lub tutaj, jeśli jeszcze nie.
         if mode == "Adsorbate":
             self._points_for_current_adsorbate_set = [] # Wyczyść przy przejściu na adsorbat
             if self.current_adsorbate_set_index < len(self.adsorbate_spot_sets):
@@ -1268,8 +1236,6 @@ class MainWindow(QMainWindow):
             show_sub_markers = self.fft_analysis_panel_widget.is_substrate_spots_visible()
             show_ads_markers = self.fft_analysis_panel_widget.is_adsorbate_spots_visible()
 
-        
-        # === DELEGOWANIE DO VISUALIZATION MANAGER ===
         self.visualization_manager.update_view(
             current_node,
             show_ideal_lattice,
@@ -1281,7 +1247,6 @@ class MainWindow(QMainWindow):
             self.adsorbate_spot_sets, # Dane o pikach zarządzane przez MainWindow (lub przyszły kontroler)
             show_ads_markers
         )
-        # =======================================
 
         if hasattr(self, '_update_action_states'):
              self._update_action_states()
