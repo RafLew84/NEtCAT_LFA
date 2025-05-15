@@ -344,10 +344,10 @@ class VisualizationManager(QObject):
         if not self.view_box: return
 
         # --- Substrate Spots ---
-        if not show_substrate and not substrate_spots:
+        if show_substrate and substrate_spots:
             # Współrzędne pików są przechowywane jako (kx_oryginalne, ky_oryginalne)
             # Dla wyświetlania na obrazie .T, musimy je zamienić miejscami: (ky_oryginalne, kx_oryginalne)
-            display_substrate_spots = [(ky, kx) for kx, ky in substrate_spots]
+            display_substrate_spots = [(kx, ky) for kx, ky in substrate_spots]
             try:
                 self.substrate_spot_markers = pg.ScatterPlotItem(
                     pos=np.array(display_substrate_spots), symbol='o', size=10,
@@ -359,13 +359,13 @@ class VisualizationManager(QObject):
                 logger.exception(f"Error creating/adding substrate spot markers: {e}")
 
         # --- Adsorbate Spots ---
-        if not show_adsorbate and not adsorbate_sets:
+        if show_adsorbate and adsorbate_sets:
             adsorbate_colors = ['b', 'c', 'm', (255, 165, 0)] # Orange
             new_markers_list = []
             for i, spot_set in enumerate(adsorbate_sets):
                 if spot_set:
                     # Podobnie, zamiana (kx, ky) na (ky, kx) dla wyświetlania
-                    display_spot_set = [(ky, kx) for kx, ky in spot_set]
+                    display_spot_set = [(kx, ky) for kx, ky in spot_set]
                     color = adsorbate_colors[i % len(adsorbate_colors)]
                     try:
                         markers = pg.ScatterPlotItem(
