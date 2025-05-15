@@ -227,6 +227,8 @@ class MainWindow(QMainWindow):
             self.fft_analysis_panel_widget.clear_substrate_spots_triggered.connect(self._on_clear_substrate_spots_clicked) # Użyj istniejącego slotu
             self.fft_analysis_panel_widget.substrate_spots_visibility_changed.connect(self._handle_substrate_spots_visibility_changed)
             self.fft_analysis_panel_widget.adsorbate_spots_visibility_changed.connect(self._handle_adsorbate_spots_visibility_changed)
+            self.fft_analysis_panel_widget.refinement_method_changed.connect(self._handle_refinement_method_changed_from_panel)
+            self.fft_analysis_panel_widget.refinement_area_size_changed.connect(self._handle_refinement_area_size_changed_from_panel)
 
 
 
@@ -522,8 +524,19 @@ class MainWindow(QMainWindow):
         logger.debug(f"MainWindow: Substrate changed to '{substrate_name}' via panel signal.")
         self.last_selected_substrate = substrate_name # Zaktualizuj stan w MainWindow
         self.custom_lattice_info = None # Wyczyść info o custom, jeśli wybrano predefiniowaną
-        # Zleć odświeżenie wizualizacji (np. idealnej siatki)
         self.display_image_data() # display_image_data będzie musiało użyć self.last_selected_substrate
+
+    @pyqtSlot(str)
+    def _handle_refinement_method_changed_from_panel(self, method: str):
+        """Obsługuje zmianę metody uściślania pików z panelu."""
+        logger.debug(f"MainWindow: Refinement method changed to '{method}' via panel signal.")
+        self.spot_refinement_method = method # Aktualizuj stan w MainWindow (lub przekaż do SpotSelectionController)
+
+    @pyqtSlot(int)
+    def _handle_refinement_area_size_changed_from_panel(self, area_size: int):
+        """Obsługuje zmianę rozmiaru obszaru uściślania z panelu."""
+        logger.debug(f"MainWindow: Refinement area size changed to {area_size} via panel signal.")
+        self.refinement_roi_size = area_size # Aktualizuj stan w MainWindow
 
     @pyqtSlot()
     def _handle_custom_lattice_request(self):
@@ -624,21 +637,6 @@ class MainWindow(QMainWindow):
             self.metadata_widget.update_metadata(current_node, self.history_manager)
 
         self._update_action_states()
-
-    @pyqtSlot()
-    def _on_refinement_setting_changed(self):
-        """Updates refinement method and ROI size based on UI controls."""
-        if self.rb_refine_direct.isChecked():
-            self.spot_refinement_method = "Direct Click"
-        elif self.rb_refine_max_pixel.isChecked():
-            self.spot_refinement_method = "Max Pixel"
-        elif self.rb_refine_gaussian.isChecked():
-            self.spot_refinement_method = "2D Gaussian Fit"
-        
-        if hasattr(self, 'refinement_roi_size_spinbox'): # Sprawdź, czy istnieje
-            self.refinement_roi_size = self.refinement_roi_size_spinbox.value()
-
-        logger.info(f"Spot refinement method set to: {self.spot_refinement_method} with ROI size: {self.refinement_roi_size}")
 
     @pyqtSlot()
     def open_file_dialog(self):
@@ -819,10 +817,6 @@ class MainWindow(QMainWindow):
             if dialog.exec() == QDialog.DialogCode.Accepted:
                 self.custom_lattice_info = dialog.get_lattice_definition()
                 if self.custom_lattice_info:
-                    # Opcjonalnie: dodaj tymczasowo nazwę custom do listy,
-                    # ale może być prościej po prostu użyć self.custom_lattice_info
-                    # Możemy ustawić tekst na chwilę, ale to tylko wizualne
-                    # self.substrate_combo.setItemText(self.substrate_combo.currentIndex(), self.custom_lattice_info.get("name", "Custom"))
                     self.last_selected_substrate = self.custom_option_text # Zapamiętaj wybór
                     logger.info(f"Custom lattice defined and selected: {self.custom_lattice_info.get('name')}")
                 else: # Dialog zaakceptowany, ale brak definicji (nie powinno się zdarzyć)
