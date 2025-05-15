@@ -1,4 +1,4 @@
-# lfa/gui/history_manager.py
+# lfa/logic/history_manager.py
 import logging
 from typing import Dict, Optional, Any # 'Any' może być potrzebne później dla parametrów
 from PyQt6.QtWidgets import QListWidget, QListWidgetItem # Dodaj potrzebne importy Qt

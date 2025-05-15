@@ -79,242 +79,236 @@ class MainWindow(QMainWindow):
     """
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setWindowTitle("Lattice Fourier Analyzer (LFA)")
+        self.resize(1250, 800)
 
-        # --- History Management ---
+        self._init_core_attributes()
+        self._setup_main_layout()
+        self._create_menus()
+        self._create_status_bar()
+        self._create_history_dock()
+        self._create_metadata_dock()
+        self._create_fft_analysis_dock() # Ta metoda będzie refaktoryzowana w kolejnych krokach
+        self._connect_signals() # Dedykowana metoda do podłączania sygnałów
+
+        self._update_action_states() # Aktualizacja stanu akcji na starcie
+        logger.info("Main window initialized.")
+
+    def _init_core_attributes(self):
+        """Initializes non-widget core attributes of the MainWindow."""
         self.original_file_path: Optional[str] = None
+        self.history_manager: Optional[HistoryManager] = None # Zostanie zainicjalizowany w _create_history_dock
 
-        # --- Spot Selection Attributes ---
+        # Spot Selection Attributes (później mogą trafić do kontrolera)
         self.substrate_spots: List[Tuple[float, float]] = []
-        self.adsorbate_spot_sets: List[List[Tuple[float, float]]] = [[]] # Start with one empty set
+        self.adsorbate_spot_sets: List[List[Tuple[float, float]]] = [[]]
         self.current_adsorbate_set_index: int = 0
-        self.spot_selection_mode: str = "Substrate" # "Substrate" or "Adsorbate"
-        # self.spot_refinement_method: str = "Max Pixel" # For later phases
+        self.spot_selection_mode: str = "Substrate"
         self._points_for_current_adsorbate_set: List[Tuple[float, float]] = []
+        self.spot_refinement_method: str = "Direct Click"
+        self.refinement_roi_size: int = 5
+        self.custom_lattice_info: Optional[Dict[str, Any]] = None # Dla CustomLatticeDialog
+        self.last_selected_substrate: str = "None" # Do zapamiętania ostatniego wyboru
 
-        # --- Visual Markers for Spots ---
+        # Visual Markers (później mogą trafić do VisualizationManager)
         self.ideal_lattice_overlay_item: Optional['pg.ScatterPlotItem'] = None
         self.substrate_spot_markers: Optional['pg.ScatterPlotItem'] = None
         self.adsorbate_spot_set_markers: List['pg.ScatterPlotItem'] = []
         self._fft_mouse_click_connection = None
+        # Atrybut dla QTextEdit wyświetlającego koordynaty (jeśli jest w głównym oknie)
+        # self.selected_spots_display: Optional[QTextEdit] = None
+        # self.current_selection_label: Optional[QLabel] = None
 
-        self.spot_refinement_method: str = "Direct Click" # "Direct Click", "Max Pixel", "Gaussian Fit"
-        self.refinement_roi_size: int = 5 # Domyślny rozmiar obszaru uściślania (średnica)
-
-
-        self.setWindowTitle("Lattice Fourier Analyzer (LFA)")
-        self.resize(1250, 800)
-
-        # --- Central Widget and Layout ---
+    def _setup_main_layout(self):
+        """Sets up the central widget, main layout, and image view."""
         central_widget = QWidget(self)
         self.setCentralWidget(central_widget)
         main_layout = QHBoxLayout(central_widget)
+        self.splitter = QSplitter(Qt.Orientation.Horizontal) # self.splitter zamiast splitter
 
-        splitter = QSplitter(Qt.Orientation.Horizontal)
-
-        # --- History List Widget (Left Panel) ---
-        self.history_list_widget = QListWidget()
-        self.history_list_widget.currentItemChanged.connect(self.on_history_selection_changed)
-        self.history_list_widget.setMaximumWidth(250)
-        splitter.addWidget(self.history_list_widget)
-
-        # Utwórz instancję HistoryManager
-        self.history_manager = HistoryManager(self.history_list_widget, self)
-        # Podłącz sygnał z HistoryManager do nowego slotu w MainWindow
-        self.history_manager.current_node_changed.connect(self._on_current_history_node_changed)
-
-        # --- Image View Widget (Right Panel) ---
+        # Image View Widget (Right Panel)
         image_view_container = QWidget()
         image_view_layout = QVBoxLayout(image_view_container)
-        image_view_layout.setContentsMargins(0,0,0,0)
+        image_view_layout.setContentsMargins(0, 0, 0, 0)
 
         if pg:
             pg.setConfigOption('background', 'w')
             pg.setConfigOption('foreground', 'k')
-            self.image_view = pg.ImageView(self)
+            self.image_view = pg.ImageView(self) # self.image_view
             image_view_layout.addWidget(self.image_view)
         else:
             self.image_view = None
             logger.error("Cannot create ImageView because PyQtGraph is not available.")
-        
-        splitter.addWidget(image_view_container)
-        splitter.setSizes([250, 950])
-        main_layout.addWidget(splitter)
 
-        # --- Lettice ---
-        # self.lattice_toolbar = QToolBar("Lattice Overlay")
-        # self.lattice_toolbar.setMovable(False)
-        # self.addToolBar(Qt.ToolBarArea.TopToolBarArea, self.lattice_toolbar)
-        # self.lattice_toolbar.addWidget(QLabel("Substrate Overlay:"))
-        self.substrate_combo = QComboBox()
-        # Dodaj "None", predefiniowane i opcję "<Custom Define...>"
-        self.predefined_substrates = sorted(KNOWN_LATTICES.keys())
-        self.substrate_combo.addItem("None")
-        self.substrate_combo.addItems(self.predefined_substrates)
-        self.custom_option_text = "<Custom Define...>"
-        self.substrate_combo.addItem(self.custom_option_text)
-        # Podłącz sygnał zmiany wyboru do nowego slotu
-        self.substrate_combo.currentTextChanged.connect(self.on_substrate_combo_changed)
-        # self.lattice_toolbar.addWidget(self.substrate_combo)
-        # self.lattice_toolbar.setVisible(False) # Pokaż tylko przy FFT
-        # ---------------------------------------
-
-        # --- Menu Bar ---
-        self.create_menus()
-
-        # --- Status Bar ---
+        # Lewy panel (history_list_widget) zostanie dodany w _create_history_dock
+        # self.splitter.addWidget(QWidget()) # Placeholder for history dock content area
+        self.splitter.addWidget(image_view_container)
+        self.splitter.setSizes([250, 950]) # Ustawienie rozmiarów
+        main_layout.addWidget(self.splitter)
+    
+    def _create_status_bar(self):
+        """Creates the status bar."""
         self.statusBar().showMessage("Ready - Load an image using File -> Open")
 
+    def _create_history_dock(self):
+        """Creates and configures the history list dock widget."""
+        self.history_dock = QDockWidget("History", self) # self.history_dock
+        self.history_list_widget = QListWidget()
+        self.history_dock.setWidget(self.history_list_widget)
+        self.history_dock.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
+        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.history_dock)
+
+        # Utwórz instancję HistoryManager
+        self.history_manager = HistoryManager(self.history_list_widget, self)
+
+        # Dodaj akcję przełączania widoczności doku historii do menu "View"
+        if hasattr(self, 'view_menu'): # Sprawdź, czy view_menu już istnieje
+            toggle_history_action = self.history_dock.toggleViewAction()
+            toggle_history_action.setText("History Panel")
+            self.view_menu.addAction(toggle_history_action)
+        else:
+            logger.warning("view_menu not found when creating history_dock toggle action.")
+
+    def _create_metadata_dock(self):
+        """Creates and configures the metadata dock widget."""
         self.metadata_dock = QDockWidget("Metadata", self)
-        self.metadata_widget = MetadataWidget(self) 
+        self.metadata_widget = MetadataWidget(self)
         self.metadata_dock.setWidget(self.metadata_widget)
         self.metadata_dock.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.metadata_dock)
-        view_menu = self.menuBar().addMenu("&View")
+
+        if not hasattr(self, 'view_menu'):
+            self.view_menu = self.menuBar().addMenu("&View")
+
         toggle_metadata_action = self.metadata_dock.toggleViewAction()
         toggle_metadata_action.setText("Metadata Panel")
         toggle_metadata_action.setStatusTip("Show/hide the metadata panel")
-        view_menu.addAction(toggle_metadata_action)
+        self.view_menu.addAction(toggle_metadata_action)
 
-        # --- FFT Analysis Tools Dock Widget ---
+    def _create_fft_analysis_dock(self):
+        """
+        Creates and configures the FFT Analysis Tools dock widget.
+        W przyszłości zawartość tego doku zostanie przeniesiona do osobnej klasy FFTAnalysisPanel.
+        """
         self.fft_analysis_dock = QDockWidget("FFT Analysis Tools", self)
-        fft_analysis_widget = QWidget()
+        fft_analysis_widget = QWidget() # Kontener dla layoutu
         fft_analysis_layout = QVBoxLayout(fft_analysis_widget)
 
         # --- Lattice Overlay Controls ---
         lattice_group = QGroupBox("Ideal Lattice Overlay")
-        lattice_layout = QFormLayout() # QFormLayout dla par etykieta-kontrolka
-        self.substrate_combo = QComboBox()
-        substrates = ["None"] + sorted(KNOWN_LATTICES.keys())
-        self.substrate_combo.addItems(substrates)
-        self.custom_option_text = "<Custom Define...>" # Definicja dla spójności
+        lattice_layout = QFormLayout()
+        self.substrate_combo = QComboBox() # Przeniesione z __init__
+        self.predefined_substrates = sorted(KNOWN_LATTICES.keys()) # Przeniesione
+        self.substrate_combo.addItem("None")
+        self.substrate_combo.addItems(self.predefined_substrates)
+        self.custom_option_text = "<Custom Define...>" # Przeniesione
         self.substrate_combo.addItem(self.custom_option_text)
         lattice_layout.addRow("Substrate:", self.substrate_combo)
         self.show_ideal_lattice_checkbox = QCheckBox("Show Ideal Lattice")
         self.show_ideal_lattice_checkbox.setChecked(True)
-        self.show_ideal_lattice_checkbox.stateChanged.connect(self.on_ideal_lattice_visibility_changed)
         lattice_layout.addRow(self.show_ideal_lattice_checkbox)
         lattice_group.setLayout(lattice_layout)
         fft_analysis_layout.addWidget(lattice_group)
-        # -----------------------------------
 
         # --- Spot Selection Controls ---
         spot_selection_group = QGroupBox("Spot Selection")
         spot_selection_layout = QVBoxLayout()
-
-        self.clear_current_adsorbate_point_button = QPushButton("Clear Last Adsorbate Point")
-
-        # Spot Type
+        self.clear_current_adsorbate_point_button = QPushButton("Clear Last Adsorbate Point") # Przeniesione
         spot_type_layout = QHBoxLayout()
         self.rb_select_substrate = QRadioButton("Substrate"); self.rb_select_substrate.setChecked(True)
         self.rb_select_adsorbate = QRadioButton("Adsorbate")
         spot_type_layout.addWidget(self.rb_select_substrate); spot_type_layout.addWidget(self.rb_select_adsorbate)
         spot_selection_layout.addLayout(spot_type_layout)
 
-        # Substrate Set Management
-        self.substrate_set_panel = QWidget()
+        self.substrate_set_panel = QWidget() # Przeniesione
         substrate_set_layout = QFormLayout(self.substrate_set_panel)
         substrate_set_layout.setContentsMargins(0,5,0,5)
         substrate_buttons_layout = QHBoxLayout()
-        self.clear_substrate_spots_button = QPushButton("Clear Substrate Spots")
+        self.clear_substrate_spots_button = QPushButton("Clear Substrate Spots") # Przeniesione
         substrate_buttons_layout.addWidget(self.clear_substrate_spots_button)
         substrate_set_layout.addRow(substrate_buttons_layout)
         spot_selection_layout.addWidget(self.substrate_set_panel)
         self.substrate_set_panel.setVisible(True)
-        
 
-        # Adsorbate Set Management
-        self.adsorbate_set_panel = QWidget() # Panel do pokazywania/ukrywania
-        adsorbate_set_layout = QFormLayout(self.adsorbate_set_panel) # Użyj QFormLayout
+        self.adsorbate_set_panel = QWidget() # Przeniesione
+        adsorbate_set_layout = QFormLayout(self.adsorbate_set_panel)
         adsorbate_set_layout.setContentsMargins(0,5,0,5)
-        self.adsorbate_set_combo = QComboBox()
-        self.adsorbate_set_combo.addItem("Set 1") # Zacznij z jednym zestawem
+        self.adsorbate_set_combo = QComboBox() # Przeniesione
+        self.adsorbate_set_combo.addItem("Set 1")
         self.adsorbate_set_combo.addItem("<Add New Set...>")
         adsorbate_set_layout.addRow("Current Set:", self.adsorbate_set_combo)
-        # Przyciski dla zestawów adsorbatu
-        adsorbate_buttons_layout = QHBoxLayout()
-        self.reselect_adsorbate_set_button = QPushButton("Reselect Set")
-        self.clear_all_adsorbate_sets_button = QPushButton("Clear All Sets")
-        adsorbate_buttons_layout.addWidget(self.reselect_adsorbate_set_button)
-        adsorbate_buttons_layout.addWidget(self.clear_all_adsorbate_sets_button)
-        adsorbate_buttons_layout.addWidget(self.clear_current_adsorbate_point_button)
-        adsorbate_set_layout.addRow(adsorbate_buttons_layout) # Dodaj layout przycisków
+        adsorbate_buttons_layout_2 = QHBoxLayout() # Nowy layout dla tych przycisków
+        self.reselect_adsorbate_set_button = QPushButton("Reselect Set") # Przeniesione
+        self.clear_all_adsorbate_sets_button = QPushButton("Clear All Sets") # Przeniesione
+        adsorbate_buttons_layout_2.addWidget(self.reselect_adsorbate_set_button)
+        adsorbate_buttons_layout_2.addWidget(self.clear_all_adsorbate_sets_button)
+        adsorbate_buttons_layout_2.addWidget(self.clear_current_adsorbate_point_button)
+        adsorbate_set_layout.addRow(adsorbate_buttons_layout_2)
         spot_selection_layout.addWidget(self.adsorbate_set_panel)
-        self.adsorbate_set_panel.setVisible(False) # Ukryj na starcie
+        self.adsorbate_set_panel.setVisible(False)
 
-        # Spot Visibility Checkboxes
         self.show_substrate_spots_checkbox = QCheckBox("Show Substrate Spots"); self.show_substrate_spots_checkbox.setChecked(True)
         self.show_adsorbate_spots_checkbox = QCheckBox("Show Adsorbate Spots"); self.show_adsorbate_spots_checkbox.setChecked(True)
         spot_selection_layout.addWidget(self.show_substrate_spots_checkbox)
         spot_selection_layout.addWidget(self.show_adsorbate_spots_checkbox)
-        # Dalsze kontrolki (Refinement, Clear Points) dodasz w Fazie B.2/B.3
         spot_selection_group.setLayout(spot_selection_layout)
         fft_analysis_layout.addWidget(spot_selection_group)
-        # --------------------------------
 
+        # --- Spot Refinement Controls ---
         refinement_group = QGroupBox("Spot Refinement Method")
         refinement_layout = QVBoxLayout()
-
-        self.rb_refine_direct = QRadioButton("Direct Click (No Refinement)")
-        self.rb_refine_direct.setChecked(True)
+        self.rb_refine_direct = QRadioButton("Direct Click (No Refinement)"); self.rb_refine_direct.setChecked(True)
         self.rb_refine_max_pixel = QRadioButton("Max Pixel in Area")
         self.rb_refine_gaussian = QRadioButton("2D Gaussian Fit")
-
         refinement_param_layout = QHBoxLayout()
         refinement_param_layout.addWidget(QLabel("Area Size:"))
         self.refinement_roi_size_spinbox = QSpinBox()
-        self.refinement_roi_size_spinbox.setMinimum(3) # Musi być nieparzysty i >=3
+        self.refinement_roi_size_spinbox.setMinimum(3)
         self.refinement_roi_size_spinbox.setMaximum(21)
-        self.refinement_roi_size_spinbox.setSingleStep(2) # Krok 2 dla nieparzystych
-        self.refinement_roi_size_spinbox.setValue(self.refinement_roi_size)
+        self.refinement_roi_size_spinbox.setSingleStep(2)
+        self.refinement_roi_size_spinbox.setValue(self.refinement_roi_size) # Użyj wartości z _init_core_attributes
         refinement_param_layout.addWidget(self.refinement_roi_size_spinbox)
-
         refinement_layout.addWidget(self.rb_refine_direct)
         refinement_layout.addWidget(self.rb_refine_max_pixel)
         refinement_layout.addWidget(self.rb_refine_gaussian)
         refinement_layout.addLayout(refinement_param_layout)
         refinement_group.setLayout(refinement_layout)
-        spot_selection_layout.addWidget(refinement_group) # Dodaj do głównego layoutu spot selection
-        # --------------------------------------------------------------------
+        fft_analysis_layout.addWidget(refinement_group) # Dodane do fft_analysis_layout
 
         fft_analysis_layout.addStretch()
         self.fft_analysis_dock.setWidget(fft_analysis_widget)
         self.fft_analysis_dock.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.fft_analysis_dock)
-        self.fft_analysis_dock.setVisible(False) # Ukryj na starcie
+        self.fft_analysis_dock.setVisible(False)
 
-        # Dodaj akcję do menu View dla FFT Analysis Tools
+        if not hasattr(self, 'view_menu'): # Upewnij się, że view_menu istnieje
+            self.view_menu = self.menuBar().addMenu("&View")
         toggle_fft_tools_action = self.fft_analysis_dock.toggleViewAction()
         toggle_fft_tools_action.setText("FFT Analysis Tools")
-        view_menu.addAction(toggle_fft_tools_action) # Dodaj do istniejącego view_menu
-        # ------------------------------------------------
+        self.view_menu.addAction(toggle_fft_tools_action)
 
-        # --- Połączenia Sygnałów dla Nowych Kontrolek ---
-        self.substrate_combo.currentTextChanged.connect(self.on_substrate_combo_changed) # Slot do aktualizacji nakładki
-        self.show_ideal_lattice_checkbox.stateChanged.connect(self.on_ideal_lattice_visibility_changed) # Również aktualizuje nakładkę
+    def _connect_signals(self):
+        """Connects signals to slots for the main window components."""
+        if self.history_manager: # Sprawdź, czy history_manager jest zainicjalizowany
+            self.history_list_widget.currentItemChanged.connect(self.on_history_selection_changed)
+            self.history_manager.current_node_changed.connect(self._on_current_history_node_changed)
 
+        # Sygnały dla kontrolek w FFT Analysis Dock (na razie tutaj, później w FFTAnalysisPanel)
+        self.substrate_combo.currentTextChanged.connect(self.on_substrate_combo_changed)
+        self.show_ideal_lattice_checkbox.stateChanged.connect(self.on_ideal_lattice_visibility_changed)
         self.rb_select_substrate.toggled.connect(self._on_spot_type_changed)
-        # self.rb_select_adsorbate.toggled.connect(...) # Już obsłużone przez substrate
-
         self.adsorbate_set_combo.currentTextChanged.connect(self._on_adsorbate_set_combo_changed)
         self.reselect_adsorbate_set_button.clicked.connect(self._on_reselect_adsorbate_set_clicked)
         self.clear_all_adsorbate_sets_button.clicked.connect(self._on_clear_all_adsorbate_sets_clicked)
-
         self.show_substrate_spots_checkbox.stateChanged.connect(self._on_selected_spots_visibility_changed)
         self.show_adsorbate_spots_checkbox.stateChanged.connect(self._on_selected_spots_visibility_changed)
-
         self.clear_substrate_spots_button.clicked.connect(self._on_clear_substrate_spots_clicked)
-        # self.reselect_substrate_spots_button.clicked.connect(self._on_reselect_substrate_spots_clicked)
         self.clear_current_adsorbate_point_button.clicked.connect(self._on_clear_last_adsorbate_point_clicked)
-        # ---------------------------------------------------
         self.rb_refine_direct.toggled.connect(self._on_refinement_setting_changed)
         self.rb_refine_max_pixel.toggled.connect(self._on_refinement_setting_changed)
         self.rb_refine_gaussian.toggled.connect(self._on_refinement_setting_changed)
         self.refinement_roi_size_spinbox.valueChanged.connect(self._on_refinement_setting_changed)
-        # -------------------------------------------------------------------
 
-        self._update_action_states()
-
-        logger.info("Main window initialized with history panel.")
 
     def _clear_all_spot_markers_from_view(self, view_box: Optional[pg.ViewBox]):
         """Helper to remove all known spot markers from the view."""
@@ -423,9 +417,7 @@ class MainWindow(QMainWindow):
             self.current_selection_label.setText(current_selection_status)
         self.selected_spots_display.setPlainText("\n".join(text_output))
 
-
-
-    def create_menus(self):
+    def _create_menus(self):
         """Creates the main menu bar and its actions."""
         menu_bar = self.menuBar()
 
@@ -1303,22 +1295,8 @@ class MainWindow(QMainWindow):
                         # FFT data (scaled magnitude) is displayed with transpose as per previous decision
                         image_item.setImage(display_data.astype(np.float32).T)
                         logger.debug("Set FFT image with transpose, no Y inversion.")
-
-                        # # Apply percentile levels for FFT visualization
-                        # try:
-                        #     finite_data = display_data[np.isfinite(display_data)]
-                        #     if finite_data.size > 0:
-                        #         min_level = np.percentile(finite_data, 1.0)
-                        #         max_level = np.percentile(finite_data, 99.5)
-                        #         logger.debug(f"Setting main FFT view levels (1%, 99.5%): {min_level:.3f} - {max_level:.3f}")
-                        #         image_item.setLevels([min_level, max_level])
-                        #     else:
-                        #         image_item.setAutoLevels() # Fallback
-                        # except Exception as e:
-                        #     logger.error(f"Could not set percentile levels for FFT view: {e}")
-                        #     image_item.setAutoLevels() # Fallback on error
                         
-                                                # --- Connect Mouse Click Handler for FFT images ---
+                        # --- Connect Mouse Click Handler for FFT images ---
                         scene = getattr(image_item, 'scene', lambda: None)() # Re-fetch scene
                         if scene:
                              # Check if PYQTGRAPH_AVAILABLE and GraphicsSceneMouseEvent type is valid before connecting
