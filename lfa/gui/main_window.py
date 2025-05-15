@@ -129,9 +129,9 @@ class MainWindow(QMainWindow):
         self.last_selected_substrate: str = "None" # Do zapamiętania ostatniego wyboru
 
         # Visual Markers (później mogą trafić do VisualizationManager)
-        self.ideal_lattice_overlay_item: Optional['pg.ScatterPlotItem'] = None
-        self.substrate_spot_markers: Optional['pg.ScatterPlotItem'] = None
-        self.adsorbate_spot_set_markers: List['pg.ScatterPlotItem'] = []
+        # self.ideal_lattice_overlay_item: Optional['pg.ScatterPlotItem'] = None
+        # self.substrate_spot_markers: Optional['pg.ScatterPlotItem'] = None
+        # self.adsorbate_spot_set_markers: List['pg.ScatterPlotItem'] = []
         self._fft_mouse_click_connection = None
         # Atrybut dla QTextEdit wyświetlającego koordynaty (jeśli jest w głównym oknie)
         # self.selected_spots_display: Optional[QTextEdit] = None
@@ -258,17 +258,17 @@ class MainWindow(QMainWindow):
             logger.debug("_clear_all_spot_markers_from_view: No ViewBox provided.")
             return
         # Substrate markers
-        if hasattr(self, 'substrate_spot_markers') and self.substrate_spot_markers:
-            try: view_box.removeItem(self.substrate_spot_markers)
-            except RuntimeError: pass
-            self.substrate_spot_markers = None
+        # if hasattr(self, 'substrate_spot_markers') and self.substrate_spot_markers:
+        #     try: view_box.removeItem(self.substrate_spot_markers)
+        #     except RuntimeError: pass
+        #     self.substrate_spot_markers = None
         # Adsorbate set markers
-        if hasattr(self, 'adsorbate_spot_set_markers'):
-            for marker_set in self.adsorbate_spot_set_markers:
-                if marker_set:
-                    try: view_box.removeItem(marker_set)
-                    except RuntimeError: pass
-            self.adsorbate_spot_set_markers = []
+        # if hasattr(self, 'adsorbate_spot_set_markers'):
+        #     for marker_set in self.adsorbate_spot_set_markers:
+        #         if marker_set:
+        #             try: view_box.removeItem(marker_set)
+        #             except RuntimeError: pass
+        #     self.adsorbate_spot_set_markers = []
         # Current adsorbate preview markers
         if hasattr(self, 'current_adsorbate_preview_markers') and self.current_adsorbate_preview_markers:
             try: view_box.removeItem(self.current_adsorbate_preview_markers)
