@@ -196,6 +196,10 @@ class MainWindow(QMainWindow):
             self.history_list_widget.currentItemChanged.connect(self.on_history_selection_changed)
             self.history_manager.current_node_changed.connect(self._on_current_history_node_changed)
 
+        if self.app_controller:
+            self.app_controller.file_loaded_successfully.connect(self._on_file_loaded_successfully)
+            self.app_controller.file_loading_failed.connect(self._on_file_loading_failed)
+
         if hasattr(self, 'fft_analysis_panel_widget'):
             self.fft_analysis_panel_widget.substrate_changed.connect(self._handle_substrate_changed)
             self.fft_analysis_panel_widget.custom_lattice_define_requested.connect(self._handle_custom_lattice_request)
@@ -527,9 +531,9 @@ class MainWindow(QMainWindow):
         logger.debug("Open file dialog triggered.")
         file_filter = "STM Files (*.stp *.s94);;All Files (*)"
         start_dir = ""
-        if self.app_controller.original_file_path: # Zmieniono self.original_file_path
+        if self.app_controller.original_file_path:
             try:
-                start_dir = os.path.dirname(self.app_controller.original_file_path) # Zmieniono self.original_file_path
+                start_dir = os.path.dirname(self.app_controller.original_file_path)
             except Exception:  # pragma: no cover
                 pass
         if not start_dir:  # pragma: no cover
@@ -538,42 +542,29 @@ class MainWindow(QMainWindow):
         file_path, _ = QFileDialog.getOpenFileName(self, "Open STM File", start_dir, file_filter)
 
         if file_path:
-            logger.info(f"File selected: {file_path}")
+            logger.info(f"File selected by user: {file_path}")
             self.statusBar().showMessage(f"Loading file: {os.path.basename(file_path)}...")
-            QApplication.processEvents() # type: ignore
-
-            stm_image_obj = load_stm_file(file_path)
-
-            if stm_image_obj and stm_image_obj.data is not None:
-                self.app_controller.original_file_path = file_path
-
-                self.history_manager.clear_history()
-
-                root_params = {
-                    "filename": os.path.basename(file_path),
-                    "pixels_x": stm_image_obj.pixels_x, "pixels_y": stm_image_obj.pixels_y,
-                    "size_nm_x": stm_image_obj.size_nm_x, "size_nm_y": stm_image_obj.size_nm_y,
-                    "bias_v": stm_image_obj.bias_v, "setpoint_a": stm_image_obj.setpoint_a,
-                    "scan_angle_deg": stm_image_obj.scan_angle_deg,
-                }
-                root_node = HistoryNode(
-                    operation_name="Original", image_data=stm_image_obj.data.copy(),
-                    parameters=root_params, data_type="STM"
-                )
-                self.history_manager.add_node(root_node)
-                self.history_manager.set_current_node_by_id(root_node.node_id)
-
-                logger.info("File loaded successfully and history initialized.")
-                self.statusBar().showMessage(f"Loaded: {os.path.basename(file_path)}", 5000)
-                self.setWindowTitle(f"LFA - {os.path.basename(file_path)}")
-            else: # pragma: no cover
-                self.history_manager.clear_history()
-                self.statusBar().showMessage("Failed to load file.", 5000)
-                QMessageBox.warning(self, "Loading Error", f"Could not load file: {file_path}")
-                self.setWindowTitle("Lattice Fourier Analyzer (LFA)")
+            QApplication.processEvents() # type: ignore # Daj GUI szansę na odświeżenie
+            
+            self.app_controller.load_file(file_path)
         else: # pragma: no cover
-            logger.debug("File dialog cancelled.")
+            logger.debug("File dialog cancelled by user.")
             self.statusBar().showMessage("File open cancelled.", 3000)
+
+    @pyqtSlot(str)
+    def _on_file_loaded_successfully(self, filename: str):
+        """Slot called when AppController successfully loads a file."""
+        logger.info(f"MainWindow: Received file_loaded_successfully signal for '{filename}'.")
+        self.statusBar().showMessage(f"Loaded: {filename}", 5000)
+        self.setWindowTitle(f"LFA - {filename}")
+
+    @pyqtSlot(str)
+    def _on_file_loading_failed(self, error_message: str):
+        """Slot called when AppController fails to load a file."""
+        logger.warning(f"MainWindow: Received file_loading_failed signal: {error_message}")
+        self.statusBar().showMessage(f"Failed to load file: {error_message}", 5000)
+        QMessageBox.warning(self, "Loading Error", error_message)
+        self.setWindowTitle("Lattice Fourier Analyzer (LFA)")
 
     @pyqtSlot(bool)
     def _on_spot_type_changed(self, is_substrate_selected):
