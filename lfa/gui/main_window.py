@@ -30,6 +30,7 @@ from .panels.fft_analysis_panel import FFTAnalysisPanel
 from .visualization_manager import VisualizationManager
 from ..logic.app_controller import AppController
 from ..core.history import HistoryNode
+from .ui_setup.menu_action_manager import MenuActionManager
 
 try:
     from .preprocessing_dialogs import (GaussianBlurDialog, PlaneLevelingDialog, 
@@ -90,7 +91,9 @@ class MainWindow(QMainWindow):
         logger.info("AppController initialized in MainWindow.")
 
         self._init_core_attributes() # Inicjalizacja pozostałych atrybutów MainWindow
-        self._create_menus()
+
+        self.menu_manager = MenuActionManager(self) 
+
         self._create_status_bar()
         self._create_history_dock() # Modyfikacja: history_manager jest już stworzony
         self._create_metadata_dock()
@@ -261,82 +264,6 @@ class MainWindow(QMainWindow):
             self.fft_analysis_panel_widget.current_selection_label.setText(current_selection_status)
         self.fft_analysis_panel_widget.selected_spots_display.setPlainText("\n".join(text_output))
 
-
-    def _create_menus(self):
-        """Creates the main menu bar and its actions."""
-        menu_bar = self.menuBar()
-
-        # --- File Menu ---
-        file_menu = menu_bar.addMenu("&File")
-
-        open_action = QAction("&Open...", self)
-        open_action.setStatusTip("Open an STM data file")
-        open_action.triggered.connect(self.open_file_dialog)
-        open_action.setShortcut("Ctrl+O")
-        file_menu.addAction(open_action)
-
-        file_menu.addSeparator()
-
-        exit_action = QAction("&Exit", self)
-        exit_action.setStatusTip("Exit the application")
-        exit_action.triggered.connect(self.close)
-        exit_action.setShortcut("Ctrl+Q")
-        file_menu.addAction(exit_action)
-
-        # --- Preprocessing Menu ---
-        preprocessing_menu = menu_bar.addMenu("&Preprocessing")
-
-        self.gaussian_blur_action = QAction("&Gaussian Blur...", self)
-        self.gaussian_blur_action.setStatusTip("Apply Gaussian blur filter")
-        self.gaussian_blur_action.triggered.connect(self.open_gaussian_blur_dialog)
-        self.gaussian_blur_action.setEnabled(False)
-        preprocessing_menu.addAction(self.gaussian_blur_action)
-
-        self.gaussian_sharpen_action = QAction("Gaussian &Sharpening...", self)
-        self.gaussian_sharpen_action.setStatusTip("Apply Gaussian Sharpening (Unsharp Mask)")
-        self.gaussian_sharpen_action.triggered.connect(self.open_gaussian_sharpening_dialog)
-        preprocessing_menu.addAction(self.gaussian_sharpen_action)
-
-        self.plane_level_action = QAction("&Plane Leveling...", self)
-        self.plane_level_action.setStatusTip("Level image by subtracting a fitted plane")
-        self.plane_level_action.triggered.connect(self.open_plane_leveling_dialog) 
-        preprocessing_menu.addAction(self.plane_level_action)
-
-        self.median_filter_action = QAction("&Median Filter...", self)
-        self.median_filter_action.setStatusTip("Apply median filter for noise reduction")
-        self.median_filter_action.triggered.connect(self.open_median_filter_dialog) 
-        preprocessing_menu.addAction(self.median_filter_action)
-
-        self.nlmeans_action = QAction("&NL-Means Denoising...", self)
-        self.nlmeans_action.setStatusTip("Apply Non-Local Means denoising (skimage)")
-        self.nlmeans_action.triggered.connect(self.open_nlmeans_dialog) 
-        preprocessing_menu.addAction(self.nlmeans_action)
-
-        self.bm3d_action = QAction("&BM3D Denoising...", self)
-        self.bm3d_action.setStatusTip("Apply BM3D denoising (Computationally intensive)")
-        self.bm3d_action.triggered.connect(self.open_bm3d_dialog) 
-        preprocessing_menu.addAction(self.bm3d_action)
-
-        # --- Analysis Menu ---
-        analysis_menu = menu_bar.addMenu("&Analysis")
-        self.fft_action = QAction("Calculate &FFT...", self)
-        self.fft_action.setStatusTip("Calculate Fast Fourier Transform")
-        self.fft_action.triggered.connect(self.open_fft_dialog)
-        analysis_menu.addAction(self.fft_action)
-
-        if not hasattr(self, 'view_menu'):
-            self.view_menu = menu_bar.addMenu("&View")
-
-        # --- Help Menu ---
-        help_menu = menu_bar.addMenu("&Help")
-
-        about_action = QAction("&About LFA...", self)
-        about_action.setStatusTip("Show information about LFA")
-        about_action.triggered.connect(self.show_about_dialog)
-        help_menu.addAction(about_action)
-
-        logger.debug("Menu bar created.")
-
     def _helper_open_processing_dialog(self, DialogClass, op_name_in_controller: str, dialog_specific_checks=None):
         """Pomocnicza metoda do otwierania dialogów przetwarzania i obsługi wyników."""
         current_node_info = self.app_controller.get_current_node_info_for_dialogs()
@@ -361,8 +288,6 @@ class MainWindow(QMainWindow):
             was_roi_only = dialog.was_roi_applied_only()
 
             if processed_data is not None:
-                # Wywołanie odpowiedniej metody w AppController
-                # Nazwa metody w AppController jest przekazywana jako argument
                 controller_method_to_call = getattr(self.app_controller, op_name_in_controller, None)
                 if controller_method_to_call and callable(controller_method_to_call):
                     controller_method_to_call(
@@ -372,8 +297,6 @@ class MainWindow(QMainWindow):
                         params=params,
                         source_roi_slice=dialog.get_final_roi_slice() if was_roi_only else None
                     )
-                    # Wiadomość na pasku statusu może być teraz emitowana przez AppController
-                    # lub MainWindow może nadal to robić po sygnale z AppController/HistoryManager
                     op_display_name = dialog.operation_name if hasattr(dialog, 'operation_name') else op_name_in_controller.replace("apply_", "").replace("_operation","").title()
                     self.statusBar().showMessage(f"{op_display_name} applied.", 3000)
                 else: # pragma: no cover

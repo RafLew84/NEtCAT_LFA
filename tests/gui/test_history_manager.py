@@ -8,7 +8,7 @@ from PyQt6.QtCore import Qt, pyqtSignal, pyqtSlot
 # Import klas do testowania i pomocniczych
 # Dostosuj ścieżki importu, jeśli HistoryManager jest w innym miejscu (np. lfa.logic)
 try:
-    from lfa.gui.history_manager import HistoryManager
+    from lfa.logic.history_manager import HistoryManager
     from lfa.core.history import HistoryNode
 except ImportError as e:
     pytest.fail(f"Could not import HistoryManager or HistoryNode: {e}", pytrace=False)
