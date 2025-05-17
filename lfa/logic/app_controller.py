@@ -17,6 +17,15 @@ from ..core.history import HistoryNode   # Do tworzenia węzła historii
 
 logger = logging.getLogger(__name__)
 
+SPOT_SELECTION_SUBSTRATE = "Substrate"
+SPOT_SELECTION_ADSORBATE = "Adsorbate"
+
+REFINEMENT_DIRECT_CLICK = "Direct Click"
+REFINEMENT_MAX_PIXEL = "Max Pixel"
+REFINEMENT_GAUSSIAN_FIT = "2D Gaussian Fit"
+
+MAX_SUBSTRATE_SPOTS = 8 # Maksymalna liczba pików substratu
+
 class AppController(QObject):
     """
     Manages the core application state and logic, acting as a bridge
@@ -25,6 +34,13 @@ class AppController(QObject):
 
     file_loaded_successfully = pyqtSignal(str)
     file_loading_failed = pyqtSignal(str)   
+
+    # Sygnał emitowany po zmianie list pików (substratu lub któregokolwiek zestawu adsorbatu)
+    spot_lists_updated = pyqtSignal()
+    # Sygnał emitowany po zmianie trybu wyboru pików (Substrate/Adsorbate) lub metody uściślania
+    spot_selection_parameters_changed = pyqtSignal()
+    # Sygnał emitowany po zmianie bieżącego zestawu adsorbatu (np. dodanie nowego, zmiana indeksu)
+    adsorbate_sets_structure_changed = pyqtSignal()
 
     def __init__(self, history_manager, parent: Optional[QObject] = None):
         """
@@ -225,4 +241,145 @@ class AppController(QObject):
                                 source_roi_slice: Optional[Tuple[slice, slice]] = None):
         # Dla FFT, data_type nowego węzła to "FFT"
         self.add_operation_to_history(parent_node_id, "FFT", params, processed_fft_data, "FFT", source_roi_slice)
+
+    def set_spot_selection_mode(self, mode: str):
+        """Ustawia tryb wyboru pików (Substrate/Adsorbate)."""
+        if mode in [SPOT_SELECTION_SUBSTRATE, SPOT_SELECTION_ADSORBATE]:
+            if self.spot_selection_mode != mode:
+                self.spot_selection_mode = mode
+                logger.info(f"Spot selection mode set to: {self.spot_selection_mode}")
+                self.spot_selection_parameters_changed.emit()
+        else:
+            logger.warning(f"Attempted to set invalid spot selection mode: {mode}")
+
+    def set_spot_refinement_method(self, method: str):
+        """Ustawia metodę uściślania pików."""
+        if method in [REFINEMENT_DIRECT_CLICK, REFINEMENT_MAX_PIXEL, REFINEMENT_GAUSSIAN_FIT]:
+            if self.spot_refinement_method != method:
+                self.spot_refinement_method = method
+                logger.info(f"Spot refinement method set to: {self.spot_refinement_method}")
+                self.spot_selection_parameters_changed.emit()
+        else:
+            logger.warning(f"Attempted to set invalid spot refinement method: {method}")
+
+    def set_refinement_roi_size(self, size: int):
+        """Ustawia rozmiar ROI do uściślania pików."""
+        if isinstance(size, int) and 3 <= size <= 21 and size % 2 != 0: # Przykładowa walidacja
+            if self.refinement_roi_size != size:
+                self.refinement_roi_size = size
+                logger.info(f"Refinement ROI size set to: {self.refinement_roi_size}")
+                self.spot_selection_parameters_changed.emit()
+        else:
+            logger.warning(f"Attempted to set invalid refinement ROI size: {size}")
+
+    def add_spot(self, point_kx_ky: Tuple[float, float]):
+        """Dodaje pik do odpowiedniej listy (substrat lub bieżący zestaw adsorbatu)."""
+        logger.debug(f"Attempting to add spot {point_kx_ky} in mode {self.spot_selection_mode}")
+        added = False
+        if self.spot_selection_mode == SPOT_SELECTION_SUBSTRATE:
+            if len(self.substrate_spots) < MAX_SUBSTRATE_SPOTS:
+                if point_kx_ky not in self.substrate_spots:
+                    self.substrate_spots.append(point_kx_ky)
+                    logger.info(f"Added substrate spot: {point_kx_ky}. Count: {len(self.substrate_spots)}")
+                    added = True
+                else: logger.debug(f"Point {point_kx_ky} already in substrate spots.") # pragma: no cover
+            else: logger.warning(f"Max substrate spots ({MAX_SUBSTRATE_SPOTS}) reached.") # pragma: no cover
+        
+        elif self.spot_selection_mode == SPOT_SELECTION_ADSORBATE:
+            if 0 <= self.current_adsorbate_set_index < len(self.adsorbate_spot_sets):
+                current_set = self.adsorbate_spot_sets[self.current_adsorbate_set_index]
+                if point_kx_ky not in current_set:
+                    current_set.append(point_kx_ky)
+                    logger.info(f"Added adsorbate spot: {point_kx_ky} to set {self.current_adsorbate_set_index}. Set count: {len(current_set)}")
+                    added = True
+                else: logger.debug(f"Point {point_kx_ky} already in current adsorbate set.") # pragma: no cover
+            else: logger.error(f"Invalid current adsorbate set index: {self.current_adsorbate_set_index}") # pragma: no cover
+        
+        if added:
+            self.spot_lists_updated.emit()
+
+    def clear_substrate_spots(self):
+        """Czyści listę pików substratu."""
+        if self.substrate_spots:
+            self.substrate_spots.clear()
+            logger.info("Substrate spots cleared.")
+            self.spot_lists_updated.emit()
+
+    def clear_last_adsorbate_spot(self):
+        """Usuwa ostatni dodany pik z bieżącego zestawu adsorbatu."""
+        if self.spot_selection_mode == SPOT_SELECTION_ADSORBATE and \
+           0 <= self.current_adsorbate_set_index < len(self.adsorbate_spot_sets):
+            current_set = self.adsorbate_spot_sets[self.current_adsorbate_set_index]
+            if current_set:
+                removed_point = current_set.pop()
+                logger.info(f"Removed last adsorbate spot {removed_point} from set {self.current_adsorbate_set_index}.")
+                self.spot_lists_updated.emit()
+            else: logger.debug("No adsorbate spots in current set to clear.") # pragma: no cover
+        else: logger.debug("Not in adsorbate mode or invalid set index for clear_last_adsorbate_spot.") # pragma: no cover
+
+    def reselect_current_adsorbate_set(self):
+        """Czyści wszystkie punkty z bieżącego zestawu adsorbatu."""
+        if self.spot_selection_mode == SPOT_SELECTION_ADSORBATE and \
+            0 <= self.current_adsorbate_set_index < len(self.adsorbate_spot_sets):
+            if self.adsorbate_spot_sets[self.current_adsorbate_set_index]:
+                self.adsorbate_spot_sets[self.current_adsorbate_set_index].clear()
+                logger.info(f"Cleared all spots from adsorbate set {self.current_adsorbate_set_index}.")
+                self.spot_lists_updated.emit()
+        else: logger.debug("Not in adsorbate mode or invalid set index for reselect_current_adsorbate_set.") # pragma: no cover
+
+
+    def clear_all_adsorbate_sets(self):
+        """Czyści wszystkie zestawy pików adsorbatu i resetuje do jednego pustego zestawu."""
+        if self.adsorbate_spot_sets != [[]] or self.current_adsorbate_set_index != 0 : # Jeśli faktycznie jest co czyścić
+            self.adsorbate_spot_sets = [[]]
+            self.current_adsorbate_set_index = 0
+            logger.info("All adsorbate spot sets cleared. Reset to one empty set.")
+            self.spot_lists_updated.emit() # Ogólna aktualizacja list
+            self.adsorbate_sets_structure_changed.emit() # Sygnał o zmianie struktury zestawów (np. dla ComboBoxa)
+        else:
+            logger.debug("No adsorbate sets to clear or already in default state.")
+
+
+    def add_new_adsorbate_set(self):
+        """Dodaje nowy, pusty zestaw pików adsorbatu i ustawia go jako bieżący."""
+        self.adsorbate_spot_sets.append([])
+        self.current_adsorbate_set_index = len(self.adsorbate_spot_sets) - 1
+        logger.info(f"Added new adsorbate set. Index: {self.current_adsorbate_set_index}")
+        self.spot_lists_updated.emit() # Aktualizacja ogólna (np. dla _update_action_states)
+        self.adsorbate_sets_structure_changed.emit() # Sygnał dla GUI o zmianie liczby zestawów
+
+    def set_current_adsorbate_set_by_index(self, index: int):
+        """Ustawia bieżący zestaw adsorbatu na podstawie indeksu."""
+        if 0 <= index < len(self.adsorbate_spot_sets):
+            if self.current_adsorbate_set_index != index:
+                self.current_adsorbate_set_index = index
+                logger.info(f"Current adsorbate set changed to index: {index}")
+                self.spot_selection_parameters_changed.emit() # Zmiana parametrów wyboru
+        else:
+            logger.warning(f"Attempted to set invalid adsorbate set index: {index}") # pragma: no cover
+
+    def clear_all_spot_data(self):
+        changed = False
+        if self.substrate_spots:
+            self.substrate_spots.clear()
+            changed = True
+        if self.adsorbate_spot_sets != [[]] or self.current_adsorbate_set_index != 0:
+            self.adsorbate_spot_sets = [[]]
+            self.current_adsorbate_set_index = 0
+            changed = True
+        
+        if changed:
+            logger.debug("All spot data cleared by clear_all_spot_data.")
+            self.spot_lists_updated.emit() # Ogólna aktualizacja, jeśli coś się zmieniło
+            self.adsorbate_sets_structure_changed.emit() # Aby zresetować combo box
+        else:
+            logger.debug("No spot data to clear or already in default state.")
+            
+    # def clear_all_spot_data(self): # Metoda pomocnicza wywoływana np. przy ładowaniu nowego pliku
+    #     """Resetuje wszystkie dane dotyczące pików."""
+    #     self.substrate_spots.clear()
+    #     self.adsorbate_spot_sets = [[]]
+    #     self.current_adsorbate_set_index = 0
+    #     # Nie emitujemy tutaj sygnałów indywidualnie, bo load_file i tak spowoduje odświeżenie UI
+    #     logger.debug("All spot data cleared.")
 
