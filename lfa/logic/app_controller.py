@@ -184,6 +184,7 @@ class AppController(QObject):
 
         # Sprawdzenie, czy dane faktycznie się zmieniły (opcjonalne, ale może być przydatne)
         parent_node = self.history_manager.get_node_by_id(parent_node_id)
+
         if parent_node and parent_node.image_data is not None:
             if np.array_equal(processed_data, parent_node.image_data) and \
                params == parent_node.parameters.get(op_name, {}): # Proste porównanie parametrów
