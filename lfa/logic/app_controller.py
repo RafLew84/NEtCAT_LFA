@@ -5,6 +5,8 @@ Manages application state and coordinates operations between UI and backend modu
 """
 import logging
 import os
+import numpy as np
+
 from typing import Optional, List, Tuple, Dict, Any
 
 from PyQt6.QtCore import QObject, pyqtSignal
@@ -139,3 +141,88 @@ class AppController(QObject):
             # Inne nieoczekiwane błędy
             logger.exception(f"AppController: An unexpected error occurred while loading file {file_path}: {e}")
             self.file_loading_failed.emit(f"Unexpected error loading file: {e}")
+
+
+    def add_operation_to_history(self,
+                                 parent_node_id: str,
+                                 op_name: str,
+                                 params: Dict[str, Any],
+                                 processed_data: np.ndarray,
+                                 data_type: str, # "STM" lub "FFT"
+                                 source_roi_slice: Optional[Tuple[slice, slice]] = None):
+        """
+        Tworzy nowy węzeł historii dla wykonanej operacji i dodaje go do menedżera.
+
+        Args:
+            parent_node_id (str): ID węzła rodzica.
+            op_name (str): Nazwa wykonanej operacji (np. "Gaussian Blur", "FFT").
+            params (Dict[str, Any]): Słownik parametrów użytych do operacji.
+            processed_data (np.ndarray): Wynikowe dane obrazu (np.ndarray).
+            data_type (str): Typ danych w `processed_data` ("STM" lub "FFT").
+            source_roi_slice (Optional[Tuple[slice, slice]]): Jeśli operacja była na ROI,
+                                                              przekaż wycinek ROI.
+        """
+        if processed_data is None:
+            logger.warning(f"AppController: No processed data provided for operation '{op_name}'. Node not added.")
+            return
+
+        # Sprawdzenie, czy dane faktycznie się zmieniły (opcjonalne, ale może być przydatne)
+        parent_node = self.history_manager.get_node_by_id(parent_node_id)
+        if parent_node and parent_node.image_data is not None:
+            if np.array_equal(processed_data, parent_node.image_data) and \
+               params == parent_node.parameters.get(op_name, {}): # Proste porównanie parametrów
+                logger.info(f"AppController: Data for '{op_name}' has not changed. Node not added.")
+                return
+
+        new_node = HistoryNode(
+            parent_id=parent_node_id,
+            operation_name=op_name,
+            parameters=params,
+            image_data=processed_data, # Zakładamy, że to już jest kopia, jeśli trzeba
+            data_type=data_type,
+            source_roi_slice=source_roi_slice
+        )
+
+        self.history_manager.add_node(new_node)
+        self.history_manager.set_current_node_by_id(new_node.node_id)
+        logger.info(f"AppController: Added '{op_name}' node (ID: {new_node.node_id}) to history.")
+        # Sygnał current_node_changed z HistoryManager powinien wystarczyć do aktualizacji UI.
+
+    def apply_gaussian_blur(self, parent_node_id: str, parent_data_type: str,
+                            processed_data: np.ndarray, params: Dict[str, Any],
+                            source_roi_slice: Optional[Tuple[slice, slice]] = None):
+        self.add_operation_to_history(parent_node_id, "Gaussian Blur", params, processed_data, parent_data_type, source_roi_slice)
+
+    def apply_gaussian_sharpening(self, parent_node_id: str, parent_data_type: str,
+                                  processed_data: np.ndarray, params: Dict[str, Any],
+                                  source_roi_slice: Optional[Tuple[slice, slice]] = None):
+        self.add_operation_to_history(parent_node_id, "Gaussian Sharpening", params, processed_data, parent_data_type, source_roi_slice)
+
+    def apply_plane_leveling(self, parent_node_id: str, parent_data_type: str,
+                             processed_data: np.ndarray, params: Dict[str, Any],
+                             source_roi_slice: Optional[Tuple[slice, slice]] = None):
+        # Params mogą zawierać 'mode' i 'points'
+        self.add_operation_to_history(parent_node_id, "Plane Leveling", params, processed_data, parent_data_type, source_roi_slice)
+
+    def apply_median_filter(self, parent_node_id: str, parent_data_type: str,
+                            processed_data: np.ndarray, params: Dict[str, Any],
+                            source_roi_slice: Optional[Tuple[slice, slice]] = None):
+        self.add_operation_to_history(parent_node_id, "Median Filter", params, processed_data, parent_data_type, source_roi_slice)
+
+    def apply_nlmeans_denoising(self, parent_node_id: str, parent_data_type: str,
+                                processed_data: np.ndarray, params: Dict[str, Any],
+                                source_roi_slice: Optional[Tuple[slice, slice]] = None):
+        self.add_operation_to_history(parent_node_id, "NL-Means", params, processed_data, parent_data_type, source_roi_slice)
+
+    def apply_bm3d_denoising(self, parent_node_id: str, parent_data_type: str,
+                             processed_data: np.ndarray, params: Dict[str, Any],
+                             source_roi_slice: Optional[Tuple[slice, slice]] = None):
+        self.add_operation_to_history(parent_node_id, "BM3D", params, processed_data, parent_data_type, source_roi_slice)
+
+    def calculate_fft_operation(self, parent_node_id: str, # parent_data_type będzie zawsze "STM" dla FFT
+                                processed_fft_data: np.ndarray, # To są już przeskalowane dane magnitudy
+                                params: Dict[str, Any], # Zawiera window, scaling_mode, apply_roi_only
+                                source_roi_slice: Optional[Tuple[slice, slice]] = None):
+        # Dla FFT, data_type nowego węzła to "FFT"
+        self.add_operation_to_history(parent_node_id, "FFT", params, processed_fft_data, "FFT", source_roi_slice)
+

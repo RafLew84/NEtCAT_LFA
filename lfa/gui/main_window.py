@@ -12,8 +12,6 @@ import time
 from PyQt6.QtWidgets import (
     QMainWindow, QVBoxLayout, QWidget, QFileDialog, QMessageBox, QApplication, 
     QDialog, QHBoxLayout, QSplitter, QListWidget, QListWidgetItem, QDockWidget,
-    QComboBox, QToolBar, QToolButton, QLabel, QLineEdit, QPushButton, QTextEdit, QCheckBox,
-    QGroupBox, QFormLayout, QRadioButton, QSpinBox
 )
 from PyQt6.QtGui import QAction, QIcon
 from PyQt6.QtCore import Qt, pyqtSlot, QPointF
@@ -26,14 +24,12 @@ except ImportError:
     pg = None
 
 # Import LFA core components
-from ..core.data_models import STMImage
-from ..io.factory import load_stm_file
-from ..core.history import HistoryNode
 from .widgets.metadata_widget import MetadataWidget
 from ..logic.history_manager import HistoryManager
 from .panels.fft_analysis_panel import FFTAnalysisPanel
 from .visualization_manager import VisualizationManager
 from ..logic.app_controller import AppController
+from ..core.history import HistoryNode
 
 try:
     from .preprocessing_dialogs import (GaussianBlurDialog, PlaneLevelingDialog, 
@@ -221,14 +217,6 @@ class MainWindow(QMainWindow):
 
     def _clear_all_spot_markers_from_view(self, view_box: Optional[pg.ViewBox]):
         """Helper to remove all known spot markers from the view."""
-        # if not view_box:
-        #     logger.debug("_clear_all_spot_markers_from_view: No ViewBox provided.")
-        #     return
-        
-        # if hasattr(self, 'current_adsorbate_preview_markers') and self.current_adsorbate_preview_markers:
-        #     try: view_box.removeItem(self.current_adsorbate_preview_markers)
-        #     except RuntimeError: pass
-        #     self.current_adsorbate_preview_markers = None
         logger.debug("Cleared all user-selected spot markers from view.")
 
     def _update_selected_spots_display(self):
@@ -346,6 +334,56 @@ class MainWindow(QMainWindow):
         help_menu.addAction(about_action)
 
         logger.debug("Menu bar created.")
+
+    def _helper_open_processing_dialog(self, DialogClass, op_name_in_controller: str, dialog_specific_checks=None):
+        """Pomocnicza metoda do otwierania dialogów przetwarzania i obsługi wyników."""
+        current_node_info = self.app_controller.get_current_node_info_for_dialogs()
+        if not current_node_info:
+            QMessageBox.warning(self, "No Image", "No data loaded or selected in history to process.")
+            return
+
+        parent_id, parent_data_type, image_data_copy = current_node_info
+
+        if not DialogClass: # pragma: no cover
+            QMessageBox.critical(self, "Error", f"{DialogClass.__name__ if DialogClass else 'Dialog'} is not available.")
+            return
+            
+        if dialog_specific_checks: # pragma: no cover
+             if not dialog_specific_checks(): return
+
+
+        dialog = DialogClass(image_data_copy, parent=self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            processed_data = dialog.get_processed_data()
+            params = dialog.get_parameters() # Dialog powinien zwracać słownik parametrów
+            was_roi_only = dialog.was_roi_applied_only()
+
+            if processed_data is not None:
+                # Wywołanie odpowiedniej metody w AppController
+                # Nazwa metody w AppController jest przekazywana jako argument
+                controller_method_to_call = getattr(self.app_controller, op_name_in_controller, None)
+                if controller_method_to_call and callable(controller_method_to_call):
+                    controller_method_to_call(
+                        parent_node_id=parent_id,
+                        parent_data_type=parent_data_type,
+                        processed_data=processed_data,
+                        params=params,
+                        source_roi_slice=dialog.get_final_roi_slice() if was_roi_only else None
+                    )
+                    # Wiadomość na pasku statusu może być teraz emitowana przez AppController
+                    # lub MainWindow może nadal to robić po sygnale z AppController/HistoryManager
+                    op_display_name = dialog.operation_name if hasattr(dialog, 'operation_name') else op_name_in_controller.replace("apply_", "").replace("_operation","").title()
+                    self.statusBar().showMessage(f"{op_display_name} applied.", 3000)
+                else: # pragma: no cover
+                    logger.error(f"Method {op_name_in_controller} not found in AppController!")
+                    self.statusBar().showMessage(f"Error applying {op_name_in_controller}.", 3000)
+            else: # pragma: no cover
+                logger.warning(f"{DialogClass.__name__} accepted, but no processed data returned.")
+                self.statusBar().showMessage("Operation cancelled or no changes made.", 3000)
+        else:
+            op_display_name = dialog.operation_name if hasattr(dialog, 'operation_name') else op_name_in_controller.replace("apply_", "").replace("_operation","").title()
+            logger.info(f"{op_display_name} dialog cancelled.") # pragma: no cover
+            self.statusBar().showMessage(f"{op_display_name} cancelled.", 3000) # pragma: no cover
     
     def _update_action_states(self):
         current_node = self.history_manager.get_current_node()
@@ -682,344 +720,60 @@ class MainWindow(QMainWindow):
         # Zawsze odśwież wyświetlanie (co wywoła logikę nakładki)
         self.display_image_data()
 
-    @pyqtSlot()
     def open_fft_dialog(self):
-        """
-        Opens the dialog for calculating the Fast Fourier Transform (FFT).
-
-        Retrieves data from the current history node, executes the FFTDialog,
-        and adds the resulting scaled FFT magnitude to the history if accepted.
-        """
-        logger.info("--- open_fft_dialog slot entered ---")
-
-        # --- Pre-checks ---
-        current_node = self.history_manager.get_current_node() # Pobierz aktualny węzeł
-        if current_node is None: # Sprawdź, czy węzeł istnieje
-            logger.warning("open_fft_dialog: No current node selected.")
-            QMessageBox.warning(self, "No Image", "No data loaded or selected in history.")
+        current_node_info = self.app_controller.get_current_node_info_for_dialogs()
+        if not current_node_info:
+            QMessageBox.warning(self, "No Image", "No data loaded or selected to calculate FFT.") # pragma: no cover
             return
 
-        if not FFTDialog:
-            logger.error("open_fft_dialog: FFTDialog class is None (import failed?).")
-            QMessageBox.critical(self, "Error", "FFTDialog class not available. Check imports and file.")
+        parent_id, parent_data_type, image_data_copy = current_node_info
+
+        if parent_data_type != "STM": # pragma: no cover
+            QMessageBox.warning(self, "Invalid Data Type", "FFT can only be calculated from STM data (not from an existing FFT).")
+            return
+        if not FFTDialog: # pragma: no cover
+            QMessageBox.critical(self, "Error", "FFTDialog is not available.")
             return
 
-        if current_node.image_data is None:
-            logger.error(f"open_fft_dialog: Image data missing for node {self.history_manager.current_node_id}.")
-            QMessageBox.critical(self, "Internal Error", "No image data in the current history node.")
-            return
-        # ------------------
-
-        # Pass a copy of the current data to the dialog
-        dialog_input_data = current_node.image_data.copy()
-
-        logger.info(f"Opening FFT dialog based on node: {current_node.get_display_text()}")
-        # Create and execute the dialog
-        dialog = FFTDialog(dialog_input_data, parent=self)
-        result = dialog.exec() # Show the dialog modally
-
-        # --- Process Dialog Result ---
-        if result == QDialog.DialogCode.Accepted:
-            # Retrieve results from the dialog methods
-            processed_fft_data = dialog.get_processed_data() # Gets the scaled magnitude (float)
-            params = dialog.get_fft_parameters() # Gets params like window, scaling mode, roi checkbox
-            source_roi = dialog.get_source_roi_slice() # Gets the ROI slice used, or None
+        dialog = FFTDialog(image_data_copy, parent=self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            processed_fft_data = dialog.get_processed_data() # To jest już przeskalowana magnituda
+            params = dialog.get_fft_parameters() # Zawiera m.in. scaling_mode, window_type
+            was_roi_only = dialog.was_roi_applied_only() # Czy FFT było tylko z ROI
 
             if processed_fft_data is not None:
-                logger.info(f"FFT accepted. Source ROI: {source_roi}. Params: {params}. Creating history node.")
-
-                # Create the new history node for the FFT result
-                new_node = HistoryNode(
-                    parent_id=self.history_manager.current_node_id,
-                    operation_name="FFT",
-                    parameters=params, # Store window type, scaling mode, roi checkbox state
-                    image_data=processed_fft_data, # Store the scaled magnitude (float)
-                    data_type="FFT", # Mark data type as FFT
-                    source_roi_slice=source_roi # Store the source ROI slice if used
+                self.app_controller.calculate_fft_operation(
+                    parent_node_id=parent_id,
+                    processed_fft_data=processed_fft_data,
+                    params=params,
+                    source_roi_slice=dialog.get_source_roi_slice() if was_roi_only else None
                 )
-
-                # Add node to history and update UI
-                new_item = self.history_manager.add_node(new_node)
-                self.history_manager.set_current_node_by_id(new_node.node_id)
-                self.history_list_widget.setCurrentItem(new_item)
-                display_name = new_node.get_display_text() # Should include "(FFT)" and "(from ROI)"
-                self.statusBar().showMessage(f"{display_name} calculated.", 3000)
-            else:
-                # This case should ideally be handled by the dialog's accept logic,
-                # but good to have a fallback log here.
-                logger.warning("FFT Dialog was accepted, but returned no processed data.")
-        else:
-            # Dialog was cancelled
+                self.statusBar().showMessage("FFT calculated and scaled.", 3000)
+            else: # pragma: no cover
+                logger.warning("FFTDialog accepted, but no processed data returned.")
+                self.statusBar().showMessage("FFT calculation failed or no data.", 3000)
+        else: # pragma: no cover
             logger.info("FFT dialog cancelled.")
             self.statusBar().showMessage("FFT calculation cancelled.", 3000)
 
 
-    @pyqtSlot()
     def open_gaussian_sharpening_dialog(self):
-        """Opens the dialog for applying Gaussian Sharpening."""
-        current_node = self.history_manager.get_current_node() # Pobierz aktualny węzeł
-        if current_node is None: # Sprawdź, czy węzeł istnieje
-            QMessageBox.warning(self, "No Image", "...")
-            return
-        if not GaussianSharpeningDialog: 
-            QMessageBox.critical(self, "Error", "GaussianSharpeningDialog not available.")
-            return
+        self._helper_open_processing_dialog(GaussianSharpeningDialog, "apply_gaussian_sharpening")
 
-        if current_node.image_data is None: 
-            QMessageBox.critical(self, "Internal Error", "..."); return
-        dialog_input_data = current_node.image_data.copy()
-
-        logger.info(f"Opening Gaussian Sharpening dialog based on node: {current_node.get_display_text()}")
-        dialog = GaussianSharpeningDialog(dialog_input_data, parent=self)
-        result = dialog.exec()
-
-        if result == QDialog.DialogCode.Accepted:
-            processed_data = dialog.get_processed_data()
-            params = dialog.get_parameters()
-            was_roi_only = dialog.was_roi_applied_only()
-            op_name = "Gaussian Sharpening"
-
-            if processed_data is not None:
-                logger.info(f"Sharpening accepted. ROI Only: {was_roi_only}. Creating history node.")
-                parent_data_type = current_node.data_type
-                logger.info(f"Creating history node. Parent type: {parent_data_type}. ROI Only: {was_roi_only}.")
-
-                
-                final_roi_slice = None
-                if was_roi_only:
-                    final_roi_slice = dialog.get_final_roi_slice()
-                
-                new_node = HistoryNode(
-                    parent_id=self.history_manager.current_node_id,
-                    operation_name=op_name,
-                    parameters=params,
-                    image_data=processed_data,
-                    data_type=parent_data_type,
-                    source_roi_slice=final_roi_slice
-                )
-                self.history_manager.add_node(new_node)
-                self.history_manager.set_current_node_by_id(new_node.node_id)
-                display_name = new_node.get_display_text()
-                self.statusBar().showMessage(f"{display_name} applied.", 3000)
-            else: logger.warning("Dialog accepted, but no processed data returned.")
-        else: logger.info("Gaussian Sharpening dialog cancelled."); self.statusBar().showMessage("Sharpening cancelled.", 3000)
-
-
-    @pyqtSlot()
     def open_bm3d_dialog(self):
-        """Opens the dialog for applying BM3D Denoising."""
-        current_node = self.history_manager.get_current_node() # Pobierz aktualny węzeł
-        if current_node is None: # Sprawdź, czy węzeł istnieje
-            QMessageBox.warning(self, "No Image", "...")
-            return
-        if not BM3DDialog: QMessageBox.critical(self, "Error", "BM3DDialog not available."); return
-        try: import bm3d
-        except ImportError: 
-            QMessageBox.critical(self, "Missing Dependency", "The 'bm3d' package is required for this feature.\nPlease install it (pip install bm3d).")
-            return
+        def bm3d_checks(): # pragma: no cover
+            try: import bm3d; return True
+            except ImportError: QMessageBox.critical(self,"Missing Dependency","BM3D package needed."); return False
+        self._helper_open_processing_dialog(BM3DDialog, "apply_bm3d_denoising", dialog_specific_checks=bm3d_checks)
 
-        if current_node.image_data is None: 
-            QMessageBox.critical(self, "Internal Error", "...")
-            return
-        dialog_input_data = current_node.image_data.copy()
-
-        logger.info(f"Opening BM3D dialog based on node: {current_node.get_display_text()}")
-        dialog = BM3DDialog(dialog_input_data, parent=self)
-        result = dialog.exec()
-
-        if result == QDialog.DialogCode.Accepted:
-            processed_data = dialog.get_processed_data()
-            params = dialog.get_parameters()
-            was_roi_only = dialog.was_roi_applied_only()
-            op_name = "BM3D"
-
-            if processed_data is not None:
-                if np.allclose(processed_data, current_node.image_data): 
-                    logger.info("Data not modified.")
-                    self.statusBar().showMessage("No changes applied.", 3000)
-                    return
-
-                logger.info(f"BM3D accepted. ROI Only: {was_roi_only}. Creating history node.")
-
-                parent_data_type = current_node.data_type
-                logger.info(f"Creating history node. Parent type: {parent_data_type}. ROI Only: {was_roi_only}.")
-
-                
-                final_roi_slice = None
-                if was_roi_only:
-                    final_roi_slice = dialog.get_final_roi_slice()
-                
-                new_node = HistoryNode(
-                    parent_id=self.history_manager.current_node_id,
-                    operation_name=op_name,
-                    parameters=params,
-                    image_data=processed_data,
-                    data_type=parent_data_type,
-                    source_roi_slice=final_roi_slice
-                )
-                self.history_manager.add_node(new_node)
-                self.history_manager.set_current_node_by_id(new_node.node_id)
-                display_name = new_node.get_display_text()
-                self.statusBar().showMessage(f"{display_name} applied.", 3000)
-            else: logger.warning("Dialog accepted, but no processed data returned.")
-        else: logger.info("BM3D dialog cancelled."); self.statusBar().showMessage("BM3D cancelled.", 3000)
-
-
-    @pyqtSlot()
     def open_nlmeans_dialog(self):
-        """Opens the dialog for applying NL-Means Denoising."""
-        current_node = self.history_manager.get_current_node() # Pobierz aktualny węzeł
-        if current_node is None: # Sprawdź, czy węzeł istnieje
-            QMessageBox.warning(self, "No Image", "...")
-            return
-        if not NLMeansDialog: 
-            QMessageBox.critical(self, "Error", "NLMeansDialog not available.")
-            return
+        self._helper_open_processing_dialog(NLMeansDialog, "apply_nlmeans_denoising")
 
-        if current_node.image_data is None: QMessageBox.critical(self, "Internal Error", "..."); return
-        dialog_input_data = current_node.image_data.copy()
-
-        logger.info(f"Opening NL-Means dialog based on node: {current_node.get_display_text()}")
-        dialog = NLMeansDialog(dialog_input_data, parent=self)
-        result = dialog.exec()
-
-        if result == QDialog.DialogCode.Accepted:
-            processed_data = dialog.get_processed_data()
-            params = dialog.get_parameters()
-            was_roi_only = dialog.was_roi_applied_only()
-            op_name = "NL-Means" 
-
-            if processed_data is not None:
-                logger.info(f"NL-Means accepted. ROI Only: {was_roi_only}. Creating history node.")
-
-                parent_data_type = current_node.data_type
-                logger.info(f"Creating history node. Parent type: {parent_data_type}. ROI Only: {was_roi_only}.")
-
-                
-                final_roi_slice = None
-                if was_roi_only:
-                    final_roi_slice = dialog.get_final_roi_slice()
-                
-                new_node = HistoryNode(
-                    parent_id=self.history_manager.current_node_id,
-                    operation_name=op_name,
-                    parameters=params,
-                    image_data=processed_data,
-                    data_type=parent_data_type,
-                    source_roi_slice=final_roi_slice
-                )
-                self.history_manager.add_node(new_node)
-                self.history_manager.set_current_node_by_id(new_node.node_id)
-                display_name = new_node.get_display_text()
-                self.statusBar().showMessage(f"{display_name} applied.", 3000)
-            else: logger.warning("Dialog accepted, but no processed data returned.")
-        else: logger.info("NL-Means dialog cancelled."); self.statusBar().showMessage("NL-Means cancelled.", 3000)
-
-
-    @pyqtSlot()
     def open_median_filter_dialog(self):
-        """Opens the dialog for applying Median Filter."""
-        current_node = self.history_manager.get_current_node() # Pobierz aktualny węzeł
-        if current_node is None: # Sprawdź, czy węzeł istnieje
-            QMessageBox.warning(self, "No Image", "...")
-            return
-        if not MedianFilterDialog: 
-            QMessageBox.critical(self, "Error", "MedianFilterDialog not available.")
-            return
+        self._helper_open_processing_dialog(MedianFilterDialog, "apply_median_filter")
 
-        if current_node.image_data is None: QMessageBox.critical(self, "Internal Error", "..."); return
-        dialog_input_data = current_node.image_data.copy()
-
-        logger.info(f"Opening Median Filter dialog based on node: {current_node.get_display_text()}")
-        dialog = MedianFilterDialog(dialog_input_data, parent=self)
-        result = dialog.exec()
-
-        if result == QDialog.DialogCode.Accepted:
-            processed_data = dialog.get_processed_data()
-            params = dialog.get_parameters()
-            was_roi_only = dialog.was_roi_applied_only()
-            op_name = "Median Filter"
-
-            if processed_data is not None:
-                if np.allclose(processed_data, current_node.image_data): logger.info("Data not modified."); self.statusBar().showMessage("No changes applied.", 3000); return
-
-                logger.info(f"Median Filter accepted. ROI Only: {was_roi_only}. Creating history node.")
-
-                parent_data_type = current_node.data_type
-                logger.info(f"Creating history node. Parent type: {parent_data_type}. ROI Only: {was_roi_only}.")
-
-                
-                final_roi_slice = None
-                if was_roi_only:
-                    final_roi_slice = dialog.get_final_roi_slice()
-                
-                new_node = HistoryNode(
-                    parent_id=self.history_manager.current_node_id,
-                    operation_name=op_name,
-                    parameters=params,
-                    image_data=processed_data,
-                    data_type=parent_data_type, 
-                    source_roi_slice=final_roi_slice
-                )
-                self.history_manager.add_node(new_node)
-                self.history_manager.set_current_node_by_id(new_node.node_id)
-                display_name = new_node.get_display_text() 
-                self.statusBar().showMessage(f"{display_name} applied.", 3000)
-            else: logger.warning("Dialog accepted, but no processed data returned.")
-        else: logger.info("Median Filter dialog cancelled."); self.statusBar().showMessage("Median Filter cancelled.", 3000)
-
-
-    @pyqtSlot()
     def open_plane_leveling_dialog(self):
-        """Opens the dialog for applying Plane Leveling."""
-        current_node = self.history_manager.get_current_node() # Pobierz aktualny węzeł
-        if current_node is None: # Sprawdź, czy węzeł istnieje
-            QMessageBox.warning(self, "No Image", "...")
-            return
-        if not PlaneLevelingDialog: 
-            QMessageBox.critical(self, "Error", "PlaneLevelingDialog not available.")
-            return
-
-        if current_node.image_data is None: 
-            QMessageBox.critical(self, "Internal Error", "...")
-            return
-        dialog_input_data = current_node.image_data.copy()
-
-        logger.info(f"Opening Plane Leveling dialog based on node: {current_node.get_display_text()}")
-        dialog = PlaneLevelingDialog(dialog_input_data, parent=self)
-        result = dialog.exec()
-
-        if result == QDialog.DialogCode.Accepted:
-            processed_data = dialog.get_processed_data()
-            params = dialog.get_parameters()
-            was_roi_only = dialog.was_roi_applied_only() 
-            op_name = "Plane Leveling"
-
-            if processed_data is not None:
-                logger.info(f"Plane Leveling accepted. ROI Only: {was_roi_only}. Creating history node.")
-
-                parent_data_type = current_node.data_type
-                logger.info(f"Creating history node. Parent type: {parent_data_type}. ROI Only: {was_roi_only}.")
-
-                
-                final_roi_slice = None
-                if was_roi_only:
-                    final_roi_slice = dialog.get_final_roi_slice()
-                
-                new_node = HistoryNode(
-                    parent_id=self.history_manager.current_node_id,
-                    operation_name=op_name,
-                    parameters=params,
-                    image_data=processed_data,
-                    data_type=parent_data_type, 
-                    source_roi_slice=final_roi_slice
-                )
-                self.history_manager.add_node(new_node)
-                self.history_manager.set_current_node_by_id(new_node.node_id)
-                display_name = new_node.get_display_text() 
-                self.statusBar().showMessage(f"{display_name} applied.", 3000)
-            else: logger.warning("Dialog accepted, but no processed data returned.")
-        else: logger.info("Plane Leveling dialog cancelled."); self.statusBar().showMessage("Plane Leveling cancelled.", 3000)
+        self._helper_open_processing_dialog(PlaneLevelingDialog, "apply_plane_leveling")
 
 
     @pyqtSlot(QListWidgetItem, QListWidgetItem)
@@ -1045,64 +799,8 @@ class MainWindow(QMainWindow):
         """
         QMessageBox.about(self, "About LFA", about_text)
 
-    @pyqtSlot()
     def open_gaussian_blur_dialog(self):
-        current_node = self.history_manager.get_current_node() # Pobierz aktualny węzeł
-        if current_node is None: # Sprawdź, czy węzeł istnieje
-            QMessageBox.warning(self, "No Image", "Please load an image first.")
-            return
-        if not GaussianBlurDialog:
-            QMessageBox.critical(self, "Error", "Gaussian Blur functionality is not available.")
-            return
-        print(f"Gaussian Blur: Current node ID: {current_node.node_id}")
-        if current_node.image_data is None:
-            QMessageBox.critical(self, "Internal Error", "No image data available.")
-            return
-        dialog_input_data = current_node.image_data.copy()
-
-        logger.info(f"Opening Gaussian Blur dialog based on node: {current_node.get_display_text()}")
-        dialog = GaussianBlurDialog(dialog_input_data, parent=self)
-        result = dialog.exec()
-
-        if result == QDialog.DialogCode.Accepted:
-            processed_data = dialog.get_processed_data()
-            params = dialog.get_parameters()
-            was_roi_only = dialog.was_roi_applied_only()
-            op_name = "Gaussian Blur"
-
-            if processed_data is not None:
-                if np.allclose(processed_data, current_node.image_data):
-                    logger.info("Data was not modified. No history node created.")
-                    self.statusBar().showMessage("No changes applied.", 3000)
-                    return
-
-                logger.info(f"Dialog accepted. Final apply was ROI: {was_roi_only}. Creating history node.")
-
-                parent_data_type = current_node.data_type
-                logger.info(f"Creating history node. Parent type: {parent_data_type}. ROI Only: {was_roi_only}.")
-
-                
-                final_roi_slice = None
-                if was_roi_only:
-                    final_roi_slice = dialog.get_final_roi_slice()
-                
-                new_node = HistoryNode(
-                    parent_id=self.history_manager.current_node_id,
-                    operation_name=op_name,
-                    parameters=params,
-                    image_data=processed_data,
-                    data_type=parent_data_type, 
-                    source_roi_slice=final_roi_slice
-                )
-                self.history_manager.add_node(new_node)
-                self.history_manager.set_current_node_by_id(new_node.node_id)
-                display_name = new_node.get_display_text()
-                self.statusBar().showMessage(f"{display_name} applied.", 3000)
-            else:
-                logger.warning("Dialog accepted, but processed data is None.")
-        else:
-            logger.info("Gaussian Blur dialog cancelled.")
-            self.statusBar().showMessage("Gaussian Blur cancelled.", 3000)
+        self._helper_open_processing_dialog(GaussianBlurDialog, "apply_gaussian_blur")
 
     def display_image_data(self):
         if not hasattr(self, 'visualization_manager') or self.visualization_manager is None:
