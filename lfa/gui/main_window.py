@@ -31,6 +31,7 @@ from .visualization_manager import VisualizationManager
 from ..logic.app_controller import AppController
 from ..core.history import HistoryNode
 from .ui_setup.menu_action_manager import MenuActionManager
+from .ui_setup.dock_panel_manager import DockPanelManager
 
 try:
     from .preprocessing_dialogs import (GaussianBlurDialog, PlaneLevelingDialog, 
@@ -83,33 +84,35 @@ class MainWindow(QMainWindow):
         self.resize(1250, 800)
 
         self._setup_main_layout() # Tworzy m.in. self.history_list_widget
-        
-        # HistoryManager potrzebuje history_list_widget
-        self.history_manager = HistoryManager(self.history_list_widget, self)
-        logger.info("HistoryManager initialized in MainWindow.")
-        self.app_controller = AppController(history_manager=self.history_manager)
-        logger.info("AppController initialized in MainWindow.")
+        self.metadata_widget = MetadataWidget(self) # Tworzymy widgety zawartości
+        self.fft_analysis_panel_widget = FFTAnalysisPanel(self)
 
-        self._init_core_attributes() # Inicjalizacja pozostałych atrybutów MainWindow
+        # 2. Managery logiki
+        self.history_manager = HistoryManager(self.history_list_widget, self)
+        self.app_controller = AppController(history_manager=self.history_manager)
+        
+        self._init_core_attributes()
 
         self.menu_manager = MenuActionManager(self) 
 
+        self.dock_manager = DockPanelManager(
+            main_window=self,
+            history_list_widget=self.history_list_widget,
+            metadata_widget=self.metadata_widget,
+            fft_analysis_panel_widget=self.fft_analysis_panel_widget
+        )
+
         self._create_status_bar()
-        self._create_history_dock() # Modyfikacja: history_manager jest już stworzony
-        self._create_metadata_dock()
-        self._create_fft_analysis_dock()
 
         if pg and self.image_view and self.history_manager and VisualizationManager:
             self.visualization_manager = VisualizationManager(
                 image_view=self.image_view,
-                history_manager=self.history_manager, # Przekazujemy history_manager, nie app_controller bezpośrednio tutaj
-                # parent=self
+                history_manager=self.history_manager,
             )
             logger.info("VisualizationManager created and initialized.")
         else: # pragma: no cover
             self.visualization_manager = None
-            logger.error("Could not create VisualizationManager due to missing dependencies (pg, ImageView, HistoryManager, or VisualizationManager class).")
-
+            logger.error("Could not create VisualizationManager due to missing dependencies.")
 
         self._connect_signals()
         self._update_action_states()
@@ -147,48 +150,6 @@ class MainWindow(QMainWindow):
     def _create_status_bar(self):
         """Creates the status bar."""
         self.statusBar().showMessage("Ready - Load an image using File -> Open")
-
-    def _create_history_dock(self):
-        self.history_dock = QDockWidget("History", self)
-        self.history_dock.setWidget(self.history_list_widget)
-        self.history_dock.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
-        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.history_dock)
-
-        if hasattr(self, 'view_menu'):
-            toggle_history_action = self.history_dock.toggleViewAction()
-            toggle_history_action.setText("History Panel")
-            self.view_menu.addAction(toggle_history_action)
-        else:
-            logger.warning("view_menu not found when creating history_dock toggle action.")
-
-    def _create_metadata_dock(self):
-        self.metadata_dock = QDockWidget("Metadata", self)
-        self.metadata_widget = MetadataWidget(self)
-        self.metadata_dock.setWidget(self.metadata_widget)
-        self.metadata_dock.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
-        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.metadata_dock)
-
-        if not hasattr(self, 'view_menu'):
-            self.view_menu = self.menuBar().addMenu("&View")
-
-        toggle_metadata_action = self.metadata_dock.toggleViewAction()
-        toggle_metadata_action.setText("Metadata Panel")
-        toggle_metadata_action.setStatusTip("Show/hide the metadata panel")
-        self.view_menu.addAction(toggle_metadata_action)
-
-    def _create_fft_analysis_dock(self):
-        self.fft_analysis_dock = QDockWidget("FFT Analysis Tools", self)
-        self.fft_analysis_panel_widget = FFTAnalysisPanel(self)
-        self.fft_analysis_dock.setWidget(self.fft_analysis_panel_widget)
-        self.fft_analysis_dock.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
-        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.fft_analysis_dock)
-        self.fft_analysis_dock.setVisible(False)
-
-        if not hasattr(self, 'view_menu'):
-            self.view_menu = self.menuBar().addMenu("&View")
-        toggle_fft_tools_action = self.fft_analysis_dock.toggleViewAction()
-        toggle_fft_tools_action.setText("FFT Analysis Tools Panel")
-        self.view_menu.addAction(toggle_fft_tools_action)
 
     def _connect_signals(self):
         if self.history_manager:
