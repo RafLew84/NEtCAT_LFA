@@ -41,18 +41,16 @@ class FFTAnalysisPanel(QWidget):
     # Sygnały dla zarządzania zestawami adsorbatu
     current_adsorbate_set_changed = pyqtSignal(str) # Emituje tekst aktualnie wybranego zestawu
     add_new_adsorbate_set_requested = pyqtSignal() # Gdy użytkownik wybierze "<Add New Set...>"
+
     reselect_current_adsorbate_set_triggered = pyqtSignal() # Przycisk "Reselect Set"
     clear_all_adsorbate_sets_triggered = pyqtSignal() # Przycisk "Clear All Sets"
     clear_last_adsorbate_point_triggered = pyqtSignal() # Przycisk "Clear Last Adsorbate Point"
     # Sygnał dla przycisku czyszczenia pików substratu
-    clear_substrate_spots_triggered = pyqtSignal()
+    select_edit_substrate_spots_requested = pyqtSignal()
+    select_edit_adsorbate_spots_requested = pyqtSignal()
     # Sygnały dla widoczności markerów pików
     substrate_spots_visibility_changed = pyqtSignal(bool)
     adsorbate_spots_visibility_changed = pyqtSignal(bool)
-
-    # Sygnały dla sekcji "Spot Refinement Method"
-    refinement_method_changed = pyqtSignal(str) # Emituje "Direct Click", "Max Pixel", lub "2D Gaussian Fit"
-    refinement_area_size_changed = pyqtSignal(int) # Emituje nową wartość rozmiaru obszaru
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -70,9 +68,6 @@ class FFTAnalysisPanel(QWidget):
 
         # --- Spot Selection Controls ---
         self._create_spot_selection_group(main_layout)
-
-        # --- Spot Refinement Controls ---
-        self._create_spot_refinement_group(main_layout)
 
         main_layout.addStretch(1) # Dodaj rozciągliwą przestrzeń na dole
         self.setLayout(main_layout)
@@ -116,8 +111,8 @@ class FFTAnalysisPanel(QWidget):
         substrate_set_form_layout = QFormLayout(self.substrate_set_panel) # Użyj QFormLayout
         substrate_set_form_layout.setContentsMargins(0, 5, 0, 5)
         substrate_buttons_layout = QHBoxLayout()
-        self.clear_substrate_spots_button = QPushButton("Clear Substrate Spots")
-        substrate_buttons_layout.addWidget(self.clear_substrate_spots_button)
+        self.edit_substrate_spots_button = QPushButton("Edit/Select Substrate Spots")
+        substrate_buttons_layout.addWidget(self.edit_substrate_spots_button)
         substrate_set_form_layout.addRow(substrate_buttons_layout) # Dodaj QHBoxLayout do QFormLayout
         spot_selection_layout.addWidget(self.substrate_set_panel)
         self.substrate_set_panel.setVisible(True) # Widoczne domyślnie
@@ -132,16 +127,20 @@ class FFTAnalysisPanel(QWidget):
         self.adsorbate_set_combo.addItem("<Add New Set...>")
         adsorbate_set_form_layout.addRow("Current Set:", self.adsorbate_set_combo)
 
-        adsorbate_buttons_layout = QHBoxLayout()
-        self.reselect_adsorbate_set_button = QPushButton("Reselect Current Set")
-        self.clear_last_adsorbate_point_button = QPushButton("Clear Last Point")
+        adsorbate_buttons_layout_top = QHBoxLayout()
+        self.edit_adsorbate_spots_button = QPushButton("Edit/Select Current Set Spots")
+        adsorbate_buttons_layout_top.addWidget(self.edit_adsorbate_spots_button)
+
+        adsorbate_buttons_layout_bottom = QHBoxLayout()
+        self.reselect_adsorbate_set_button = QPushButton("Clear Current Set") # Zmiana nazwy dla jasności
+        self.clear_last_adsorbate_point_button = QPushButton("Clear Last Point in Set") # Zmiana nazwy
         self.clear_all_adsorbate_sets_button = QPushButton("Clear All Sets")
-        adsorbate_buttons_layout.addWidget(self.reselect_adsorbate_set_button)
-        adsorbate_buttons_layout.addWidget(self.clear_last_adsorbate_point_button)
-        adsorbate_buttons_layout.addWidget(self.clear_all_adsorbate_sets_button)
-        adsorbate_set_form_layout.addRow(adsorbate_buttons_layout) # Dodaj QHBoxLayout do QFormLayout
+        adsorbate_buttons_layout_bottom.addWidget(self.reselect_adsorbate_set_button)
+        adsorbate_buttons_layout_bottom.addWidget(self.clear_last_adsorbate_point_button)
+        adsorbate_buttons_layout_bottom.addWidget(self.clear_all_adsorbate_sets_button)
+        adsorbate_set_form_layout.addRow(adsorbate_buttons_layout_bottom)
         spot_selection_layout.addWidget(self.adsorbate_set_panel)
-        self.adsorbate_set_panel.setVisible(False) # Ukryte domyślnie
+        self.adsorbate_set_panel.setVisible(False)
 
         # Spot Visibility Checkboxes
         self.show_substrate_spots_checkbox = QCheckBox("Show Substrate Spots")
@@ -153,34 +152,6 @@ class FFTAnalysisPanel(QWidget):
 
         self.spot_selection_group.setLayout(spot_selection_layout)
         parent_layout.addWidget(self.spot_selection_group)
-
-    def _create_spot_refinement_group(self, parent_layout: QVBoxLayout):
-        """Creates the 'Spot Refinement Method' group box and its controls."""
-        self.refinement_group = QGroupBox("Spot Refinement Method") # self.refinement_group
-        refinement_layout = QVBoxLayout()
-
-        self.rb_refine_direct = QRadioButton("Direct Click (No Refinement)")
-        self.rb_refine_direct.setChecked(True)
-        self.rb_refine_max_pixel = QRadioButton("Max Pixel in Area")
-        self.rb_refine_gaussian = QRadioButton("2D Gaussian Fit")
-
-        refinement_param_layout = QHBoxLayout()
-        refinement_param_layout.addWidget(QLabel("Area Size:"))
-        self.refinement_area_size_spinbox = QSpinBox() # Zmieniono nazwę na *_area_size_*
-        self.refinement_area_size_spinbox.setMinimum(3)
-        self.refinement_area_size_spinbox.setMaximum(21) # Max 21x21 area
-        self.refinement_area_size_spinbox.setSingleStep(2) # Krok 2 dla nieparzystych
-        self.refinement_area_size_spinbox.setValue(5) # Domyślny rozmiar obszaru (np. 5x5)
-        refinement_param_layout.addWidget(self.refinement_area_size_spinbox)
-        refinement_param_layout.addStretch()
-
-        refinement_layout.addWidget(self.rb_refine_direct)
-        refinement_layout.addWidget(self.rb_refine_max_pixel)
-        refinement_layout.addWidget(self.rb_refine_gaussian)
-        refinement_layout.addLayout(refinement_param_layout)
-
-        self.refinement_group.setLayout(refinement_layout)
-        parent_layout.addWidget(self.refinement_group)
 
     def _connect_internal_signals(self):
         """Connects internal widget signals to slots or directly to emitting class signals."""
@@ -196,12 +167,13 @@ class FFTAnalysisPanel(QWidget):
 
         # Adsorbate Set Management
         self.adsorbate_set_combo.currentTextChanged.connect(self._handle_adsorbate_set_combo_change)
+
+        self.edit_substrate_spots_button.clicked.connect(self.select_edit_substrate_spots_requested)
+        self.edit_adsorbate_spots_button.clicked.connect(self.select_edit_adsorbate_spots_requested)
+
         self.reselect_adsorbate_set_button.clicked.connect(self.reselect_current_adsorbate_set_triggered)
         self.clear_last_adsorbate_point_button.clicked.connect(self.clear_last_adsorbate_point_triggered)
         self.clear_all_adsorbate_sets_button.clicked.connect(self.clear_all_adsorbate_sets_triggered)
-
-        # Substrate Spot Management
-        self.clear_substrate_spots_button.clicked.connect(self.clear_substrate_spots_triggered)
 
         # Spot Visibility
         self.show_substrate_spots_checkbox.stateChanged.connect(
@@ -210,12 +182,6 @@ class FFTAnalysisPanel(QWidget):
         self.show_adsorbate_spots_checkbox.stateChanged.connect(
             lambda state: self.adsorbate_spots_visibility_changed.emit(state == Qt.CheckState.Checked.value)
         )
-
-        # Spot Refinement
-        self.rb_refine_direct.toggled.connect(self._handle_refinement_method_toggle)
-        self.rb_refine_max_pixel.toggled.connect(self._handle_refinement_method_toggle)
-        self.rb_refine_gaussian.toggled.connect(self._handle_refinement_method_toggle)
-        self.refinement_area_size_spinbox.valueChanged.connect(self.refinement_area_size_changed)
 
     # --- Wewnętrzne Sloty ---
     def _handle_substrate_combo_change(self, text: str):
@@ -246,16 +212,6 @@ class FFTAnalysisPanel(QWidget):
         else:
             self.current_adsorbate_set_changed.emit(text)
 
-    def _handle_refinement_method_toggle(self):
-        # Ten slot jest wywoływany przy każdej zmianie radio buttona w grupie refinement.
-        # Sprawdzamy, który jest aktualnie zaznaczony.
-        if self.rb_refine_direct.isChecked():
-            self.refinement_method_changed.emit("Direct Click")
-        elif self.rb_refine_max_pixel.isChecked():
-            self.refinement_method_changed.emit("Max Pixel")
-        elif self.rb_refine_gaussian.isChecked():
-            self.refinement_method_changed.emit("2D Gaussian Fit")
-
     # --- Metody publiczne do zarządzania stanem UI z zewnątrz (jeśli potrzebne) ---
     def set_substrate_combo_text(self, text: str):
         """Ustawia tekst w substrate_combo, blokując sygnały, aby uniknąć pętli."""
@@ -275,19 +231,6 @@ class FFTAnalysisPanel(QWidget):
         elif set_names: # Jeśli current_set_text nie znaleziono, ale są inne, ustaw pierwszy
              self.adsorbate_set_combo.setCurrentIndex(0)
         self.adsorbate_set_combo.blockSignals(False)
-
-    def get_current_refinement_settings(self) -> dict:
-        """Zwraca słownik z aktualnymi ustawieniami uściślania."""
-        method = "Direct Click"
-        if self.rb_refine_max_pixel.isChecked():
-            method = "Max Pixel"
-        elif self.rb_refine_gaussian.isChecked():
-            method = "2D Gaussian Fit"
-        
-        return {
-            "method": method,
-            "area_size": self.refinement_area_size_spinbox.value()
-        }
 
     def get_current_substrate(self) -> str:
         return self.substrate_combo.currentText()
@@ -325,9 +268,13 @@ class FFTAnalysisPanel(QWidget):
     def is_adsorbate_spots_visible(self) -> bool:
         return self.show_adsorbate_spots_checkbox.isChecked()
     
-    def set_clear_substrate_spots_button_enabled(self, enabled: bool):
-        if hasattr(self, 'clear_substrate_spots_button'):
-            self.clear_substrate_spots_button.setEnabled(enabled)
+    def set_edit_substrate_spots_button_enabled(self, enabled: bool): # Nowa nazwa
+        if hasattr(self, 'edit_substrate_spots_button'):
+            self.edit_substrate_spots_button.setEnabled(enabled)
+
+    def set_edit_adsorbate_spots_button_enabled(self, enabled: bool): # Nowa nazwa
+        if hasattr(self, 'edit_adsorbate_spots_button'):
+            self.edit_adsorbate_spots_button.setEnabled(enabled)
 
     def set_clear_last_adsorbate_point_button_enabled(self, enabled: bool):
         if hasattr(self, 'clear_last_adsorbate_point_button'):

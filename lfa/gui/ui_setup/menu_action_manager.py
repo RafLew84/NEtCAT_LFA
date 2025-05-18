@@ -125,7 +125,6 @@ class MenuActionManager:
         self.main_window.select_adsorbate_spots_action = sel_ads_action # Ustaw atrybut
 
 
-
     def _create_view_menu(self):
         self.main_window.view_menu = self.menu_bar.addMenu("&View")
 
