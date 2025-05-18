@@ -393,11 +393,23 @@ class MainWindow(QMainWindow):
             expected_lattice_type = self.app_controller.custom_lattice_info.get("type")
         
         logger.debug(f"Passing to SubstrateSpotSelectionDialog: existing_spots_count={len(current_substrate_spots)}, expected_lattice_type='{expected_lattice_type}'")
-
+        current_fft_node = self.history_manager.get_current_node() # Pobierz aktualny węzeł
+        if not (current_fft_node and current_fft_node.data_type == "FFT"): # Dodatkowe sprawdzenie
+             # To nie powinno się zdarzyć, jeśli current_node_info[1] == "FFT"
+             logger.error("Mismatch: current_node_info indicates FFT, but current_node is not.")
+             return
+        
+        current_real_fft_node_id = current_fft_node.node_id
         # 3. Utwórz i wyświetl dialog
         dialog = SubstrateSpotSelectionDialog(
             fft_image_data=fft_image_data_copy,
+            history_manager=self.history_manager,
+            current_fft_node_id=current_real_fft_node_id,
             current_spots=current_substrate_spots,
+            # default_refinement_method i default_refinement_roi_size są opcjonalne,
+            # ale jeśli chcesz je przekazać, pobierz je z app_controller
+            default_refinement_method=self.app_controller.spot_refinement_method,
+            default_refinement_roi_size=self.app_controller.refinement_roi_size,
             parent=self
         )
         
