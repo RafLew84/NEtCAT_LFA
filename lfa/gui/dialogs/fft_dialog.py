@@ -28,7 +28,7 @@ except ImportError as e:
 
 # Import the backend FFT calculation function and available window types
 try:
-    from ..analysis.fft_engine import calculate_fft, AVAILABLE_WINDOWS
+    from lfa.analysis.fft_engine import calculate_fft, AVAILABLE_WINDOWS
 except ImportError:
     logging.error("Could not import calculate_fft function from lfa.analysis.fft_engine.")
     # Define a dummy function to allow the UI to load, but calculations will fail

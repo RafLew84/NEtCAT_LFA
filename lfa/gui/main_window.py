@@ -34,9 +34,9 @@ from .ui_setup.menu_action_manager import MenuActionManager
 from .ui_setup.dock_panel_manager import DockPanelManager
 
 try:
-    from .preprocessing_dialogs import (GaussianBlurDialog, PlaneLevelingDialog, 
+    from lfa.gui.dialogs.preprocessing_dialogs import (GaussianBlurDialog, PlaneLevelingDialog, 
     MedianFilterDialog, NLMeansDialog, BM3DDialog, GaussianSharpeningDialog)
-    from .fft_dialog import FFTDialog
+    from lfa.gui.dialogs.fft_dialog import FFTDialog
     DIALOG_CLASSES_EXIST = True
 except ImportError:
     GaussianBlurDialog = None
@@ -59,12 +59,22 @@ except ImportError:
     def fit_2d_gaussian_in_roi(data, center, radius): return None
     PEAK_FITTING_AVAILABLE = False
 
+try:
+    from .dialogs.substrate_spot_dialog import SubstrateSpotSelectionDialog
+    from .dialogs.adsorbate_spot_dialog import AdsorbateSpotSelectionDialog
+    SPOT_SELECTION_DIALOGS_AVAILABLE = True
+except ImportError: # pragma: no cover
+    logging.warning("Could not import spot selection dialogs. Spot selection from menu will not work.")
+    SubstrateSpotSelectionDialog = None
+    AdsorbateSpotSelectionDialog = None
+    SPOT_SELECTION_DIALOGS_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
 
 
 try:
     from ..analysis.lattice import get_reciprocal_points, KNOWN_LATTICES
-    from .custom_lattice_dialog import CustomLatticeDialog
+    from lfa.gui.dialogs.custom_lattice_dialog import CustomLatticeDialog
     LATTICE_ANALYSIS_AVAILABLE = True
 except ImportError:
     logging.error("Could not import lattice analysis functions.")
@@ -293,6 +303,11 @@ class MainWindow(QMainWindow):
         if hasattr(self, 'bm3d_action'): self.bm3d_action.setEnabled(preprocessing_possible)
         if hasattr(self, 'fft_action'): self.fft_action.setEnabled(fft_calculation_possible)
         if hasattr(self, 'fft_analysis_dock'): self.fft_analysis_dock.setVisible(is_fft_data)
+        
+        if hasattr(self, 'select_substrate_spots_action'):
+            self.select_substrate_spots_action.setEnabled(is_fft_data and SPOT_SELECTION_DIALOGS_AVAILABLE)
+        if hasattr(self, 'select_adsorbate_spots_action'):
+            self.select_adsorbate_spots_action.setEnabled(is_fft_data and SPOT_SELECTION_DIALOGS_AVAILABLE)
 
         if hasattr(self, 'fft_analysis_panel_widget') and is_fft_data:
             can_clear_substrate = self.app_controller.spot_selection_mode == "Substrate" and bool(self.app_controller.substrate_spots)
@@ -316,6 +331,64 @@ class MainWindow(QMainWindow):
             self.fft_analysis_panel_widget.set_reselect_adsorbate_set_button_enabled(False)
             self.fft_analysis_panel_widget.set_clear_all_adsorbate_sets_button_enabled(False)
         logger.debug(f"_update_action_states: Preprocessing possible: {preprocessing_possible}, FFT Calc possible: {fft_calculation_possible}, Is FFT data: {is_fft_data}")
+
+    @pyqtSlot()
+    def open_substrate_spot_selection_dialog(self):
+        logger.info("Opening substrate spot selection dialog...")
+        current_node_info = self.app_controller.get_current_node_info_for_dialogs()
+        if not (current_node_info and current_node_info[1] == "FFT"): # [1] to data_type
+            QMessageBox.warning(self, "Incorrect Data", "Substrate spots can only be selected on an FFT image.")
+            return
+        if not SubstrateSpotSelectionDialog: # pragma: no cover
+            QMessageBox.critical(self, "Error", "SubstrateSpotSelectionDialog is not available.")
+            return
+
+        _, _, fft_image_data = current_node_info
+        current_substrate_spots = self.app_controller.substrate_spots # Pobierz istniejące spoty
+
+        dialog = SubstrateSpotSelectionDialog(fft_image_data, current_substrate_spots, self)
+        # TODO: Przekaż typ sieci (hex/square) do dialogu, jeśli jest znany, aby mógł walidować liczbę spotów
+        # np. dialog.set_expected_lattice_type(self.app_controller.get_current_lattice_type())
+
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            new_spots = dialog.get_selected_spots()
+            # TODO: Zaktualizuj w AppController (Krok 5)
+            # self.app_controller.set_substrate_spots(new_spots)
+            logger.info(f"Substrate spots selection accepted with {len(new_spots)} spots.")
+            self.statusBar().showMessage(f"Substrate spots updated: {len(new_spots)} spots.", 3000)
+        else:
+            logger.info("Substrate spots selection cancelled.")
+            self.statusBar().showMessage("Substrate spots selection cancelled.", 3000)
+
+    @pyqtSlot()
+    def open_adsorbate_spot_selection_dialog(self):
+        logger.info("Opening adsorbate spot selection dialog...")
+        current_node_info = self.app_controller.get_current_node_info_for_dialogs()
+        if not (current_node_info and current_node_info[1] == "FFT"):
+            QMessageBox.warning(self, "Incorrect Data", "Adsorbate spots can only be selected on an FFT image.")
+            return
+        if not AdsorbateSpotSelectionDialog: # pragma: no cover
+            QMessageBox.critical(self, "Error", "AdsorbateSpotSelectionDialog is not available.")
+            return
+
+        _, _, fft_image_data = current_node_info
+        
+        current_set_idx = self.app_controller.current_adsorbate_set_index
+        current_adsorbate_spots = []
+        if 0 <= current_set_idx < len(self.app_controller.adsorbate_spot_sets):
+            current_adsorbate_spots = self.app_controller.adsorbate_spot_sets[current_set_idx]
+
+        dialog = AdsorbateSpotSelectionDialog(fft_image_data, current_adsorbate_spots, current_set_idx, self)
+        
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            new_spots = dialog.get_selected_spots()
+            # TODO: Zaktualizuj w AppController dla odpowiedniego zestawu (Krok 5)
+            # self.app_controller.set_adsorbate_spots_for_set(current_set_idx, new_spots)
+            logger.info(f"Adsorbate spots selection for set {current_set_idx + 1} accepted with {len(new_spots)} spots.")
+            self.statusBar().showMessage(f"Adsorbate spots (Set {current_set_idx+1}) updated: {len(new_spots)} spots.", 3000)
+        else:
+            logger.info(f"Adsorbate spots selection for set {current_set_idx + 1} cancelled.")
+            self.statusBar().showMessage(f"Adsorbate spots (Set {current_set_idx+1}) selection cancelled.", 3000)
 
     @pyqtSlot()
     def _on_spot_lists_or_params_changed(self):

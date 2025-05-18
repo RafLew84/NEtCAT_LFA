@@ -21,7 +21,7 @@ except ImportError as e:
 
 # Import processing function
 try:
-    from ..preprocessing.filtering import gaussian_blur, median_filter_lfa, gaussian_sharpen_unsharp_mask
+    from lfa.preprocessing.filtering import gaussian_blur, median_filter_lfa, gaussian_sharpen_unsharp_mask
 except ImportError:
     logging.error("Could not import gaussian_blur function.")
     def gaussian_blur(image, sigma): return image 
@@ -29,14 +29,15 @@ except ImportError:
     def gaussian_sharpen_unsharp_mask(image, radius, amount): return image
 
 try:
-    from ..preprocessing.leveling import fit_plane, fit_plane_3pts, level_by_plane
+    from lfa.preprocessing.leveling import fit_plane, fit_plane_3pts, level_by_plane
 except ImportError:
     logging.error("Could not import fit_plane, fit_plane_3pts, or level_by_plane functions.")
     def fit_plane(*args, **kwargs): return None
     def fit_plane_3pts(*args, **kwargs): return None
     def level_by_plane(*args, **kwargs): return None
 
-try: from ..preprocessing.denoising import denoise_nlmeans_skimage, denoise_bm3d_lfa
+try: 
+    from lfa.preprocessing.denoising import denoise_nlmeans_skimage, denoise_bm3d_lfa
 except ImportError: 
     logging.error("Could not import denoising functions."); 
     def denoise_nlmeans_skimage(**kwargs): return kwargs.get('image')

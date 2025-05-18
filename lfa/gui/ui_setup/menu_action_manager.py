@@ -104,6 +104,27 @@ class MenuActionManager:
         # Ustawienie atrybutu w MainWindow
         self.main_window.fft_action = self.analysis_actions["fft"]
 
+        analysis_menu.addSeparator() # Dodajemy separator
+
+        sel_subs_action = self._create_action(
+            text="Select &Substrate Spots...",
+            status_tip="Open dialog to select/edit substrate spots",
+            triggered_slot=self.main_window.open_substrate_spot_selection_dialog, # Nowy slot w MainWindow
+            enabled=False # Początkowo wyłączone, włączane gdy jest obraz FFT
+        )
+        analysis_menu.addAction(sel_subs_action)
+        self.main_window.select_substrate_spots_action = sel_subs_action # Ustaw atrybut
+
+        sel_ads_action = self._create_action(
+            text="Select &Adsorbate Spots...",
+            status_tip="Open dialog to select/edit adsorbate spots for the current set",
+            triggered_slot=self.main_window.open_adsorbate_spot_selection_dialog, # Nowy slot w MainWindow
+            enabled=False # Początkowo wyłączone
+        )
+        analysis_menu.addAction(sel_ads_action)
+        self.main_window.select_adsorbate_spots_action = sel_ads_action # Ustaw atrybut
+
+
 
     def _create_view_menu(self):
         self.main_window.view_menu = self.menu_bar.addMenu("&View")
