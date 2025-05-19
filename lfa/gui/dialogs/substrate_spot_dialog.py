@@ -108,6 +108,10 @@ class SubstrateSpotSelectionDialog(QDialog):
         self.limits_per_lattice = {LATTICE_TYPE_HEXAGONAL: 6, LATTICE_TYPE_SQUARE: 4}
         self.ideal_lattice_overlay_item: Optional[ScatterPlotItem] = None
 
+        self.last_preview_gauss_fit_popt: Optional[np.ndarray] = None
+        self.last_preview_gauss_fit_center_abs: Optional[Tuple[float, float]] = None # (kx, ky)
+        self.last_preview_gauss_roi_state: Optional[Dict] = None # Stan selection_roi dla którego wykonano fit
+
         self._init_ui()
         self._connect_signals()
         self._update_spots_list_widget()
@@ -279,28 +283,6 @@ class SubstrateSpotSelectionDialog(QDialog):
         
         right_panel_layout.addStretch(1)
         main_layout.addWidget(right_panel_widget, stretch=1)
-    
-    def auto_scale_3d_plot(self, gl_widget, x, y, z):
-        """Automatyczne skalowanie wykresu 3D z paddingiem"""
-        x_range = (x.min(), x.max())
-        y_range = (y.min(), y.max())
-        z_range = (z.min(), z.max())
-        
-        # Obliczamy zakresy z 10% paddingiem
-        x_padding = (x_range[1] - x_range[0]) * 0.1
-        y_padding = (y_range[1] - y_range[0]) * 0.1
-        z_padding = (z_range[1] - z_range[0]) * 0.1
-        
-        gl_widget.setRange(
-            xRange=(x_range[0]-x_padding, x_range[1]+x_padding),
-            yRange=(y_range[0]-y_padding, y_range[1]+y_padding),
-            zRange=(z_range[0]-z_padding, z_range[1]+z_padding)
-        )
-        
-        # Resetujemy ustawienia kamery, zachowując przesunięcie w dół
-        cam = gl_widget.camera
-        current_center = cam.center()
-        cam.setParams(center=QtGui.QVector3D(current_center.x(), -0.15, current_center.z()))
 
     def _connect_signals(self):
         self.button_box.accepted.connect(self.accept)
@@ -311,6 +293,7 @@ class SubstrateSpotSelectionDialog(QDialog):
         # Podłączenie kliknięcia na obrazie FFT
         # Sygnał sigMouseClicked jest emitowany przez scenę ViewBoxa
         self.fft_view_box.scene().sigMouseClicked.connect(self._handle_fft_image_click)
+        self.selection_roi.sigRegionChanged.connect(self._handle_roi_region_changing)
         self.selection_roi.sigRegionChangeFinished.connect(self._handle_roi_changed_finished) # Po zakończeniu zmiany ROI
 
         # Zmiana metody uściślania
@@ -450,6 +433,13 @@ class SubstrateSpotSelectionDialog(QDialog):
 
             self._update_roi_previews()
 
+    def _clear_last_preview_gauss_fit(self):
+        """Helper to invalidate stored preview Gaussian fit results."""
+        self.last_preview_gauss_fit_popt = None
+        self.last_preview_gauss_fit_center_abs = None
+        self.last_preview_gauss_roi_state = None
+        logger.debug("Cleared last preview Gaussian fit results.")
+
     @pyqtSlot(object) # Zmieniono z QRectF na object, bo sigRegionChanged emituje sam obiekt ROI
     def _handle_roi_region_changing(self, roi_item: Optional[RectROI] = None): # roi_item jest opcjonalny
         """Obsługuje zmianę ROI (przesunięcie lub zmiana rozmiaru) - live update."""
@@ -470,17 +460,22 @@ class SubstrateSpotSelectionDialog(QDialog):
                 self.refinement_roi_size_spinbox.setValue(current_roi_w)
                 self.refinement_roi_size_spinbox.blockSignals(False)
             
+            self._clear_last_preview_gauss_fit() # Wyczyść poprzedni fit
             self._update_roi_previews() # Live update podglądów
 
 
     def _update_roi_previews(self):
         """Aktualizuje podglądy 2D ROI, dopasowania Gaussa i 3D."""
         if not self.selection_roi.isVisible() or self.fft_data is None: # type: ignore
+            self._clear_last_preview_gauss_fit()
             if hasattr(self, 'roi_preview_2d_image_item'): self.roi_preview_2d_image_item.clear()
             if hasattr(self, 'gaussian_preview_2d_image_item'): self.gaussian_preview_2d_image_item.clear()
             if hasattr(self, 'gl_roi_surface_item'): self.gl_roi_surface_item.setData(z=np.array([[0,0],[0,0]])) # Wyczyść podgląd 3D
             # if hasattr(self, 'gl_gauss_surface_item'): self.gl_gauss_surface_item.setData(z=np.array([[0,0],[0,0]]))
             return
+
+        roi_state_for_comparison = self.selection_roi.getState() # type: ignore
+        x0_roi, y0_roi = int(round(roi_state_for_comparison['pos'].x())), int(round(roi_state_for_comparison['pos'].y()))
 
         roi_state = self.selection_roi.getState() # type: ignore
         x0_roi, y0_roi = int(round(roi_state['pos'].x())), int(round(roi_state['pos'].y()))
@@ -521,13 +516,22 @@ class SubstrateSpotSelectionDialog(QDialog):
                     p_data_flat = roi_patch.flatten()
                     try:
                         p0_gauss = [roi_patch.max() - roi_patch.min(), patch_h/2.0, patch_w/2.0, patch_w/4.0, patch_h/4.0, 0.0, roi_patch.min()]
-                        # --- ZMIANA: Użyj scipy.optimize.curve_fit i zaimportowanej _gaussian_2d ---
                         if callable(scipy_curve_fit) and callable(_gaussian_2d): # Sprawdź, czy funkcje są dostępne
                             popt_gauss, pcov_gauss = scipy_curve_fit(_gaussian_2d, p_xy_flat, p_data_flat, p0=p0_gauss)
+                            self.last_preview_gauss_fit_popt = popt_gauss
+                            # Oblicz absolutne centrum dopasowania
+                            # popt_gauss[1] to y0_patch, popt_gauss[2] to x0_patch (wzgl. roi_patch)
+                            abs_fit_ky = y0_roi + popt_gauss[1] # y0_roi to górny lewy róg roi_patch
+                            abs_fit_kx = x0_roi + popt_gauss[2] # x0_roi to górny lewy róg roi_patch
+                            self.last_preview_gauss_fit_center_abs = (abs_fit_kx, abs_fit_ky)
+                            self.last_preview_gauss_roi_state = roi_state_for_comparison.copy() # Zapisz stan ROI dla tego fita
+                            logger.info(f"Preview Gaussian fit successful. Stored center: {self.last_preview_gauss_fit_center_abs}")
+
                             fitted_gauss_flat = _gaussian_2d(p_xy_flat, *popt_gauss)
                             fitted_gauss_2d_for_preview = fitted_gauss_flat.reshape(patch_h, patch_w)
                             fitted_gauss_params = popt_gauss # Zapisz parametry dla 3D
-                        # --- KONIEC ZMIANY ---
+                        else: # pragma: no cover
+                            self._clear_last_preview_gauss_fit()
                     except Exception as e_fit: # pragma: no cover
                         logger.warning(f"Gaussian fit for preview failed: {e_fit}")
                         fitted_gauss_2d_for_preview = roi_patch # Pokaż oryginał jeśli fit się nie uda
@@ -551,6 +555,7 @@ class SubstrateSpotSelectionDialog(QDialog):
                 elif hasattr(self, 'gl_gauss_surface_item') and self.gl_gauss_surface_item: self.gl_gauss_surface_item.setData(z=np.array([[0,0],[0,0]]))
 
             else: # Jeśli nie jest wybrany tryb Gaussa
+                self._clear_last_preview_gauss_fit()
                 if hasattr(self, 'gaussian_preview_2d_image_item'): self.gaussian_preview_2d_image_item.clear()
                 if hasattr(self, 'gl_gauss_surface_item') and self.gl_gauss_surface_item: self.gl_gauss_surface_item.setData(z=np.array([[0,0],[0,0]]))
         else: # pragma: no cover
@@ -588,7 +593,9 @@ class SubstrateSpotSelectionDialog(QDialog):
 
     @pyqtSlot()
     def _on_refinement_method_changed(self):
-        # ... (jak poprzednio, ale dostosuj widoczność enable_gauss_preview_checkbox) ...
+        if not self.rb_refine_gaussian.isChecked():
+            self._clear_last_preview_gauss_fit() # Wyczyść, jeśli zmieniono z Gaussa
+        
         is_gaussian_mode = self.rb_refine_gaussian.isChecked()
         self.gaussian_preview_2d_widget.setVisible(is_gaussian_mode)
         # self.enable_3d_gauss_preview_checkbox.setVisible(is_gaussian_mode) # Jeśli jest podgląd 3D Gaussa
@@ -621,6 +628,7 @@ class SubstrateSpotSelectionDialog(QDialog):
     def _on_refinement_roi_size_changed(self, value: int):
         self.refinement_roi_size = value
         # Zaktualizuj rozmiar selection_roi, jeśli jest widoczne
+        self._clear_last_preview_gauss_fit()
         if self.selection_roi.isVisible():
             current_pos = self.selection_roi.pos()
             # Wycentruj nowy rozmiar ROI wokół poprzedniego środka ROI
@@ -632,6 +640,7 @@ class SubstrateSpotSelectionDialog(QDialog):
             self.selection_roi.setPos((new_pos_x, new_pos_y), update=False)
             self.selection_roi.setSize((value, value), update=False) # Aktualizuj rozmiar ROI na obrazie
             self._handle_roi_changed_finished() # Wywołaj aktualizację podglądów
+            
         logger.debug(f"Refinement ROI size changed to: {self.refinement_roi_size}")
 
     @pyqtSlot()
@@ -672,19 +681,38 @@ class SubstrateSpotSelectionDialog(QDialog):
             refined_kx, refined_ky = float(fit_kx), float(fit_ky)
             logger.info(f"Spot refined by Max Pixel: ({refined_kx:.2f}, {refined_ky:.2f})")
         elif self.current_refinement_method == REFINEMENT_GAUSSIAN_FIT and PEAK_FITTING_MODULE_AVAILABLE and SCIPY_AVAILABLE:
-            patch_radius = self.refinement_roi_size // 2
-            max_h, max_w = self.fft_data.shape
-            eff_center_ky = np.clip(center_ky, patch_radius, max_h - 1 - patch_radius)
-            eff_center_kx = np.clip(center_kx, patch_radius, max_w - 1 - patch_radius)
-
-            fit_result = fit_2d_gaussian_in_roi(self.fft_data, (eff_center_ky, eff_center_kx), patch_radius)
-            if fit_result:
-                fit_ky, fit_kx = fit_result
-                refined_kx, refined_ky = float(fit_kx), float(fit_ky) # fit_2d_gaussian_in_roi zwraca floaty
-                logger.info(f"Spot refined by 2D Gaussian Fit: ({refined_kx:.2f}, {refined_ky:.2f})")
-            else: # pragma: no cover
-                logger.warning("2D Gaussian fit failed for Add Spot. Using ROI center.")
-                # refined_kx, refined_ky pozostają środkiem ROI
+            # --- ZMIANA: Użyj zapisanego wyniku z podglądu, jeśli dostępny i pasuje ---
+            current_selection_roi_state = self.selection_roi.getState() # type: ignore
+            # Proste porównanie stanu ROI (można zrobić bardziej zaawansowane, np. z tolerancją)
+            # Porównujemy słowniki stanów (pozycja i rozmiar)
+            roi_state_matches_preview = False
+            if self.last_preview_gauss_roi_state and current_selection_roi_state:
+                preview_pos = self.last_preview_gauss_roi_state.get('pos')
+                current_pos = current_selection_roi_state.get('pos')
+                preview_size = self.last_preview_gauss_roi_state.get('size')
+                current_size = current_selection_roi_state.get('size')
+                if preview_pos and current_pos and preview_size and current_size:
+                    if preview_pos == current_pos and preview_size == current_size:
+                        roi_state_matches_preview = True
+            
+            if self.last_preview_gauss_fit_center_abs is not None and roi_state_matches_preview:
+                refined_kx, refined_ky = self.last_preview_gauss_fit_center_abs
+                logger.info(f"Using PREVIEW Gaussian fit result for Add Spot: ({refined_kx:.2f}, {refined_ky:.2f})")
+            else: # Wykonaj nowy, pełny fit
+                logger.info("Performing NEW Gaussian fit for Add Spot (preview data not used or ROI changed).")
+                patch_radius = self.refinement_roi_size // 2
+                max_h, max_w = self.fft_data.shape # type: ignore
+                eff_center_ky = np.clip(center_ky, patch_radius, max_h - 1 - patch_radius)
+                eff_center_kx = np.clip(center_kx, patch_radius, max_w - 1 - patch_radius)
+                
+                fit_output = fit_2d_gaussian_in_roi(self.fft_data, (eff_center_ky, eff_center_kx), patch_radius)
+                if fit_output:
+                    _popt, (fit_ky_abs, fit_kx_abs), _patch = fit_output # Zmieniono na podstawie sugestii o zwracaniu popt i patcha
+                    refined_kx, refined_ky = float(fit_kx_abs), float(fit_ky_abs)
+                    logger.info(f"Spot refined by NEW 2D Gaussian Fit: ({refined_kx:.2f}, {refined_ky:.2f})")
+                else: # pragma: no cover
+                    logger.warning("2D Gaussian fit failed for Add Spot. Using ROI center.")
+            # --- KONIEC ZMIANY ---
 
         new_spot = (refined_kx, refined_ky)
         if new_spot not in self.selected_spots:
