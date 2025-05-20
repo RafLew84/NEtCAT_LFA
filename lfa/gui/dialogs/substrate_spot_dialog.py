@@ -128,6 +128,13 @@ class SubstrateSpotSelectionDialog(QDialog):
 
         logger.debug("SubstrateSpotSelectionDialog initialized.")
 
+    def __del__(self):
+        """Additional cleanup for garbage collection."""
+        if hasattr(self, 'gl_roi_surface_plot_item') and self.gl_roi_surface_plot_item:
+            self.gl_roi_surface_plot_item.deleteLater()
+        if hasattr(self, 'gl_gauss_surface_plot_item') and self.gl_gauss_surface_plot_item:
+            self.gl_gauss_surface_plot_item.deleteLater()
+
     def _init_ui(self):
         main_layout = QHBoxLayout(self)
 
@@ -210,6 +217,7 @@ class SubstrateSpotSelectionDialog(QDialog):
         roi_2d_v_layout.addWidget(self.roi_preview_2d_widget, 1)  # Dodany stretch factor
         preview_grid_layout.addWidget(roi_2d_container, 0, 0)
 
+        print("3D ROI Preview")
         # 3D ROI Preview
         roi_3d_container = QWidget()
         roi_3d_v_layout = QVBoxLayout(roi_3d_container)
@@ -219,8 +227,8 @@ class SubstrateSpotSelectionDialog(QDialog):
         roi_3d_v_layout.addWidget(self.enable_3d_roi_preview_checkbox)
         self.gl_roi_view_widget = GLViewWidget()
         self.gl_roi_view_widget.setMinimumSize(150, 150)  # Ujednolicone rozmiary
-        self.gl_roi_surface_item = GLSurfacePlotItem(shader='shaded', color=(0.5, 0.5, 1, 0.7))
-        self.gl_roi_view_widget.addItem(self.gl_roi_surface_item)
+        self.gl_roi_surface_plot_item = GLSurfacePlotItem(color=(0.5, 0.5, 1, 0.7))
+        self.gl_roi_view_widget.addItem(self.gl_roi_surface_plot_item)
         roi_3d_v_layout.addWidget(self.gl_roi_view_widget, 1)  # Dodany stretch factor
         preview_grid_layout.addWidget(roi_3d_container, 0, 1)
 
@@ -249,8 +257,8 @@ class SubstrateSpotSelectionDialog(QDialog):
         gauss_3d_v_layout.addWidget(self.enable_gauss_3d_preview_checkbox)
         self.gl_gauss_view_widget = GLViewWidget()
         self.gl_gauss_view_widget.setMinimumSize(150, 150)  # Ujednolicone rozmiary
-        self.gl_gauss_surface_item = GLSurfacePlotItem(shader='shaded', color=(0.5, 0.5, 1, 0.7))
-        self.gl_gauss_view_widget.addItem(self.gl_gauss_surface_item)
+        self.gl_gauss_surface_plot_item = GLSurfacePlotItem(color=(0.5, 0.5, 1, 0.7))
+        self.gl_gauss_view_widget.addItem(self.gl_gauss_surface_plot_item)
         gauss_3d_v_layout.addWidget(self.gl_gauss_view_widget, 1)  # Dodany stretch factor
         preview_grid_layout.addWidget(gauss_3d_container, 1, 1)
 
@@ -283,6 +291,21 @@ class SubstrateSpotSelectionDialog(QDialog):
         
         right_panel_layout.addStretch(1)
         main_layout.addWidget(right_panel_widget, stretch=1)
+
+    def _clear_3d_surface(self, surface_item: Optional[GLSurfacePlotItem]):
+        """Reset surface plot to minimal valid state."""
+        if surface_item:
+            try:
+                # Ustaw minimalne prawidłowe dane
+                x = np.array([0, 1], dtype=np.float32)
+                y = np.array([0, 1], dtype=np.float32)
+                z = np.zeros((2, 2), dtype=np.float32)
+                colors = np.zeros((2, 2, 4), dtype=np.float32)
+                
+                surface_item.setData(x=x, y=y, z=z, colors=colors)
+                surface_item.meshDataChanged()
+            except Exception as e:
+                logger.error(f"Error clearing 3D surface: {e}")
 
     def _connect_signals(self):
         self.button_box.accepted.connect(self.accept)
@@ -472,10 +495,8 @@ class SubstrateSpotSelectionDialog(QDialog):
             if hasattr(self, 'gaussian_preview_2d_image_item'): self.gaussian_preview_2d_image_item.clear()
             if hasattr(self, 'gl_roi_surface_item'): self.gl_roi_surface_item.setData(z=np.array([[0,0],[0,0]])) # Wyczyść podgląd 3D
             # if hasattr(self, 'gl_gauss_surface_item'): self.gl_gauss_surface_item.setData(z=np.array([[0,0],[0,0]]))
-            if hasattr(self, 'gl_roi_surface_item') and self.gl_roi_surface_item:
-                self.gl_roi_surface_item.setData(z=None) # Ustawienie z=None powinno wyczyścić powierzchnię
-            if hasattr(self, 'gl_gauss_surface_item') and self.gl_gauss_surface_item:
-                self.gl_gauss_surface_item.setData(z=None)
+            if hasattr(self, 'gl_roi_surface_plot_item'): self._clear_3d_surface(self.gl_roi_surface_plot_item)
+            if hasattr(self, 'gl_gauss_surface_plot_item'): self._clear_3d_surface(self.gl_gauss_surface_plot_item)
             return
 
         roi_state_for_comparison = self.selection_roi.getState() # type: ignore
@@ -502,11 +523,11 @@ class SubstrateSpotSelectionDialog(QDialog):
             elif hasattr(self, 'roi_preview_2d_image_item'): self.roi_preview_2d_image_item.clear()
 
             # Podgląd 3D ROI
-            if self.enable_3d_roi_preview_checkbox.isChecked() and hasattr(self, 'gl_roi_surface_item') and self.gl_roi_surface_item:
-                self._update_3d_surface_plot(self.gl_roi_surface_item, roi_patch)
-            elif hasattr(self, 'gl_roi_surface_item') and self.gl_roi_surface_item: 
+            if self.enable_3d_roi_preview_checkbox.isChecked() and hasattr(self, 'gl_roi_surface_plot_item') and self.gl_roi_surface_plot_item:
+                self._update_3d_surface_plot(self.gl_roi_surface_plot_item, roi_patch)
+            elif hasattr(self, 'gl_roi_surface_plot_item') and self.gl_roi_surface_plot_item: 
                 # self.gl_roi_surface_item.setData(z=np.array([[0,0],[0,0]])) # Wyczyść
-                self.gl_roi_surface_item.setData(z=None) 
+                self._clear_3d_surface(self.gl_roi_surface_plot_item)
 
             # Podglądy Gaussa
             if self.rb_refine_gaussian.isChecked():
@@ -553,14 +574,14 @@ class SubstrateSpotSelectionDialog(QDialog):
                 elif hasattr(self, 'gaussian_preview_2d_image_item'): self.gaussian_preview_2d_image_item.clear()
 
                 # Podgląd 3D Gaussa
-                if self.enable_gauss_3d_preview_checkbox.isChecked() and hasattr(self, 'gl_gauss_surface_item') and self.gl_gauss_surface_item:
+                if self.enable_gauss_3d_preview_checkbox.isChecked() and hasattr(self, 'gl_gauss_surface_plot_item') and self.gl_gauss_surface_plot_item:
                     if fitted_gauss_2d_for_preview is not None: # Użyj tych samych danych co dla 2D Gaussa
-                        self._update_3d_surface_plot(self.gl_gauss_surface_item, fitted_gauss_2d_for_preview)
+                        self._update_3d_surface_plot(self.gl_gauss_surface_plot_item, fitted_gauss_2d_for_preview)
                     else: # Jeśli fit się nie udał, można wyczyścić lub pokazać oryginalny patch
-                         self._update_3d_surface_plot(self.gl_gauss_surface_item, roi_patch)
-                elif hasattr(self, 'gl_gauss_surface_item') and self.gl_gauss_surface_item: 
+                         self._update_3d_surface_plot(self.gl_gauss_surface_plot_item, roi_patch)
+                elif hasattr(self, 'gl_gauss_surface_plot_item') and self.gl_gauss_surface_plot_item: 
                     # self.gl_gauss_surface_item.setData(z=np.array([[0,0],[0,0]]))
-                    self.gl_gauss_surface_item.setData(z=None)
+                    self._clear_3d_surface(self.gl_gauss_surface_plot_item)
 
             else: # Jeśli nie jest wybrany tryb Gaussa
                 self._clear_last_preview_gauss_fit()
@@ -570,15 +591,15 @@ class SubstrateSpotSelectionDialog(QDialog):
             # ... (czyszczenie wszystkich podglądów, jeśli roi_patch.size == 0) ...
             if hasattr(self, 'roi_preview_2d_image_item'): self.roi_preview_2d_image_item.clear()
             if hasattr(self, 'gaussian_preview_2d_image_item'): self.gaussian_preview_2d_image_item.clear()
-            if hasattr(self, 'gl_roi_surface_item') and self.gl_roi_surface_item: self.gl_roi_surface_item.setData(z=np.array([[0,0],[0,0]]))
-            if hasattr(self, 'gl_gauss_surface_item') and self.gl_gauss_surface_item: self.gl_gauss_surface_item.setData(z=np.array([[0,0],[0,0]]))
+            if hasattr(self, 'gl_roi_surface_item') and self.gl_roi_surface_plot_item: self.gl_roi_surface_plot_item.setData(z=np.array([[0,0],[0,0]]))
+            if hasattr(self, 'gl_gauss_surface_item') and self.gl_gauss_surface_plot_item: self.gl_gauss_surface_plot_item.setData(z=np.array([[0,0],[0,0]]))
 
 
 
     def _update_3d_surface_plot(self, surface_item: GLSurfacePlotItem, data_2d: np.ndarray):
         """Aktualizuje GLSurfacePlotItem danymi 2D."""
-        if data_2d.size == 0: # pragma: no cover
-            surface_item.setData(z=np.array([[0,0],[0,0]])) # Wyczyść
+        if data_2d is None or data_2d.size == 0 or data_2d.ndim != 2:
+            self._clear_3d_surface(surface_item) # Użyj metody czyszczącej
             return
 
         h, w = data_2d.shape
@@ -787,3 +808,29 @@ class SubstrateSpotSelectionDialog(QDialog):
     def reject(self):
         logger.info("SubstrateSpotSelectionDialog rejected.")
         super().reject()
+
+def closeEvent(self, event):
+    """Handle dialog close event to clean up OpenGL resources."""
+    logger.debug("SubstrateSpotSelectionDialog closing. Cleaning up GL items.")
+    
+    # Czyszczenie i usuwanie GLSurfacePlotItem
+    if hasattr(self, 'gl_roi_surface_plot_item') and self.gl_roi_surface_plot_item:
+        if self.gl_roi_view_widget:
+            self.gl_roi_view_widget.removeItem(self.gl_roi_surface_plot_item)
+        self.gl_roi_surface_plot_item = None
+    
+    if hasattr(self, 'gl_gauss_surface_plot_item') and self.gl_gauss_surface_plot_item:
+        if self.gl_gauss_view_widget:
+            self.gl_gauss_view_widget.removeItem(self.gl_gauss_surface_plot_item)
+        self.gl_gauss_surface_plot_item = None
+    
+    # Usuwanie widgetów OpenGL
+    if hasattr(self, 'gl_roi_view_widget'):
+        self.gl_roi_view_widget.deleteLater()
+        self.gl_roi_view_widget = None
+    
+    if hasattr(self, 'gl_gauss_view_widget'):
+        self.gl_gauss_view_widget.deleteLater()
+        self.gl_gauss_view_widget = None
+    
+    super().closeEvent(event)
