@@ -294,7 +294,7 @@ class SubstrateSpotSelectionDialog(QDialog):
         # Sygnał sigMouseClicked jest emitowany przez scenę ViewBoxa
         self.fft_view_box.scene().sigMouseClicked.connect(self._handle_fft_image_click)
         self.selection_roi.sigRegionChanged.connect(self._handle_roi_region_changing)
-        self.selection_roi.sigRegionChangeFinished.connect(self._handle_roi_changed_finished) # Po zakończeniu zmiany ROI
+        # self.selection_roi.sigRegionChangeFinished.connect(self._handle_roi_changed_finished) # Po zakończeniu zmiany ROI
 
         # Zmiana metody uściślania
         self.rb_refine_direct.toggled.connect(self._on_refinement_method_changed)
@@ -472,6 +472,10 @@ class SubstrateSpotSelectionDialog(QDialog):
             if hasattr(self, 'gaussian_preview_2d_image_item'): self.gaussian_preview_2d_image_item.clear()
             if hasattr(self, 'gl_roi_surface_item'): self.gl_roi_surface_item.setData(z=np.array([[0,0],[0,0]])) # Wyczyść podgląd 3D
             # if hasattr(self, 'gl_gauss_surface_item'): self.gl_gauss_surface_item.setData(z=np.array([[0,0],[0,0]]))
+            if hasattr(self, 'gl_roi_surface_item') and self.gl_roi_surface_item:
+                self.gl_roi_surface_item.setData(z=None) # Ustawienie z=None powinno wyczyścić powierzchnię
+            if hasattr(self, 'gl_gauss_surface_item') and self.gl_gauss_surface_item:
+                self.gl_gauss_surface_item.setData(z=None)
             return
 
         roi_state_for_comparison = self.selection_roi.getState() # type: ignore
@@ -500,7 +504,9 @@ class SubstrateSpotSelectionDialog(QDialog):
             # Podgląd 3D ROI
             if self.enable_3d_roi_preview_checkbox.isChecked() and hasattr(self, 'gl_roi_surface_item') and self.gl_roi_surface_item:
                 self._update_3d_surface_plot(self.gl_roi_surface_item, roi_patch)
-            elif hasattr(self, 'gl_roi_surface_item') and self.gl_roi_surface_item: self.gl_roi_surface_item.setData(z=np.array([[0,0],[0,0]])) # Wyczyść
+            elif hasattr(self, 'gl_roi_surface_item') and self.gl_roi_surface_item: 
+                # self.gl_roi_surface_item.setData(z=np.array([[0,0],[0,0]])) # Wyczyść
+                self.gl_roi_surface_item.setData(z=None) 
 
             # Podglądy Gaussa
             if self.rb_refine_gaussian.isChecked():
@@ -552,7 +558,9 @@ class SubstrateSpotSelectionDialog(QDialog):
                         self._update_3d_surface_plot(self.gl_gauss_surface_item, fitted_gauss_2d_for_preview)
                     else: # Jeśli fit się nie udał, można wyczyścić lub pokazać oryginalny patch
                          self._update_3d_surface_plot(self.gl_gauss_surface_item, roi_patch)
-                elif hasattr(self, 'gl_gauss_surface_item') and self.gl_gauss_surface_item: self.gl_gauss_surface_item.setData(z=np.array([[0,0],[0,0]]))
+                elif hasattr(self, 'gl_gauss_surface_item') and self.gl_gauss_surface_item: 
+                    # self.gl_gauss_surface_item.setData(z=np.array([[0,0],[0,0]]))
+                    self.gl_gauss_surface_item.setData(z=None)
 
             else: # Jeśli nie jest wybrany tryb Gaussa
                 self._clear_last_preview_gauss_fit()
