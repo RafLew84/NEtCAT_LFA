@@ -7,7 +7,7 @@ from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QDialogButtonBox,
     QLabel, QListWidget, QAbstractItemView, QWidget, QSplitter, QGroupBox,
     QFormLayout, QRadioButton, QSpinBox, QComboBox, QCheckBox, QMessageBox,
-    QGridLayout
+    QGridLayout, QDoubleSpinBox
 )
 from PyQt6.QtCore import Qt, pyqtSlot, QPointF, QRectF
 from PyQt6.QtGui import QPen
@@ -73,6 +73,10 @@ REFINEMENT_GAUSSIAN_FIT = "2D Gaussian Fit"
 LATTICE_TYPE_HEXAGONAL = "hexagonal"
 LATTICE_TYPE_SQUARE = "square"
 
+PREDEFINED_SUBSTRATE_NONE = "None (Define a_surf below)"
+PREDEFINED_SUBSTRATE_CUSTOM = "<Custom a_surf...>"
+PREDEFINED_SUBSTRATE_FROM_SELECTION = "<From Selection (Future)>" # For later
+
 class SubstrateSpotSelectionDialog(QDialog):
     def __init__(self,
                  fft_image_data: Optional[np.ndarray],
@@ -81,6 +85,9 @@ class SubstrateSpotSelectionDialog(QDialog):
                  current_spots: Optional[List[Tuple[float, float]]] = None,
                  default_refinement_method: str = REFINEMENT_DIRECT_CLICK,
                  default_refinement_roi_size: int = 5,
+                 initial_lattice_type: str = LATTICE_TYPE_HEXAGONAL,
+                 initial_selected_substrate_name: Optional[str] = None, # e.g., "Au(111)"
+                 initial_custom_a_surf: Optional[float] = None,
                  parent=None):
         super().__init__(parent)
         
@@ -104,9 +111,14 @@ class SubstrateSpotSelectionDialog(QDialog):
         self.current_refinement_method = default_refinement_method
         self.refinement_roi_size = default_refinement_roi_size
 
-        self.current_lattice_type: Optional[str] = LATTICE_TYPE_HEXAGONAL # Domyślny
+        self.current_lattice_type: str = initial_lattice_type
+        self.current_a_surf: Optional[float] = None # Will be set by _on_substrate_definition_combo_changed or custom input
         self.limits_per_lattice = {LATTICE_TYPE_HEXAGONAL: 6, LATTICE_TYPE_SQUARE: 4}
         self.ideal_lattice_overlay_item: Optional[ScatterPlotItem] = None
+        
+        # Store initial substrate info to set combo boxes
+        self._initial_selected_substrate_name = initial_selected_substrate_name
+        self._initial_custom_a_surf = initial_custom_a_surf
 
         self.last_preview_gauss_fit_popt: Optional[np.ndarray] = None
         self.last_preview_gauss_fit_center_abs: Optional[Tuple[float, float]] = None # (kx, ky)
@@ -164,6 +176,32 @@ class SubstrateSpotSelectionDialog(QDialog):
         controls_group = QGroupBox("Controls")
         controls_group_layout = QVBoxLayout(controls_group)
 
+        substrate_def_group = QGroupBox("Substrate Definition & Overlay")
+        substrate_def_layout = QFormLayout(substrate_def_group)
+
+        # self.lattice_type_combo = QComboBox()
+        # self.lattice_type_combo.addItems([LATTICE_TYPE_HEXAGONAL.capitalize(), LATTICE_TYPE_SQUARE.capitalize()])
+        # substrate_def_layout.addRow("Lattice Type:", self.lattice_type_combo)
+
+        self.substrate_definition_combo = QComboBox()
+        # Populate this combo based on lattice_type_combo selection
+        substrate_def_layout.addRow("Predefined/Custom:", self.substrate_definition_combo)
+
+        self.custom_a_surf_spinbox = QDoubleSpinBox()
+        self.custom_a_surf_spinbox.setDecimals(4)
+        self.custom_a_surf_spinbox.setRange(0.001, 100.0) # nm
+        self.custom_a_surf_spinbox.setSingleStep(0.001)
+        self.custom_a_surf_spinbox.setValue(0.3) # Default
+        self.custom_a_surf_label = QLabel("Custom 'a_surf' (nm):")
+        substrate_def_layout.addRow(self.custom_a_surf_label, self.custom_a_surf_spinbox)
+        self.custom_a_surf_label.setVisible(False) # Initially hidden
+        self.custom_a_surf_spinbox.setVisible(False) # Initially hidden
+        
+        # self.show_ideal_lattice_checkbox = QCheckBox("Show Ideal Lattice Overlay")
+        # self.show_ideal_lattice_checkbox.setChecked(True)
+        # substrate_def_layout.addRow(self.show_ideal_lattice_checkbox)
+        controls_group_layout.addWidget(substrate_def_group)
+
         refinement_group = QGroupBox("Spot Refinement")
         refinement_layout = QFormLayout(refinement_group)
         self.rb_refine_direct = QRadioButton(REFINEMENT_DIRECT_CLICK); self.rb_refine_direct.setChecked(True)
@@ -181,6 +219,21 @@ class SubstrateSpotSelectionDialog(QDialog):
         self.add_spot_button = QPushButton("Add/Update Spot from ROI"); self.add_spot_button.setEnabled(False)
         refinement_layout.addRow(self.add_spot_button)
         controls_group_layout.addWidget(refinement_group)
+
+        transform_group = QGroupBox("Lattice Transformation (Future)")
+        transform_layout = QFormLayout(transform_group)
+        self.transform_status_label = QLabel("Select spots and choose lattice type.")
+        self.calculate_transform_button = QPushButton("Calculate Transformation")
+        self.calculate_transform_button.setEnabled(False) # Initially disabled
+        self.rotation_angle_label = QLabel("Rotation: -")
+        self.scale_factor_label = QLabel("Scale (X,Y): -")
+        self.rmse_label = QLabel("RMSE: -")
+        transform_layout.addRow(self.transform_status_label)
+        transform_layout.addRow(self.calculate_transform_button)
+        transform_layout.addRow(self.rotation_angle_label)
+        transform_layout.addRow(self.scale_factor_label)
+        transform_layout.addRow(self.rmse_label)
+        controls_group_layout.addWidget(transform_group)
         
         lattice_type_group = QGroupBox("Lattice Type & Overlay")
         lattice_type_layout = QFormLayout(lattice_type_group)
@@ -325,6 +378,11 @@ class SubstrateSpotSelectionDialog(QDialog):
         self.rb_refine_gaussian.toggled.connect(self._on_refinement_method_changed)
         self.refinement_roi_size_spinbox.valueChanged.connect(self._on_refinement_roi_size_changed)
 
+        self.lattice_type_combo.currentTextChanged.connect(self._on_lattice_type_changed) # Zmiana ogólnego typu
+        self.substrate_definition_combo.currentTextChanged.connect(self._on_substrate_definition_combo_changed) # Zmiana konkretnego substratu/opcji
+        self.custom_a_surf_spinbox.valueChanged.connect(self._on_custom_a_surf_changed)
+        self.show_ideal_lattice_checkbox.stateChanged.connect(self._redraw_ideal_lattice_overlay)
+
         # Przycisk dodawania spotu
         self.add_spot_button.clicked.connect(self._add_current_roi_spot)
         
@@ -343,6 +401,44 @@ class SubstrateSpotSelectionDialog(QDialog):
         for i, (kx, ky) in enumerate(self.selected_spots):
             self.spots_list_widget.addItem(f"S{i+1}: ({kx:.2f}, {ky:.2f})")
         self._update_add_spot_button_state()
+
+    def _populate_substrate_definition_combo(self):
+        """Populates the substrate_definition_combo based on the selected lattice_type_combo."""
+        self.substrate_definition_combo.blockSignals(True)
+        self.substrate_definition_combo.clear()
+        
+        selected_type = self.lattice_type_combo.currentText().lower() # np. "hexagonal"
+        
+        self.substrate_definition_combo.addItem(PREDEFINED_SUBSTRATE_NONE)
+        
+        if KNOWN_LATTICES: # Sprawdź, czy KNOWN_LATTICES zostało poprawnie zaimportowane
+            for name, details in KNOWN_LATTICES.items():
+                if details.get("type") == selected_type:
+                    self.substrate_definition_combo.addItem(name)
+        
+        self.substrate_definition_combo.addItem(PREDEFINED_SUBSTRATE_CUSTOM)
+        # self.substrate_definition_combo.addItem(PREDEFINED_SUBSTRATE_FROM_SELECTION) # Na przyszłość
+
+        # Spróbuj ustawić na podstawie wartości początkowych przekazanych do dialogu
+        initial_set = False
+        if self._initial_selected_substrate_name:
+            if self._initial_selected_substrate_name == PREDEFINED_SUBSTRATE_CUSTOM and self._initial_custom_a_surf is not None:
+                self.substrate_definition_combo.setCurrentText(PREDEFINED_SUBSTRATE_CUSTOM)
+                self.custom_a_surf_spinbox.setValue(self._initial_custom_a_surf)
+                initial_set = True
+            else:
+                idx = self.substrate_definition_combo.findText(self._initial_selected_substrate_name)
+                if idx != -1:
+                    self.substrate_definition_combo.setCurrentIndex(idx)
+                    initial_set = True
+        
+        if not initial_set: # Jeśli nie ustawiono na podstawie initial, ustaw na "None"
+             self.substrate_definition_combo.setCurrentText(PREDEFINED_SUBSTRATE_NONE)
+
+
+        self.substrate_definition_combo.blockSignals(False)
+        self._on_substrate_definition_combo_changed(self.substrate_definition_combo.currentText()) # Wywołaj ręcznie, aby zaktualizować stan
+
 
     @pyqtSlot()
     def _remove_selected_spot(self):
@@ -400,6 +496,20 @@ class SubstrateSpotSelectionDialog(QDialog):
             logger.debug(f"Redrawn {len(self.selected_spots)} substrate spot markers.")
         else: # pragma: no cover
             logger.debug("No substrate spots to draw.")
+
+    @pyqtSlot(float)
+    def _on_custom_a_surf_changed(self, value: float):
+        """Handles change in the custom a_surf spinbox."""
+        if self.substrate_definition_combo.currentText() == PREDEFINED_SUBSTRATE_CUSTOM:
+            self.current_a_surf = value
+            logger.debug(f"Dialog: Custom a_surf changed to: {self.current_a_surf}")
+            self._redraw_ideal_lattice_overlay()
+
+    @pyqtSlot()
+    def _on_calculate_transform_clicked(self): # Placeholder
+        logger.info("Calculate Transformation button clicked - To Be Implemented.")
+        QMessageBox.information(self, "Future Feature", "Calculating transformation from selected spots will be implemented here.")
+
 
     def _handle_fft_image_click(self, event):
         """Obsługuje kliknięcie na głównym obrazie FFT."""
@@ -754,60 +864,155 @@ class SubstrateSpotSelectionDialog(QDialog):
 
     @pyqtSlot(str)
     def _on_lattice_type_changed(self, text: Optional[str] = None):
-        """Obsługuje zmianę wybranego typu sieci."""
+        """Handles change in the general lattice type (Hexagonal/Square)."""
         selected_type_text = self.lattice_type_combo.currentText().lower()
         if LATTICE_TYPE_HEXAGONAL in selected_type_text:
             self.current_lattice_type = LATTICE_TYPE_HEXAGONAL
         elif LATTICE_TYPE_SQUARE in selected_type_text:
             self.current_lattice_type = LATTICE_TYPE_SQUARE
         else: # pragma: no cover
-            self.current_lattice_type = None 
-        logger.debug(f"Dialog: Lattice type set to {self.current_lattice_type}")
+            self.current_lattice_type = None
+        
+        logger.debug(f"Dialog: General lattice type selected: {self.current_lattice_type}")
+        self._populate_substrate_definition_combo() # Odśwież listę konkretnych substratów
+        # _update_add_spot_button_state() i _redraw_ideal_lattice_overlay() zostaną wywołane
+        # przez _on_substrate_definition_combo_changed po _populate...
+
+    @pyqtSlot(str)
+    def _on_substrate_definition_combo_changed(self, text: str):
+        """Handles change in the specific substrate definition or custom option."""
+        self.current_a_surf = None # Zresetuj przed ustawieniem nowego
+        is_custom = (text == PREDEFINED_SUBSTRATE_CUSTOM)
+        is_none_selection = (text == PREDEFINED_SUBSTRATE_NONE)
+
+        self.custom_a_surf_label.setVisible(is_custom)
+        self.custom_a_surf_spinbox.setVisible(is_custom)
+
+        if is_custom:
+            self.current_a_surf = self.custom_a_surf_spinbox.value()
+            logger.debug(f"Dialog: Switched to custom a_surf definition. Current a_surf: {self.current_a_surf}")
+        elif is_none_selection:
+            logger.debug(f"Dialog: Substrate definition set to None. No a_surf.")
+            pass # current_a_surf pozostaje None
+        elif KNOWN_LATTICES and text in KNOWN_LATTICES:
+            self.current_a_surf = KNOWN_LATTICES[text].get("a_surf")
+            # Upewnij się, że typ sieci z KNOWN_LATTICES zgadza się z lattice_type_combo
+            known_type = KNOWN_LATTICES[text].get("type")
+            if known_type != self.current_lattice_type: # pragma: no cover
+                logger.warning(f"Mismatch between combo lattice type ({self.current_lattice_type}) and known lattice type for '{text}' ({known_type}). Using type from combo.")
+            logger.debug(f"Dialog: Selected predefined substrate '{text}'. a_surf: {self.current_a_surf}, type: {self.current_lattice_type}")
+        # else if text == PREDEFINED_SUBSTRATE_FROM_SELECTION: ... (na przyszłość)
+        
         self._update_add_spot_button_state()
         self._redraw_ideal_lattice_overlay()
 
     def _update_add_spot_button_state(self):
-        """Aktualizuje stan przycisku 'Add Spot' na podstawie limitu."""
         if self.current_lattice_type:
             limit = self.limits_per_lattice.get(self.current_lattice_type, 0)
             can_add_more = len(self.selected_spots) < limit
-            self.add_spot_button.setEnabled(self.selection_roi.isVisible() and can_add_more)
-            if not can_add_more:
+            # Przycisk "Add Spot" jest aktywny, jeśli ROI jest widoczne ORAZ nie osiągnięto limitu
+            self.add_spot_button.setEnabled(self.selection_roi.isVisible() and can_add_more) # type: ignore
+
+            if not can_add_more and limit > 0:
                 self.status_label.setText(f"Max {limit} spots for {self.current_lattice_type} lattice reached.")
-            elif not self.selection_roi.isVisible() and len(self.selected_spots) < limit:
-                 self.status_label.setText(f"Click on FFT or drag ROI. {limit - len(self.selected_spots)} spots remaining.")
-        else: # pragma: no cover
-            self.add_spot_button.setEnabled(self.selection_roi.isVisible()) # Jeśli typ nieznany, pozwól dodawać bez limitu (lub inny default)
+            elif not self.selection_roi.isVisible() and len(self.selected_spots) < limit and limit > 0: # type: ignore
+                 self.status_label.setText(f"Click on FFT to place ROI. {limit - len(self.selected_spots)} spots remaining.")
+            elif self.selection_roi.isVisible() and can_add_more and limit > 0: # type: ignore
+                self.status_label.setText(f"Adjust ROI and click 'Add Spot'. {limit - len(self.selected_spots)} spots remaining.")
+            elif limit == 0 : # Jeśli typ sieci nie ma zdefiniowanego limitu (nie powinno się zdarzyć)
+                self.status_label.setText("Select lattice type to define spot limit.") # pragma: no cover
+        else:
+            self.add_spot_button.setEnabled(False) # pragma: no cover
+            self.status_label.setText("Select a lattice type first.") # pragma: no cover
 
     def _redraw_ideal_lattice_overlay(self):
-        # TODO: Implementacja rysowania idealnej sieci (analogicznie do VisualizationManager)
-        # Będzie potrzebować Lx, Ly z oryginalnego obrazu STM.
-        # Można je pobrać przez self.history_manager i self.current_fft_node_id
-        # oraz stałej sieci `a_surf` dla wybranego typu (to może być problematyczne bez
-        # pełnej informacji o kalibracji lub predefiniowanych wartości `a_surf` dla typów).
-        # Na razie pomijamy implementację tej funkcji.
-        logger.debug("Redraw ideal lattice overlay requested (not yet implemented in dialog).")
-        pass
+        if self.ideal_lattice_overlay_item:
+            try: self.fft_view_box.removeItem(self.ideal_lattice_overlay_item)
+            except RuntimeError: pass # pragma: no cover
+            self.ideal_lattice_overlay_item = None
+
+        if not self.show_ideal_lattice_checkbox.isChecked() or self.fft_data is None:
+            return
+        if not self.current_lattice_type or self.current_a_surf is None or self.current_a_surf <= 0:
+            logger.debug("Cannot draw ideal lattice: type or a_surf not defined or invalid.")
+            return
+
+        # Pobierz Lx, Ly z węzła "Original"
+        root_node = self.history_manager.get_root_node_for_node(self.current_fft_node_id)
+        if not (root_node and root_node.operation_name == "Original" and root_node.parameters): # pragma: no cover
+            logger.warning("Could not trace to Original node or missing parameters for lattice overlay.")
+            return
+        
+        Lx_nm = root_node.parameters.get("size_nm_x")
+        Ly_nm = root_node.parameters.get("size_nm_y")
+        fft_data_rows_ky, fft_data_cols_kx = self.fft_data.shape # Kształt oryginalnego FFT (przed .T dla ImageItem)
+
+        if not (Lx_nm and Ly_nm and Lx_nm > 0 and Ly_nm > 0 and fft_data_cols_kx > 0 and fft_data_rows_ky > 0): # pragma: no cover
+            logger.warning("Missing calibration data (Lx, Ly) or invalid FFT shape for lattice overlay.")
+            return
+
+        # Użyj aktualnego self.current_lattice_type i self.current_a_surf
+        lattice_info_for_calc = {
+            "type": self.current_lattice_type,
+            "a_surf": self.current_a_surf
+            # "name" nie jest potrzebne dla get_reciprocal_points, jeśli podajemy dict
+        }
+        ideal_points_g_nm_inv = get_reciprocal_points(lattice_info_for_calc, max_hk=2)
+
+        if not ideal_points_g_nm_inv:
+            logger.warning("Could not get ideal reciprocal points for overlay.") # pragma: no cover
+            return
+
+        pixel_coords_for_scatter = []
+        center_display_kx = fft_data_cols_kx / 2.0 # Środek osi kx (poziomej na obrazie .T)
+        center_display_ky = fft_data_rows_ky / 2.0 # Środek osi ky (pionowej na obrazie .T)
+
+        for Gx_nm_inv, Gy_nm_inv in ideal_points_g_nm_inv:
+            # Mapowanie na współrzędne pikseli dla obrazu wyświetlanego (self.fft_data.T)
+            # Oryginalne dane FFT: (ky_rows, kx_cols)
+            # ImageItem dostaje .T, więc ma (kx_cols, ky_rows)
+            # ScatterPlotItem(pos=(x,y)) -> x to kx, y to ky
+            display_y_px = center_display_kx + (Gx_nm_inv * Lx_nm) # Gx ~ kx
+            display_x_px = center_display_ky + (Gy_nm_inv * Ly_nm) # Gy ~ ky
+            pixel_coords_for_scatter.append({
+                'pos': (display_x_px, display_y_px), 
+                'symbol': '+', 'size': 10,
+                'pen': pg.mkPen('r', width=1.5), 'brush': pg.mkBrush(None)
+            })
+        
+        if pixel_coords_for_scatter:
+            self.ideal_lattice_overlay_item = ScatterPlotItem()
+            self.ideal_lattice_overlay_item.setData(spots=pixel_coords_for_scatter)
+            self.fft_view_box.addItem(self.ideal_lattice_overlay_item)
+            logger.info(f"Displayed ideal lattice overlay for type '{self.current_lattice_type}' with a_surf={self.current_a_surf:.3f} nm.")
 
 
     def get_selected_spots(self) -> List[Tuple[float, float]]:
         return list(self.selected_spots)
 
-    def accept(self):
+    def get_dialog_results(self) -> Dict[str, Any]:
+        return {
+            "spots": list(self.selected_spots),
+            "lattice_type": self.current_lattice_type,
+            "a_surf": self.current_a_surf,
+            # Można też zwrócić nazwę predefiniowanego substratu, jeśli był wybrany
+            "substrate_definition": self.substrate_definition_combo.currentText() 
+        }
+
+    def accept(self): # Zaktualizowana metoda accept
         if self.current_lattice_type:
             limit = self.limits_per_lattice.get(self.current_lattice_type, 0)
-            if not (0 < len(self.selected_spots) <= limit) and limit > 0 : # Pozwól na 0 jeśli limit 0 (np. błąd)
+            # Zmieniamy warunek: użytkownik MUSI wybrać dokładnie wymaganą liczbę spotów
+            if len(self.selected_spots) != limit and limit > 0 :
                 QMessageBox.warning(self, "Spot Count Error",
-                                    f"Please select between 1 and {limit} spots for a "
+                                    f"Please select exactly {limit} spots for a "
                                     f"{self.current_lattice_type} lattice. "
                                     f"Currently selected: {len(self.selected_spots)}.")
-                return # Nie zamykaj dialogu
+                return 
+        # Jeśli typ nie jest ustawiony lub limit=0, nie ma walidacji liczby (choć to nie powinno się zdarzyć przy obecnym UI)
+        
         logger.info(f"SubstrateSpotSelectionDialog accepted with {len(self.selected_spots)} spots for {self.current_lattice_type} lattice.")
         super().accept()
-
-    def reject(self):
-        logger.info("SubstrateSpotSelectionDialog rejected.")
-        super().reject()
 
 def closeEvent(self, event):
     """Handle dialog close event to clean up OpenGL resources."""
