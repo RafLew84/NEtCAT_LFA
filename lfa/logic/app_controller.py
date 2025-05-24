@@ -42,6 +42,7 @@ class AppController(QObject):
     spot_selection_parameters_changed = pyqtSignal()
     # Sygnał emitowany po zmianie bieżącego zestawu adsorbatu (np. dodanie nowego, zmiana indeksu)
     adsorbate_sets_structure_changed = pyqtSignal()
+    substrate_transform_results_updated = pyqtSignal()
 
     substrate_definition_changed = pyqtSignal()
 
@@ -85,7 +86,32 @@ class AppController(QObject):
         self.current_substrate_type: Optional[str] = None   # Przechowuje typ 'hexagonal'/'square'
         self.current_substrate_name: str = PREDEFINED_SUBSTRATE_NONE
 
+        # Atrybuty dla oryginalnych kliknięć użytkownika dla substratu
+        self.user_selected_substrate_spots: List[Tuple[float, float]] = [] 
+
+        # Atrybuty dla definicji sieci substratu i wyników transformacji
+        self.substrate_lattice_type: Optional[str] = None
+        self.substrate_a_surf: Optional[float] = None
+        self.substrate_definition_name: str = PREDEFINED_SUBSTRATE_NONE # Importuj stałe jeśli trzeba
+
+        self.substrate_F_m2i: Optional[np.ndarray] = None # F: Measured -> Ideal
+        self.substrate_t_m2i: Optional[np.ndarray] = None # t: Measured -> Ideal
+        self.substrate_transform_analysis_m2i: Optional[Dict[str, Any]] = None
+        
+        # Piki do wyświetlenia w MainWindow: idealne piki przetransformowane tak, by pasowały do zmierzonych
+        self.displayable_fitted_substrate_spots_on_fft: List[Tuple[float, float]] = []
+
+        self.show_fitted_substrate_spots: bool = True
+
         logger.info("AppController initialized.")
+
+    def set_show_fitted_substrate_spots(self, visible: bool):
+        if self.show_fitted_substrate_spots != visible:
+            self.show_fitted_substrate_spots = visible
+            logger.debug(f"AppController: Show fitted substrate spots set to {visible}")
+            # Emituj sygnał, który spowoduje odświeżenie widoku w MainWindow
+            # Może to być istniejący substrate_transform_results_updated lub nowy, np. view_parameters_changed
+            self.substrate_transform_results_updated.emit() # Ten sygnał już powoduje display_image_data()
 
     def get_current_image_data_for_processing(self) -> Optional[Any]: # Any to tymczasowo np.ndarray
         """Pobiera dane obrazu z bieżącego węzła historii do przetwarzania."""
@@ -150,6 +176,16 @@ class AppController(QObject):
                 self.history_manager.set_current_node_by_id(root_node.node_id) # Ustaw jako bieżący
                                                                                 # To wyemituje HistoryManager.current_node_changed
 
+                self.clear_all_spot_data() # Resetuje też user_selected_substrate_spots
+                self.substrate_lattice_type = None
+                self.substrate_a_surf = None
+                self.substrate_definition_name = PREDEFINED_SUBSTRATE_NONE
+                self.substrate_F_m2i = None
+                self.substrate_t_m2i = None
+                self.substrate_transform_analysis_m2i = None
+                self.displayable_fitted_substrate_spots_on_fft.clear()
+                self.substrate_definition_changed.emit() # Aby zresetować UI
+                self.substrate_transform_results_updated.emit() # Aby zresetować UI transformacji
                 logger.info(f"AppController: File '{os.path.basename(file_path)}' loaded successfully.")
                 self.file_loaded_successfully.emit(os.path.basename(file_path))
             else:
@@ -171,59 +207,113 @@ class AppController(QObject):
             logger.exception(f"AppController: An unexpected error occurred while loading file {file_path}: {e}")
             self.file_loading_failed.emit(f"Unexpected error loading file: {e}")
 
-    def set_substrate_definition_and_spots(self,
-                                           spots: List[Tuple[float, float]],
-                                           lattice_type: Optional[str],
-                                           a_surf: Optional[float],
-                                           substrate_definition_name: str): # Nazwa z ComboBoxa dialogu
+    def update_substrate_analysis_results(self, results: Dict[str, Any]):
         """
-        Ustawia piki substratu oraz definicję sieci (typ, a_surf, nazwa)
-        używaną do ich wyboru i potencjalnej analizy.
+        Aktualizuje stan substratu na podstawie wyników z SubstrateSpotSelectionDialog.
         """
-        logger.info(f"AppController: Updating substrate spots ({len(spots)}) and definition: "
-                    f"Type={lattice_type}, a_surf={a_surf}, DefName='{substrate_definition_name}'")
-
-        # Aktualizacja pików
-        if self.substrate_spots != spots:
-            self.substrate_spots = list(spots) # Zawsze przechowuj kopię
-            self.spot_lists_updated.emit()
-
-        # Aktualizacja definicji sieci substratu
-        definition_changed = False
-        if self.current_substrate_type != lattice_type:
-            self.current_substrate_type = lattice_type
-            definition_changed = True
+        new_user_spots = results.get("spots", [])
+        new_lattice_type = results.get("lattice_type")
+        new_a_surf = results.get("a_surf")
+        new_def_name = results.get("substrate_definition", PREDEFINED_SUBSTRATE_NONE)
         
-        if self.current_substrate_a_surf != a_surf:
-            self.current_substrate_a_surf = a_surf
-            definition_changed = True
-            
-        if self.current_substrate_name != substrate_definition_name:
-            self.current_substrate_name = substrate_definition_name
-            # Jeśli nazwa to "<Custom a_surf...>", to a_surf jest kluczowe.
-            # Jeśli to predefiniowana nazwa, a_surf jest z KNOWN_LATTICES.
-            # Jeśli to "None (Define a_surf below)", to a_surf może być None lub zdefiniowane.
-            if substrate_definition_name == PREDEFINED_SUBSTRATE_CUSTOM:
-                self.custom_lattice_info = { # Zaktualizuj lub utwórz custom_lattice_info
-                    "name": substrate_definition_name, # Lub bardziej unikalna nazwa
-                    "type": lattice_type,
-                    "a_surf": a_surf,
-                    "source": "User Defined in Dialog"
-                }
-                self.last_selected_substrate = substrate_definition_name # Ustaw jako "aktywny"
-            elif substrate_definition_name != PREDEFINED_SUBSTRATE_NONE:
-                self.custom_lattice_info = None # Wyczyść custom, jeśli wybrano predefiniowaną
-                self.last_selected_substrate = substrate_definition_name
-            else: # PREDEFINED_SUBSTRATE_NONE
-                self.custom_lattice_info = None
-                self.last_selected_substrate = PREDEFINED_SUBSTRATE_NONE
+        new_F_m2i = results.get("transformation_F_m2i")
+        new_t_m2i = results.get("translation_t_m2i")
+        new_analysis_m2i = results.get("transform_analysis_m2i")
+        new_displayable_fitted_spots = results.get("displayable_fitted_spots", [])
 
-            definition_changed = True
+        spots_changed = (self.user_selected_substrate_spots != new_user_spots)
+        def_changed = (self.substrate_lattice_type != new_lattice_type or
+                       self.substrate_a_surf != new_a_surf or
+                       self.substrate_definition_name != new_def_name)
+        transform_changed = (not np.array_equal(self.substrate_F_m2i, new_F_m2i) or
+                             not np.array_equal(self.substrate_t_m2i, new_t_m2i) or
+                             self.displayable_fitted_substrate_spots_on_fft != new_displayable_fitted_spots)
 
-        if definition_changed:
+        self.user_selected_substrate_spots = list(new_user_spots)
+        self.substrate_lattice_type = new_lattice_type
+        self.substrate_a_surf = new_a_surf
+        self.substrate_definition_name = new_def_name
+        
+        self.substrate_F_m2i = new_F_m2i
+        self.substrate_t_m2i = new_t_m2i
+        self.substrate_transform_analysis_m2i = new_analysis_m2i
+        self.displayable_fitted_substrate_spots_on_fft = list(new_displayable_fitted_spots)
+
+        # Aktualizacja globalnych definicji, jeśli trzeba (np. dla last_selected_substrate)
+        if new_def_name == PREDEFINED_SUBSTRATE_CUSTOM:
+            self.custom_lattice_info = {"type": new_lattice_type, "a_surf": new_a_surf, "name": "Custom (Dialog)"}
+            self.last_selected_substrate = PREDEFINED_SUBSTRATE_CUSTOM
+        elif new_def_name != PREDEFINED_SUBSTRATE_NONE:
+            self.custom_lattice_info = None
+            self.last_selected_substrate = new_def_name
+        else:
+            self.custom_lattice_info = None
+            self.last_selected_substrate = PREDEFINED_SUBSTRATE_NONE
+
+        logger.info(f"AppController: Substrate analysis results updated. Spots: {len(self.user_selected_substrate_spots)}. "
+                    f"Transform F: {'Set' if self.substrate_F_m2i is not None else 'None'}. "
+                    f"Displayable fitted spots: {len(self.displayable_fitted_substrate_spots_on_fft)}")
+
+        if spots_changed:
+            self.spot_lists_updated.emit() # Informuje o zmianie oryginalnych kliknięć (może niepotrzebne jeśli nie są już rysowane)
+        if def_changed:
             self.substrate_definition_changed.emit()
-            # spot_selection_parameters_changed może też być odpowiedni, jeśli typ sieci wpływa na parametry
-            self.spot_selection_parameters_changed.emit()
+        if transform_changed or spots_changed or def_changed: # Jeśli cokolwiek się zmieniło, co wpływa na transformację lub jej wyświetlanie
+            self.substrate_transform_results_updated.emit()
+
+    # def set_substrate_definition_and_spots(self,
+    #                                        spots: List[Tuple[float, float]],
+    #                                        lattice_type: Optional[str],
+    #                                        a_surf: Optional[float],
+    #                                        substrate_definition_name: str): # Nazwa z ComboBoxa dialogu
+    #     """
+    #     Ustawia piki substratu oraz definicję sieci (typ, a_surf, nazwa)
+    #     używaną do ich wyboru i potencjalnej analizy.
+    #     """
+    #     logger.info(f"AppController: Updating substrate spots ({len(spots)}) and definition: "
+    #                 f"Type={lattice_type}, a_surf={a_surf}, DefName='{substrate_definition_name}'")
+
+    #     # Aktualizacja pików
+    #     if self.substrate_spots != spots:
+    #         self.substrate_spots = list(spots) # Zawsze przechowuj kopię
+    #         self.spot_lists_updated.emit()
+
+    #     # Aktualizacja definicji sieci substratu
+    #     definition_changed = False
+    #     if self.current_substrate_type != lattice_type:
+    #         self.current_substrate_type = lattice_type
+    #         definition_changed = True
+        
+    #     if self.current_substrate_a_surf != a_surf:
+    #         self.current_substrate_a_surf = a_surf
+    #         definition_changed = True
+            
+    #     if self.current_substrate_name != substrate_definition_name:
+    #         self.current_substrate_name = substrate_definition_name
+    #         # Jeśli nazwa to "<Custom a_surf...>", to a_surf jest kluczowe.
+    #         # Jeśli to predefiniowana nazwa, a_surf jest z KNOWN_LATTICES.
+    #         # Jeśli to "None (Define a_surf below)", to a_surf może być None lub zdefiniowane.
+    #         if substrate_definition_name == PREDEFINED_SUBSTRATE_CUSTOM:
+    #             self.custom_lattice_info = { # Zaktualizuj lub utwórz custom_lattice_info
+    #                 "name": substrate_definition_name, # Lub bardziej unikalna nazwa
+    #                 "type": lattice_type,
+    #                 "a_surf": a_surf,
+    #                 "source": "User Defined in Dialog"
+    #             }
+    #             self.last_selected_substrate = substrate_definition_name # Ustaw jako "aktywny"
+    #         elif substrate_definition_name != PREDEFINED_SUBSTRATE_NONE:
+    #             self.custom_lattice_info = None # Wyczyść custom, jeśli wybrano predefiniowaną
+    #             self.last_selected_substrate = substrate_definition_name
+    #         else: # PREDEFINED_SUBSTRATE_NONE
+    #             self.custom_lattice_info = None
+    #             self.last_selected_substrate = PREDEFINED_SUBSTRATE_NONE
+
+    #         definition_changed = True
+
+    #     if definition_changed:
+    #         self.substrate_definition_changed.emit()
+    #         # spot_selection_parameters_changed może też być odpowiedni, jeśli typ sieci wpływa na parametry
+    #         self.spot_selection_parameters_changed.emit()
 
 
     def add_operation_to_history(self,
@@ -340,38 +430,38 @@ class AppController(QObject):
         else:
             logger.warning(f"Attempted to set invalid refinement ROI size: {size}")
 
-    def add_spot(self, point_kx_ky: Tuple[float, float]):
-        """Dodaje pik do odpowiedniej listy (substrat lub bieżący zestaw adsorbatu)."""
-        logger.debug(f"Attempting to add spot {point_kx_ky} in mode {self.spot_selection_mode}")
-        added = False
-        if self.spot_selection_mode == SPOT_SELECTION_SUBSTRATE:
-            if len(self.substrate_spots) < MAX_SUBSTRATE_SPOTS:
-                if point_kx_ky not in self.substrate_spots:
-                    self.substrate_spots.append(point_kx_ky)
-                    logger.info(f"Added substrate spot: {point_kx_ky}. Count: {len(self.substrate_spots)}")
-                    added = True
-                else: logger.debug(f"Point {point_kx_ky} already in substrate spots.") # pragma: no cover
-            else: logger.warning(f"Max substrate spots ({MAX_SUBSTRATE_SPOTS}) reached.") # pragma: no cover
+    # def add_spot(self, point_kx_ky: Tuple[float, float]):
+    #     """Dodaje pik do odpowiedniej listy (substrat lub bieżący zestaw adsorbatu)."""
+    #     logger.debug(f"Attempting to add spot {point_kx_ky} in mode {self.spot_selection_mode}")
+    #     added = False
+    #     if self.spot_selection_mode == SPOT_SELECTION_SUBSTRATE:
+    #         if len(self.substrate_spots) < MAX_SUBSTRATE_SPOTS:
+    #             if point_kx_ky not in self.substrate_spots:
+    #                 self.substrate_spots.append(point_kx_ky)
+    #                 logger.info(f"Added substrate spot: {point_kx_ky}. Count: {len(self.substrate_spots)}")
+    #                 added = True
+    #             else: logger.debug(f"Point {point_kx_ky} already in substrate spots.") # pragma: no cover
+    #         else: logger.warning(f"Max substrate spots ({MAX_SUBSTRATE_SPOTS}) reached.") # pragma: no cover
         
-        elif self.spot_selection_mode == SPOT_SELECTION_ADSORBATE:
-            if 0 <= self.current_adsorbate_set_index < len(self.adsorbate_spot_sets):
-                current_set = self.adsorbate_spot_sets[self.current_adsorbate_set_index]
-                if point_kx_ky not in current_set:
-                    current_set.append(point_kx_ky)
-                    logger.info(f"Added adsorbate spot: {point_kx_ky} to set {self.current_adsorbate_set_index}. Set count: {len(current_set)}")
-                    added = True
-                else: logger.debug(f"Point {point_kx_ky} already in current adsorbate set.") # pragma: no cover
-            else: logger.error(f"Invalid current adsorbate set index: {self.current_adsorbate_set_index}") # pragma: no cover
+    #     elif self.spot_selection_mode == SPOT_SELECTION_ADSORBATE:
+    #         if 0 <= self.current_adsorbate_set_index < len(self.adsorbate_spot_sets):
+    #             current_set = self.adsorbate_spot_sets[self.current_adsorbate_set_index]
+    #             if point_kx_ky not in current_set:
+    #                 current_set.append(point_kx_ky)
+    #                 logger.info(f"Added adsorbate spot: {point_kx_ky} to set {self.current_adsorbate_set_index}. Set count: {len(current_set)}")
+    #                 added = True
+    #             else: logger.debug(f"Point {point_kx_ky} already in current adsorbate set.") # pragma: no cover
+    #         else: logger.error(f"Invalid current adsorbate set index: {self.current_adsorbate_set_index}") # pragma: no cover
         
-        if added:
-            self.spot_lists_updated.emit()
+    #     if added:
+    #         self.spot_lists_updated.emit()
 
-    def clear_substrate_spots(self):
-        """Czyści listę pików substratu."""
-        if self.substrate_spots:
-            self.substrate_spots.clear()
-            logger.info("Substrate spots cleared.")
-            self.spot_lists_updated.emit()
+    # def clear_substrate_spots(self):
+    #     """Czyści listę pików substratu."""
+    #     if self.substrate_spots:
+    #         self.substrate_spots.clear()
+    #         logger.info("Substrate spots cleared.")
+    #         self.spot_lists_updated.emit()
 
     def clear_last_adsorbate_spot(self):
         """Usuwa ostatni dodany pik z bieżącego zestawu adsorbatu."""
@@ -435,6 +525,18 @@ class AppController(QObject):
             self.adsorbate_spot_sets = [[]]
             self.current_adsorbate_set_index = 0
             changed = True
+        
+        self.user_selected_substrate_spots.clear()
+        # Resetuj też wyniki transformacji, jeśli są powiązane
+        self.substrate_F_m2i = None
+        self.substrate_t_m2i = None
+        self.substrate_transform_analysis_m2i = None
+        self.displayable_fitted_substrate_spots_on_fft.clear()
+
+        if hasattr(self, 'spot_lists_updated'): self.spot_lists_updated.emit()
+        if hasattr(self, 'adsorbate_sets_structure_changed'): self.adsorbate_sets_structure_changed.emit()
+        if hasattr(self, 'substrate_transform_results_updated'): self.substrate_transform_results_updated.emit()
+        logger.debug("All spot data and substrate transform results cleared.")
         
         if changed:
             logger.debug("All spot data cleared by clear_all_spot_data.")

@@ -177,6 +177,10 @@ class MainWindow(QMainWindow):
 
             self.app_controller.substrate_definition_changed.connect(self._on_substrate_definition_changed)
 
+            self.app_controller.substrate_transform_results_updated.connect(self._on_substrate_transform_results_updated)
+            self.app_controller.substrate_definition_changed.connect(self._on_substrate_definition_changed) # Już powinno być
+            self.app_controller.spot_lists_updated.connect(self._on_spot_lists_or_params_changed) # Do ogólnych aktualizacji
+
         if hasattr(self, 'fft_analysis_panel_widget'):
             self.fft_analysis_panel_widget.substrate_changed.connect(self._handle_substrate_changed)
             self.fft_analysis_panel_widget.custom_lattice_define_requested.connect(self._handle_custom_lattice_request)
@@ -189,6 +193,7 @@ class MainWindow(QMainWindow):
             self.fft_analysis_panel_widget.clear_last_adsorbate_point_triggered.connect(self._on_clear_last_adsorbate_point_clicked)
             self.fft_analysis_panel_widget.substrate_spots_visibility_changed.connect(self._handle_substrate_spots_visibility_changed)
             self.fft_analysis_panel_widget.adsorbate_spots_visibility_changed.connect(self._handle_adsorbate_spots_visibility_changed)
+            self.fft_analysis_panel_widget.fitted_substrate_spots_visibility_changed.connect(self._handle_fitted_substrate_spots_visibility_changed)
             self.fft_analysis_panel_widget.select_edit_substrate_spots_requested.connect(self.open_substrate_spot_selection_dialog)
             self.fft_analysis_panel_widget.select_edit_adsorbate_spots_requested.connect(self.open_adsorbate_spot_selection_dialog)
         
@@ -363,93 +368,97 @@ class MainWindow(QMainWindow):
                 self.fft_analysis_panel_widget.set_clear_all_adsorbate_sets_button_enabled(False)
         logger.debug(f"_update_action_states: Preprocessing possible: {preprocessing_possible}, FFT Calc possible: {fft_calculation_possible}, Is FFT data: {is_fft_data}")
 
+    @pyqtSlot(bool)
+    def _handle_fitted_substrate_spots_visibility_changed(self, is_visible: bool):
+        logger.debug(f"MainWindow: Fitted substrate spots visibility changed to {is_visible} via panel.")
+        self.app_controller.set_show_fitted_substrate_spots(is_visible)
+        # AppController po zmianie tego stanu wyemituje substrate_transform_results_updated,
+        # co powinno wywołać _on_substrate_transform_results_updated, a to z kolei display_image_data().
+        # Alternatywnie, jeśli set_show_fitted_substrate_spots nie emituje odpowiedniego sygnału,
+        # można tu bezpośrednio wywołać display_image_data():
+        # self.display_image_data()
+
     @pyqtSlot()
     def _on_substrate_definition_changed(self):
         """
         Slot wywoływany, gdy definicja substratu (typ, a_surf, nazwa) zmieni się w AppController.
         Aktualizuje odpowiednie UI, np. ComboBox w FFTAnalysisPanel i odświeża widok.
         """
-        logger.debug("MainWindow: Received substrate_definition_changed signal from AppController.")
+        logger.debug("MainWindow: Received substrate_definition_changed from AppController.")
         if hasattr(self, 'fft_analysis_panel_widget') and self.fft_analysis_panel_widget:
             # Ustaw ComboBox w FFTAnalysisPanel na podstawie wartości z AppController
-            # To zapewnia spójność między dialogiem a panelem głównym
-            current_def_name = self.app_controller.current_substrate_name
+            current_def_name = self.app_controller.current_substrate_name # Używamy nowej nazwy atrybutu
             self.fft_analysis_panel_widget.set_substrate_combo_text(current_def_name)
-            
-            # Jeśli definicja to <Custom a_surf...>, można by też zaktualizować
-            # jakąś etykietę w panelu, aby pokazać aktualne a_surf, ale to opcjonalne.
-
-        self.display_image_data() # Odśwież widok, aby np. przerysować idealną siatkę
+        self.display_image_data() # Odśwież widok (np. idealną siatkę)
         self._update_action_states()
+
+    @pyqtSlot()
+    def _on_substrate_transform_results_updated(self):
+        """
+        Slot wywoływany, gdy AppController zaktualizuje wyniki transformacji substratu.
+        Aktualizuje UI, w tym markery dopasowanych pików i wyświetlane parametry transformacji.
+        """
+        logger.debug("MainWindow: Received substrate_transform_results_updated signal.")
+        
+        # 1. Aktualizacja parametrów transformacji w FFTAnalysisPanel
+        if hasattr(self, 'fft_analysis_panel_widget') and self.fft_analysis_panel_widget:
+            analysis = self.app_controller.substrate_transform_analysis_m2i
+            if analysis:
+                self.fft_analysis_panel_widget.rotation_angle_label.setText(f"Rotation (M->I): {analysis.get('rotation_angle_deg', 'N/A'):.2f}°")
+                s_x = analysis.get('principal_stretches', [np.nan, np.nan])[0]
+                s_y = analysis.get('principal_stretches', [np.nan, np.nan])[1]
+                self.fft_analysis_panel_widget.scale_factor_label.setText(f"Stretches (M->I): ({s_x:.3f}, {s_y:.3f})")
+                self.fft_analysis_panel_widget.rmse_label.setText(f"Fit RMSE (M->I, px): {analysis.get('rmse', 'N/A'):.3f}")
+                self.fft_analysis_panel_widget.show_fitted_substrate_spots_checkbox.setChecked(
+                    self.app_controller.show_fitted_substrate_spots
+            )
+            else:
+                self.fft_analysis_panel_widget.rotation_angle_label.setText("Rotation: -")
+                self.fft_analysis_panel_widget.scale_factor_label.setText("Stretches: -")
+                self.fft_analysis_panel_widget.rmse_label.setText("RMSE: -")
+
+        # 2. Odświeżenie markerów w VisualizationManager
+        # Zakładamy, że display_image_data() pobierze nowe displayable_fitted_substrate_spots_on_fft
+        # i przekaże je do VisualizationManager.
+        self.display_image_data() 
+        self._update_action_states() # Na wszelki wypadek
 
     @pyqtSlot()
     def open_substrate_spot_selection_dialog(self):
         logger.info("MainWindow: Opening substrate spot selection dialog...")
         
         current_node_info = self.app_controller.get_current_node_info_for_dialogs()
-        if not (current_node_info and current_node_info[1] == "FFT"):
-            QMessageBox.warning(self, "Incorrect Data Type", "Substrate spots can only be selected on an FFT image."); return
-        if not SubstrateSpotSelectionDialog: QMessageBox.critical(self, "Dialog Error", "SubstrateSpotSelectionDialog is not available."); return # pragma: no cover
+        if not (current_node_info and current_node_info[1] == "FFT"): QMessageBox.warning(self, "Incorrect Data Type", "Substrate spots can only be selected on an FFT image."); return
+        if not SubstrateSpotSelectionDialog: QMessageBox.critical(self, "Dialog Error", "SubstrateSpotSelectionDialog is not available."); return
 
         _, _, fft_image_data_copy = current_node_info
         
-        # --- POBIERANIE STANU POCZĄTKOWEGO Z APPCONTROLLER ---
-        initial_spots = list(self.app_controller.substrate_spots)
-        initial_type = self.app_controller.current_substrate_type if self.app_controller.current_substrate_type else LATTICE_TYPE_HEXAGONAL # Domyślny, jeśli None
-        initial_name = self.app_controller.current_substrate_name
-        initial_a_surf_val = self.app_controller.current_substrate_a_surf
-        
-        # Jeśli nazwa to custom, upewnij się, że a_surf jest przekazane
-        # Jeśli nazwa to predefiniowana, a_surf jest znane z KNOWN_LATTICES (dialog sam to obsłuży)
-        # Jeśli nazwa to NONE, a_surf może być None
-        if initial_name == PREDEFINED_SUBSTRATE_CUSTOM and initial_a_surf_val is None:
-            # Jeśli w AppController jest custom, ale nie ma a_surf, użyj jakiegoś default
-            initial_a_surf_val = 0.3 # Przykładowy default dla custom
-            logger.warning(f"No custom a_surf in AppController for CUSTOM, using default {initial_a_surf_val} for dialog.")
-
-        logger.debug(f"Passing to SubstrateSpotSelectionDialog: "
-                     f"initial_type='{initial_type}', initial_name='{initial_name}', initial_a_surf={initial_a_surf_val}")
-        # --- KONIEC POBIERANIA STANU POCZĄTKOWEGO ---
-
         dialog = SubstrateSpotSelectionDialog(
             fft_image_data=fft_image_data_copy,
-            history_manager=self.history_manager, # Przekaż history_manager
-            current_fft_node_id=current_node_info[0], # Przekaż ID węzła FFT
-            current_spots=initial_spots,
-            # --- PRZEKAZANIE STANU POCZĄTKOWEGO DO DIALOGU ---
-            initial_lattice_type=initial_type,
-            initial_selected_substrate_name=initial_name,
-            initial_custom_a_surf=initial_a_surf_val,
-            # --- KONIEC PRZEKAZANIA ---
-            default_refinement_method=self.app_controller.spot_refinement_method, # Domyślne z AppController
-            default_refinement_roi_size=self.app_controller.refinement_roi_size,   # Domyślne z AppController
+            history_manager=self.history_manager,
+            current_fft_node_id=current_node_info[0],
+            current_spots=self.app_controller.user_selected_substrate_spots, # Używamy user_selected...
+            initial_lattice_type=self.app_controller.substrate_lattice_type if self.app_controller.substrate_lattice_type else LATTICE_TYPE_HEXAGONAL,
+            initial_selected_substrate_name=self.app_controller.substrate_definition_name,
+            initial_custom_a_surf=self.app_controller.substrate_a_surf if self.app_controller.substrate_definition_name == PREDEFINED_SUBSTRATE_CUSTOM else None,
+            default_refinement_method=self.app_controller.spot_refinement_method,
+            default_refinement_roi_size=self.app_controller.refinement_roi_size,
+            # Przekaż istniejące wyniki transformacji, jeśli dialog ma je wyświetlać/edytować
+            initial_transform_F = self.app_controller.substrate_F_m2i,
+            initial_transform_t = self.app_controller.substrate_t_m2i,
+            initial_fitted_spots = self.app_controller.displayable_fitted_substrate_spots_on_fft,
             parent=self
         )
         
         if dialog.exec() == QDialog.DialogCode.Accepted:
-            results = dialog.get_dialog_results() # Pobierz wszystkie wyniki z dialogu
-            new_spots = results.get("spots", [])
-            new_lattice_type = results.get("lattice_type")
-            new_a_surf = results.get("a_surf")
-            new_substrate_def_name = results.get("substrate_definition", PREDEFINED_SUBSTRATE_NONE)
-
-            logger.info(f"Substrate spots selection accepted. Spots: {len(new_spots)}, "
-                        f"Type: {new_lattice_type}, a_surf: {new_a_surf}, Def: '{new_substrate_def_name}'")
-            
-            # --- WYWOŁANIE METODY APPCONTROLLER DO AKTUALIZACJI STANU ---
-            self.app_controller.set_substrate_definition_and_spots(
-                spots=new_spots,
-                lattice_type=new_lattice_type,
-                a_surf=new_a_surf,
-                substrate_definition_name=new_substrate_def_name
-            )
-            # --- KONIEC WYWOŁANIA ---
-            # AppController wyemituje sygnały, na które MainWindow zareaguje
-            # (np. _on_spot_lists_or_params_changed, _on_substrate_definition_changed)
-            self.statusBar().showMessage(f"Substrate spots and definition updated.", 3000)
+            results = dialog.get_dialog_results()
+            logger.info(f"Substrate spots dialog accepted. Results: {results}")
+            self.app_controller.update_substrate_analysis_results(results)
+            # statusBar message może być teraz emitowane przez AppController lub po sygnale
         else:
             logger.info("Substrate spots selection cancelled.")
             self.statusBar().showMessage("Substrate spots selection cancelled.", 3000)
+
 
 
     # @pyqtSlot()
@@ -960,21 +969,34 @@ class MainWindow(QMainWindow):
         show_ideal_lattice = False
         selected_substrate = "None" # Domyślna wartość
         panel_custom_text = ""
-        custom_def = self.app_controller.custom_lattice_info
-        show_sub_markers = self.app_controller.show_substrate_spots_markers
-        show_ads_markers = self.app_controller.show_adsorbate_spots_markers
-        substrate_spots_data = self.app_controller.substrate_spots
-        adsorbate_spot_sets_data = self.app_controller.adsorbate_spot_sets
+
+        substrate_spots_to_draw = self.app_controller.displayable_fitted_substrate_spots_on_fft
+        show_substrate_markers = False # Domyślnie
+        if hasattr(self, 'fft_analysis_panel_widget') and self.fft_analysis_panel_widget:
+            show_substrate_markers = self.fft_analysis_panel_widget.is_substrate_spots_visible() # Ten checkbox teraz kontroluje widoczność *dopasowanych*
+            # Zmień tooltip tego checkboxa w FFTAnalysisPanel
 
         if hasattr(self, 'fft_analysis_panel_widget') and self.fft_analysis_panel_widget is not None:
             show_ideal_lattice = self.fft_analysis_panel_widget.is_show_ideal_lattice_checked() # lub self.app_controller.show_ideal_lattice
             selected_substrate = self.fft_analysis_panel_widget.get_current_substrate() # lub self.app_controller.last_selected_substrate
             panel_custom_text = self.fft_analysis_panel_widget.custom_option_text
+        
+        show_fitted_substrate_markers = self.app_controller.show_fitted_substrate_spots
+        substrate_spots_to_draw = self.app_controller.displayable_fitted_substrate_spots_on_fft
 
         self.visualization_manager.update_view(
-            current_node, show_ideal_lattice, selected_substrate,
-            custom_def, panel_custom_text, substrate_spots_data,
-            show_sub_markers, adsorbate_spot_sets_data, show_ads_markers
+            current_node,
+            # ... (parametry dla idealnej siatki) ...
+            show_ideal_lattice, 
+            selected_substrate, 
+            self.app_controller.custom_lattice_info, 
+            panel_custom_text,  
+            # --- Przekazanie odpowiednich danych i flagi widoczności ---
+            substrate_spots_to_draw,      # Tylko dopasowane piki
+            show_fitted_substrate_markers, # Flaga widoczności dla nich
+            # --- Koniec ---
+            self.app_controller.adsorbate_spot_sets,
+            self.app_controller.show_adsorbate_spots_markers # Ta flaga też powinna być zarządzana przez AppController
         )
         if hasattr(self, '_update_action_states'): self._update_action_states()
     

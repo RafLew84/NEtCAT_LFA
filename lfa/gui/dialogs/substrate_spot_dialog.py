@@ -268,7 +268,7 @@ class SubstrateSpotSelectionDialog(QDialog):
         self.enable_3d_roi_preview_checkbox = QCheckBox("Enable"); self.enable_3d_roi_preview_checkbox.setChecked(False)
         roi_3d_v_layout.addWidget(self.enable_3d_roi_preview_checkbox)
         self.gl_roi_view_widget = GLViewWidget(); self.gl_roi_view_widget.setMinimumHeight(150); self.gl_roi_view_widget.setMaximumHeight(200) # Ograniczenie wysokości
-        self.gl_roi_surface_plot_item = GLSurfacePlotItem(shader='shaded', color=(0.5,0.5,1,0.7)) # Zmieniono na self.gl_roi_surface_plot_item
+        self.gl_roi_surface_plot_item = GLSurfacePlotItem(color=(0.5,0.5,1,0.7)) # Zmieniono na self.gl_roi_surface_plot_item
         self.gl_roi_view_widget.addItem(self.gl_roi_surface_plot_item) # Poprawione dodawanie
         roi_3d_v_layout.addWidget(self.gl_roi_view_widget, 1)
         preview_grid_layout.addWidget(roi_3d_container, 0, 1)
@@ -1173,14 +1173,16 @@ class SubstrateSpotSelectionDialog(QDialog):
 
     def get_dialog_results(self) -> Dict[str, Any]:
         return {
-            "spots": list(self.selected_spots),
+            "spots": list(self.selected_spots), # Oryginalne kliknięcia z dialogu
             "lattice_type": self.current_lattice_type,
             "a_surf": self.current_a_surf,
             "substrate_definition": self.substrate_definition_combo.currentText(),
-            "transformation_F": self.substrate_transformation_matrix_F,
-            "translation_t": self.substrate_translation_vector_t,
-            "transform_analysis": self.substrate_transform_analysis,
-            "fitted_substrate_spots": list(self.fitted_substrate_spots_px)
+            "transformation_F_m2i": self.substrate_transformation_matrix_F, # F: measured -> ideal
+            "translation_t_m2i": self.substrate_translation_vector_t,     # t: measured -> ideal
+            "transform_analysis_m2i": self.substrate_transform_analysis,    # Analiza F_m2i
+            # To są piki, które mają być wyświetlone w MainWindow jako "dofitowane"
+            # W poprzedniej dyskusji ustaliliśmy, że to idealne piki przetransformowane odwrotnie.
+            "displayable_fitted_spots": list(self.fitted_substrate_spots_px) 
         }
 
     def accept(self): # Zaktualizowana metoda accept

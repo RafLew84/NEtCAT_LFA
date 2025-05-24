@@ -1,5 +1,7 @@
 # lfa/gui/panels/fft_analysis_panel.py
 import logging
+import numpy as np
+from typing import Optional, Dict, Any
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QGroupBox, QFormLayout, QComboBox,
     QCheckBox, QRadioButton, QSpinBox, QPushButton, QHBoxLayout, QLabel
@@ -48,6 +50,8 @@ class FFTAnalysisPanel(QWidget):
     # Sygnał dla przycisku czyszczenia pików substratu
     select_edit_substrate_spots_requested = pyqtSignal()
     select_edit_adsorbate_spots_requested = pyqtSignal()
+
+    fitted_substrate_spots_visibility_changed = pyqtSignal(bool)
     # Sygnały dla widoczności markerów pików
     substrate_spots_visibility_changed = pyqtSignal(bool)
     adsorbate_spots_visibility_changed = pyqtSignal(bool)
@@ -114,6 +118,13 @@ class FFTAnalysisPanel(QWidget):
         self.edit_substrate_spots_button = QPushButton("Edit/Select Substrate Spots")
         substrate_buttons_layout.addWidget(self.edit_substrate_spots_button)
         substrate_set_form_layout.addRow(substrate_buttons_layout) # Dodaj QHBoxLayout do QFormLayout
+
+        self.rotation_angle_label = QLabel("Transform Rotation: -")
+        self.rmse_label = QLabel("Transform RMSE: -")
+        self.scale_factor_label = QLabel("Transform Stretches: -")
+        substrate_set_form_layout.addRow(self.rotation_angle_label) # type: ignore
+        substrate_set_form_layout.addRow(self.rmse_label) # type: ignore
+        substrate_set_form_layout.addRow(self.scale_factor_label) # type: ignore
         spot_selection_layout.addWidget(self.substrate_set_panel)
         self.substrate_set_panel.setVisible(True) # Widoczne domyślnie
 
@@ -143,15 +154,28 @@ class FFTAnalysisPanel(QWidget):
         self.adsorbate_set_panel.setVisible(False)
 
         # Spot Visibility Checkboxes
-        self.show_substrate_spots_checkbox = QCheckBox("Show Substrate Spots")
-        self.show_substrate_spots_checkbox.setChecked(True)
+        self.show_fitted_substrate_spots_checkbox  = QCheckBox("Show Fitted Substrate Spots")
+        self.show_fitted_substrate_spots_checkbox .setChecked(True)
+        self.show_fitted_substrate_spots_checkbox .setToolTip("Show substrate spots after affine transformation to match ideal lattice (if calculated in dialog).")
         self.show_adsorbate_spots_checkbox = QCheckBox("Show Adsorbate Spots")
         self.show_adsorbate_spots_checkbox.setChecked(True)
-        spot_selection_layout.addWidget(self.show_substrate_spots_checkbox)
+        spot_selection_layout.addWidget(self.show_fitted_substrate_spots_checkbox)
         spot_selection_layout.addWidget(self.show_adsorbate_spots_checkbox)
 
         self.spot_selection_group.setLayout(spot_selection_layout)
         parent_layout.addWidget(self.spot_selection_group)
+
+    def update_transform_results_display(self, analysis_results: Optional[Dict[str, Any]]):
+        if analysis_results:
+            self.rotation_angle_label.setText(f"Rotation (M->I): {analysis_results.get('rotation_angle_deg', 'N/A'):.2f}°")
+            s_x = analysis_results.get('principal_stretches', [np.nan, np.nan])[0]
+            s_y = analysis_results.get('principal_stretches', [np.nan, np.nan])[1]
+            self.scale_factor_label.setText(f"Stretches (M->I): ({s_x:.3f}, {s_y:.3f})")
+            self.rmse_label.setText(f"Fit RMSE (M->I, px): {analysis_results.get('rmse', 'N/A'):.3f}")
+        else:
+            self.rotation_angle_label.setText("Rotation: -")
+            self.scale_factor_label.setText("Stretches: -")
+            self.rmse_label.setText("RMSE: -")
 
     def _connect_internal_signals(self):
         """Connects internal widget signals to slots or directly to emitting class signals."""
@@ -160,6 +184,11 @@ class FFTAnalysisPanel(QWidget):
         self.show_ideal_lattice_checkbox.stateChanged.connect(
             lambda state: self.show_ideal_lattice_changed.emit(state == Qt.CheckState.Checked.value)
         )
+
+        if hasattr(self, 'show_fitted_substrate_spots_checkbox'):
+            self.show_fitted_substrate_spots_checkbox.stateChanged.connect(
+                lambda state: self.fitted_substrate_spots_visibility_changed.emit(state == Qt.CheckState.Checked.value)
+            )
 
         # Spot Selection Mode
         self.rb_select_substrate.toggled.connect(self._handle_spot_selection_mode_toggle)
@@ -176,7 +205,7 @@ class FFTAnalysisPanel(QWidget):
         self.clear_all_adsorbate_sets_button.clicked.connect(self.clear_all_adsorbate_sets_triggered)
 
         # Spot Visibility
-        self.show_substrate_spots_checkbox.stateChanged.connect(
+        self.show_fitted_substrate_spots_checkbox.stateChanged.connect(
             lambda state: self.substrate_spots_visibility_changed.emit(state == Qt.CheckState.Checked.value)
         )
         self.show_adsorbate_spots_checkbox.stateChanged.connect(
@@ -263,7 +292,7 @@ class FFTAnalysisPanel(QWidget):
         self.rb_select_adsorbate.blockSignals(False)
 
     def is_substrate_spots_visible(self) -> bool:
-        return self.show_substrate_spots_checkbox.isChecked()
+        return self.show_fitted_substrate_spots_checkbox.isChecked()
 
     def is_adsorbate_spots_visible(self) -> bool:
         return self.show_adsorbate_spots_checkbox.isChecked()
