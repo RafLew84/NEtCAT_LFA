@@ -7,7 +7,7 @@ from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QDialogButtonBox,
     QLabel, QListWidget, QAbstractItemView, QWidget, QSplitter, QGroupBox,
     QFormLayout, QRadioButton, QSpinBox, QComboBox, QCheckBox, QMessageBox,
-    QGridLayout, QDoubleSpinBox, QApplication
+    QGridLayout, QDoubleSpinBox, QApplication, QDockWidget
 )
 from PyQt6.QtCore import Qt, pyqtSlot, QPointF, QRectF
 from PyQt6.QtGui import QPen
@@ -158,210 +158,169 @@ class SubstrateSpotSelectionDialog(QDialog):
             self.gl_gauss_surface_plot_item.deleteLater()
 
     def _init_ui(self):
-        main_layout = QHBoxLayout(self)
+        # Ustawienie głównego layoutu dialogu na QHBoxLayout, do którego dodamy splitter
+        # To jest ważne, aby splitter wypełnił całe okno dialogowe.
+        top_level_layout = QHBoxLayout(self) # 'self' jako rodzic dla tego layoutu
+        main_splitter = QSplitter(Qt.Orientation.Horizontal)
+        top_level_layout.addWidget(main_splitter)
 
-        # --- Lewy Panel: Główny obraz FFT i kontrolki ---
-        left_panel_widget = QWidget()
-        left_panel_layout = QVBoxLayout(left_panel_widget)
+        # === LEWY PANEL: Kontrolki ===
+        left_controls_widget = QWidget()
+        left_controls_layout = QVBoxLayout(left_controls_widget)
+        left_controls_widget.setMinimumWidth(300)
+        left_controls_widget.setMaximumWidth(350) # Ogranicz szerokość dla lepszego wyglądu
 
-        self.fft_plot_widget = GraphicsLayoutWidget()
+        # Grupa: Substrate Definition & Overlay
+        substrate_def_group = QGroupBox("Substrate Definition & Overlay")
+        substrate_def_layout = QFormLayout(substrate_def_group)
+        self.lattice_type_combo = QComboBox()
+        self.lattice_type_combo.addItems([LATTICE_TYPE_HEXAGONAL.capitalize(), LATTICE_TYPE_SQUARE.capitalize()])
+        substrate_def_layout.addRow("Lattice Type:", self.lattice_type_combo)
+        self.substrate_definition_combo = QComboBox()
+        substrate_def_layout.addRow("Predefined/Custom:", self.substrate_definition_combo)
+        self.custom_a_surf_spinbox = QDoubleSpinBox()
+        self.custom_a_surf_spinbox.setDecimals(4); self.custom_a_surf_spinbox.setRange(0.001, 100.0); self.custom_a_surf_spinbox.setSingleStep(0.001); self.custom_a_surf_spinbox.setValue(0.3)
+        self.custom_a_surf_label = QLabel("Custom 'a_surf' (nm):")
+        substrate_def_layout.addRow(self.custom_a_surf_label, self.custom_a_surf_spinbox)
+        self.custom_a_surf_label.setVisible(False); self.custom_a_surf_spinbox.setVisible(False)
+        self.show_ideal_lattice_checkbox = QCheckBox("Show Ideal Lattice Overlay"); self.show_ideal_lattice_checkbox.setChecked(True)
+        substrate_def_layout.addRow(self.show_ideal_lattice_checkbox)
+        left_controls_layout.addWidget(substrate_def_group)
+
+        # Grupa: Spot Refinement
+        refinement_group = QGroupBox("Spot Refinement")
+        refinement_layout = QFormLayout(refinement_group)
+        self.rb_refine_direct = QRadioButton(REFINEMENT_DIRECT_CLICK); self.rb_refine_direct.setChecked(True)
+        self.rb_refine_max_pixel = QRadioButton(REFINEMENT_MAX_PIXEL)
+        self.rb_refine_gaussian = QRadioButton(REFINEMENT_GAUSSIAN_FIT)
+        refinement_layout.addRow(self.rb_refine_direct); refinement_layout.addRow(self.rb_refine_max_pixel); refinement_layout.addRow(self.rb_refine_gaussian)
+        self.refinement_roi_size_spinbox = QSpinBox()
+        self.refinement_roi_size_spinbox.setMinimum(3); self.refinement_roi_size_spinbox.setMaximum(31); self.refinement_roi_size_spinbox.setSingleStep(2); self.refinement_roi_size_spinbox.setValue(self.refinement_roi_size)
+        refinement_layout.addRow("Refinement Area Size (px):", self.refinement_roi_size_spinbox)
+        left_controls_layout.addWidget(refinement_group)
+
+        # Przycisk dodawania spotu
+        self.add_spot_button = QPushButton("Add/Update Spot from ROI")
+        self.add_spot_button.setEnabled(False)
+        left_controls_layout.addWidget(self.add_spot_button)
+        
+        # Grupa: Lattice Transformation (Placeholder)
+        transform_group = QGroupBox("Lattice Transformation") # Usunięto "Future"
+        transform_layout = QFormLayout(transform_group)
+        self.transform_status_label = QLabel("Select spots and define lattice.")
+        self.calculate_transform_button = QPushButton("Calculate Transformation"); self.calculate_transform_button.setEnabled(False)
+        self.show_fitted_substrate_spots_checkbox = QCheckBox("Show Fitted Substrate Spots"); self.show_fitted_substrate_spots_checkbox.setChecked(True)
+        self.rotation_angle_label = QLabel("Rotation: -")
+        self.scale_factor_label = QLabel("Scale (X,Y): -")
+        self.rmse_label = QLabel("RMSE (px): -")
+        transform_layout.addRow(self.transform_status_label); transform_layout.addRow(self.calculate_transform_button)
+        transform_layout.addRow(self.show_fitted_substrate_spots_checkbox); transform_layout.addRow(self.rotation_angle_label)
+        transform_layout.addRow(self.scale_factor_label); transform_layout.addRow(self.rmse_label)
+        left_controls_layout.addWidget(transform_group)
+
+        left_controls_layout.addStretch(1)
+        main_splitter.addWidget(left_controls_widget)
+
+
+        # === CENTRALNY PANEL: Główny obraz FFT ===
+        self.fft_plot_widget = GraphicsLayoutWidget() # GraphicsLayoutWidget jest QWidget
         self.fft_view_box = self.fft_plot_widget.addViewBox(row=0, col=0, lockAspect=True, invertY=True)
         self.fft_image_item = ImageItem()
         self.fft_view_box.addItem(self.fft_image_item)
-        self.fft_view_box.setMenuEnabled(True) # Włącz domyślne menu dla zoom/pan
-        self.fft_view_box.setMouseMode(ViewBox.PanMode) # Domyślnie tryb przesuwania
-        self.fft_view_box.setMouseEnabled(x=True, y=True) # Włącz przesuwanie/zoomowanie myszką
+        self.fft_view_box.setMenuEnabled(True)
+        self.fft_view_box.setMouseMode(ViewBox.PanMode)
+        self.fft_view_box.setMouseEnabled(x=True, y=True)
 
         if self.fft_data is not None:
-            self.fft_image_item.setImage(self.fft_data.T)
+            self.fft_image_item.setImage(self.fft_data.T) # Transpozycja dla orientacji XY
 
         self.selection_roi = RectROI(pos=(0,0), size=(self.refinement_roi_size, self.refinement_roi_size),
                                      pen=pg.mkPen('y', width=2), translateSnap=True, scaleSnap=True,
                                      movable=True, resizable=True, rotatable=False)
         self.fft_view_box.addItem(self.selection_roi)
         self.selection_roi.setVisible(False)
-        left_panel_layout.addWidget(self.fft_plot_widget, stretch=1)
+        main_splitter.addWidget(self.fft_plot_widget)
 
-        # Kontrolki (przeniesione na dół lewego panelu dla lepszego układu)
-        controls_group = QGroupBox("Controls")
-        controls_group_layout = QVBoxLayout(controls_group)
 
-        substrate_def_group = QGroupBox("Substrate Definition & Overlay")
-        substrate_def_layout = QFormLayout(substrate_def_group)
-
-        # self.lattice_type_combo = QComboBox()
-        # self.lattice_type_combo.addItems([LATTICE_TYPE_HEXAGONAL.capitalize(), LATTICE_TYPE_SQUARE.capitalize()])
-        # substrate_def_layout.addRow("Lattice Type:", self.lattice_type_combo)
-
-        self.substrate_definition_combo = QComboBox()
-        # Populate this combo based on lattice_type_combo selection
-        substrate_def_layout.addRow("Predefined/Custom:", self.substrate_definition_combo)
-
-        self.custom_a_surf_spinbox = QDoubleSpinBox()
-        self.custom_a_surf_spinbox.setDecimals(4)
-        self.custom_a_surf_spinbox.setRange(0.001, 100.0) # nm
-        self.custom_a_surf_spinbox.setSingleStep(0.001)
-        self.custom_a_surf_spinbox.setValue(0.3) # Default
-        self.custom_a_surf_label = QLabel("Custom 'a_surf' (nm):")
-        substrate_def_layout.addRow(self.custom_a_surf_label, self.custom_a_surf_spinbox)
-        self.custom_a_surf_label.setVisible(False) # Initially hidden
-        self.custom_a_surf_spinbox.setVisible(False) # Initially hidden
-        
-        # self.show_ideal_lattice_checkbox = QCheckBox("Show Ideal Lattice Overlay")
-        # self.show_ideal_lattice_checkbox.setChecked(True)
-        # substrate_def_layout.addRow(self.show_ideal_lattice_checkbox)
-        controls_group_layout.addWidget(substrate_def_group)
-
-        refinement_group = QGroupBox("Spot Refinement")
-        refinement_layout = QFormLayout(refinement_group)
-        self.rb_refine_direct = QRadioButton(REFINEMENT_DIRECT_CLICK); self.rb_refine_direct.setChecked(True)
-        self.rb_refine_max_pixel = QRadioButton(REFINEMENT_MAX_PIXEL)
-        self.rb_refine_gaussian = QRadioButton(REFINEMENT_GAUSSIAN_FIT)
-        refinement_layout.addRow(self.rb_refine_direct)
-        refinement_layout.addRow(self.rb_refine_max_pixel)
-        refinement_layout.addRow(self.rb_refine_gaussian)
-        self.refinement_roi_size_spinbox = QSpinBox()
-        self.refinement_roi_size_spinbox.setMinimum(3)
-        self.refinement_roi_size_spinbox.setMaximum(31)
-        self.refinement_roi_size_spinbox.setSingleStep(2)
-        self.refinement_roi_size_spinbox.setValue(self.refinement_roi_size)
-        refinement_layout.addRow("Refinement Area Size (px):", self.refinement_roi_size_spinbox)
-        self.add_spot_button = QPushButton("Add/Update Spot from ROI"); self.add_spot_button.setEnabled(False)
-        refinement_layout.addRow(self.add_spot_button)
-        controls_group_layout.addWidget(refinement_group)
-
-        transform_group = QGroupBox("Lattice Transformation") # Zmieniono z "Future"
-        transform_layout = QFormLayout(transform_group)
-        self.transform_status_label = QLabel("Select at least 3 spots and lattice definition.") # Zaktualizowano status
-        
-        self.calculate_transform_button = QPushButton("Calculate Transformation from Selected Spots")
-        self.calculate_transform_button.setEnabled(False) # Początkowo wyłączony
-        
-        self.show_fitted_substrate_spots_checkbox = QCheckBox("Show Fitted Substrate Spots") # NOWY CHECKBOX
-        self.show_fitted_substrate_spots_checkbox.setChecked(True) # Domyślnie zaznaczony
-
-        self.rotation_angle_label = QLabel("Rotation: -")
-        self.scale_factor_label = QLabel("Scale (X,Y): -") # Można rozbić na Scale X i Scale Y
-        self.rmse_label = QLabel("RMSE (px): -") # Dodano jednostkę
-
-        transform_layout.addRow(self.transform_status_label)
-        transform_layout.addRow(self.calculate_transform_button)
-        transform_layout.addRow(self.show_fitted_substrate_spots_checkbox) # Dodano checkbox
-        transform_layout.addRow(self.rotation_angle_label)
-        transform_layout.addRow(self.scale_factor_label)
-        transform_layout.addRow(self.rmse_label)
-
-        controls_group_layout.addWidget(transform_group)
-        
-        lattice_type_group = QGroupBox("Lattice Type & Overlay")
-        lattice_type_layout = QFormLayout(lattice_type_group)
-        self.lattice_type_combo = QComboBox(); self.lattice_type_combo.addItems([LATTICE_TYPE_HEXAGONAL.capitalize(), LATTICE_TYPE_SQUARE.capitalize()])
-        lattice_type_layout.addRow("Substrate Type:", self.lattice_type_combo)
-        self.show_ideal_lattice_checkbox = QCheckBox("Show Ideal Lattice Overlay"); self.show_ideal_lattice_checkbox.setChecked(True)
-        lattice_type_layout.addRow(self.show_ideal_lattice_checkbox)
-        controls_group_layout.addWidget(lattice_type_group)
-        
-        left_panel_layout.addWidget(self.fft_plot_widget, stretch=1) # Główny obraz
-        left_panel_layout.addWidget(controls_group) # Kontrolki pod spodem
-        main_layout.addWidget(left_panel_widget, stretch=2)
-
+        # === PRAWY PANEL: Podglądy, lista spotów, przyciski OK/Anuluj ===
         right_panel_widget = QWidget()
         right_panel_layout = QVBoxLayout(right_panel_widget)
-        right_panel_widget.setMinimumWidth(450) # Utrzymaj minimalną szerokość
+        right_panel_widget.setMinimumWidth(450)
+        right_panel_widget.setMaximumWidth(550) # Ogranicz szerokość dla lepszego wyglądu
 
         preview_group = QGroupBox("Live Previews")
-        preview_grid_layout = QGridLayout(preview_group) # Zamiast QVBoxLayout
+        preview_grid_layout = QGridLayout(preview_group)
 
         # --- Wiersz 1: Podglądy ROI ---
         # 2D ROI Preview
-        roi_2d_container = QWidget()
-        roi_2d_v_layout = QVBoxLayout(roi_2d_container)
+        roi_2d_container = QWidget(); roi_2d_v_layout = QVBoxLayout(roi_2d_container)
         roi_2d_v_layout.addWidget(QLabel("ROI 2D Preview:"))
-        self.enable_2d_roi_preview_checkbox = QCheckBox("Enable")
-        self.enable_2d_roi_preview_checkbox.setChecked(True)
+        self.enable_2d_roi_preview_checkbox = QCheckBox("Enable"); self.enable_2d_roi_preview_checkbox.setChecked(True)
         roi_2d_v_layout.addWidget(self.enable_2d_roi_preview_checkbox)
-        self.roi_preview_2d_widget = GraphicsLayoutWidget()
-        self.roi_preview_2d_widget.setMinimumSize(150, 150)  # Ujednolicone rozmiary
-        self.roi_preview_2d_plot = self.roi_preview_2d_widget.addViewBox(lockAspect=True, invertY=True)
-        self.roi_preview_2d_image_item = ImageItem()
-        self.roi_preview_2d_plot.addItem(self.roi_preview_2d_image_item)
-        roi_2d_v_layout.addWidget(self.roi_preview_2d_widget, 1)  # Dodany stretch factor
+        self.roi_preview_2d_widget = GraphicsLayoutWidget(); self.roi_preview_2d_widget.setMinimumHeight(150); self.roi_preview_2d_widget.setMaximumHeight(200) # Ograniczenie wysokości
+        self.roi_preview_2d_plot = self.roi_preview_2d_widget.addViewBox(lockAspect=True, invertY=True); self.roi_preview_2d_image_item = ImageItem(); self.roi_preview_2d_plot.addItem(self.roi_preview_2d_image_item)
+        roi_2d_v_layout.addWidget(self.roi_preview_2d_widget, 1)
         preview_grid_layout.addWidget(roi_2d_container, 0, 0)
 
-        print("3D ROI Preview")
         # 3D ROI Preview
-        roi_3d_container = QWidget()
-        roi_3d_v_layout = QVBoxLayout(roi_3d_container)
+        roi_3d_container = QWidget(); roi_3d_v_layout = QVBoxLayout(roi_3d_container)
         roi_3d_v_layout.addWidget(QLabel("ROI 3D Preview:"))
-        self.enable_3d_roi_preview_checkbox = QCheckBox("Enable")
-        self.enable_3d_roi_preview_checkbox.setChecked(False)
+        self.enable_3d_roi_preview_checkbox = QCheckBox("Enable"); self.enable_3d_roi_preview_checkbox.setChecked(False)
         roi_3d_v_layout.addWidget(self.enable_3d_roi_preview_checkbox)
-        self.gl_roi_view_widget = GLViewWidget()
-        self.gl_roi_view_widget.setMinimumSize(150, 150)  # Ujednolicone rozmiary
-        self.gl_roi_surface_plot_item = GLSurfacePlotItem(color=(0.5, 0.5, 1, 0.7))
-        self.gl_roi_view_widget.addItem(self.gl_roi_surface_plot_item)
-        roi_3d_v_layout.addWidget(self.gl_roi_view_widget, 1)  # Dodany stretch factor
+        self.gl_roi_view_widget = GLViewWidget(); self.gl_roi_view_widget.setMinimumHeight(150); self.gl_roi_view_widget.setMaximumHeight(200) # Ograniczenie wysokości
+        self.gl_roi_surface_plot_item = GLSurfacePlotItem(shader='shaded', color=(0.5,0.5,1,0.7)) # Zmieniono na self.gl_roi_surface_plot_item
+        self.gl_roi_view_widget.addItem(self.gl_roi_surface_plot_item) # Poprawione dodawanie
+        roi_3d_v_layout.addWidget(self.gl_roi_view_widget, 1)
         preview_grid_layout.addWidget(roi_3d_container, 0, 1)
 
         # --- Wiersz 2: Podglądy Gaussian Fit ---
         # 2D Gaussian Fit Preview
-        gauss_2d_container = QWidget()
-        gauss_2d_v_layout = QVBoxLayout(gauss_2d_container)
+        gauss_2d_container = QWidget(); gauss_2d_v_layout = QVBoxLayout(gauss_2d_container)
         gauss_2d_v_layout.addWidget(QLabel("Gaussian Fit 2D Preview:"))
-        self.enable_gauss_2d_preview_checkbox = QCheckBox("Enable")
-        self.enable_gauss_2d_preview_checkbox.setChecked(True)
+        self.enable_gauss_2d_preview_checkbox = QCheckBox("Enable"); self.enable_gauss_2d_preview_checkbox.setChecked(True)
         gauss_2d_v_layout.addWidget(self.enable_gauss_2d_preview_checkbox)
-        self.gaussian_preview_2d_widget = GraphicsLayoutWidget()
-        self.gaussian_preview_2d_widget.setMinimumSize(150, 150)  # Ujednolicone rozmiary
-        self.gaussian_preview_2d_plot = self.gaussian_preview_2d_widget.addViewBox(lockAspect=True, invertY=True)
-        self.gaussian_preview_2d_image_item = ImageItem()
-        self.gaussian_preview_2d_plot.addItem(self.gaussian_preview_2d_image_item)
-        gauss_2d_v_layout.addWidget(self.gaussian_preview_2d_widget, 1)  # Dodany stretch factor
+        self.gaussian_preview_2d_widget = GraphicsLayoutWidget(); self.gaussian_preview_2d_widget.setMinimumHeight(150); self.gaussian_preview_2d_widget.setMaximumHeight(200) # Ograniczenie wysokości
+        self.gaussian_preview_2d_plot = self.gaussian_preview_2d_widget.addViewBox(lockAspect=True, invertY=True); self.gaussian_preview_2d_image_item = ImageItem(); self.gaussian_preview_2d_plot.addItem(self.gaussian_preview_2d_image_item)
+        gauss_2d_v_layout.addWidget(self.gaussian_preview_2d_widget, 1)
         preview_grid_layout.addWidget(gauss_2d_container, 1, 0)
-
+        
         # 3D Gaussian Fit Preview
-        gauss_3d_container = QWidget()
-        gauss_3d_v_layout = QVBoxLayout(gauss_3d_container)
+        gauss_3d_container = QWidget(); gauss_3d_v_layout = QVBoxLayout(gauss_3d_container)
         gauss_3d_v_layout.addWidget(QLabel("Gaussian Fit 3D Preview:"))
-        self.enable_gauss_3d_preview_checkbox = QCheckBox("Enable")
-        self.enable_gauss_3d_preview_checkbox.setChecked(False)
+        self.enable_gauss_3d_preview_checkbox = QCheckBox("Enable"); self.enable_gauss_3d_preview_checkbox.setChecked(False)
         gauss_3d_v_layout.addWidget(self.enable_gauss_3d_preview_checkbox)
-        self.gl_gauss_view_widget = GLViewWidget()
-        self.gl_gauss_view_widget.setMinimumSize(150, 150)  # Ujednolicone rozmiary
-        self.gl_gauss_surface_plot_item = GLSurfacePlotItem(color=(0.5, 0.5, 1, 0.7))
-        self.gl_gauss_view_widget.addItem(self.gl_gauss_surface_plot_item)
-        gauss_3d_v_layout.addWidget(self.gl_gauss_view_widget, 1)  # Dodany stretch factor
+        self.gl_gauss_view_widget = GLViewWidget(); self.gl_gauss_view_widget.setMinimumHeight(150); self.gl_gauss_view_widget.setMaximumHeight(200) # Ograniczenie wysokości
+        self.gl_gauss_surface_plot_item = GLSurfacePlotItem(shader='smooth', color=(1,0.5,0.5,0.7)) # Zmieniono na self.gl_gauss_surface_plot_item
+        self.gl_gauss_view_widget.addItem(self.gl_gauss_surface_plot_item) # Poprawione dodawanie
+        gauss_3d_v_layout.addWidget(self.gl_gauss_view_widget, 1)
         preview_grid_layout.addWidget(gauss_3d_container, 1, 1)
-
-        # Ustawienia wyrównania dla grid layout
-        preview_grid_layout.setColumnStretch(0, 1)  # Wyrównanie kolumn
-        preview_grid_layout.setColumnStretch(1, 1)
-        preview_grid_layout.setRowStretch(0, 1)    # Wyrównanie wierszy
-        preview_grid_layout.setRowStretch(1, 1)
-
-        self.gauss_2d_container = gauss_2d_container
-        self.gauss_3d_container = gauss_3d_container
-        self.gauss_2d_container.setVisible(False)
-        self.gauss_3d_container.setVisible(False)
-
+        
+        preview_grid_layout.setColumnStretch(0,1); preview_grid_layout.setColumnStretch(1,1)
+        preview_grid_layout.setRowStretch(0,1); preview_grid_layout.setRowStretch(1,1)
+        
+        self.gauss_2d_container = gauss_2d_container; self.gauss_3d_container = gauss_3d_container
+        self.gauss_2d_container.setVisible(False); self.gauss_3d_container.setVisible(False)
         right_panel_layout.addWidget(preview_group)
-
 
         spots_list_group = QGroupBox("Selected Spots Management")
         spots_list_layout = QVBoxLayout(spots_list_group)
         self.spots_list_widget = QListWidget(); self.spots_list_widget.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         spots_list_layout.addWidget(self.spots_list_widget)
-        spot_buttons_layout = QHBoxLayout()
-        self.remove_spot_button = QPushButton("Remove Selected"); self.clear_all_spots_button = QPushButton("Clear All")
-        spot_buttons_layout.addWidget(self.remove_spot_button); spot_buttons_layout.addWidget(self.clear_all_spots_button)
-        spots_list_layout.addLayout(spot_buttons_layout)
+        spot_buttons_layout = QHBoxLayout(); self.remove_spot_button = QPushButton("Remove Selected"); self.clear_all_spots_button = QPushButton("Clear All"); spot_buttons_layout.addWidget(self.remove_spot_button); spot_buttons_layout.addWidget(self.clear_all_spots_button); spots_list_layout.addLayout(spot_buttons_layout)
         right_panel_layout.addWidget(spots_list_group)
         
-        self.status_label = QLabel("Click on FFT to place ROI, or drag existing ROI."); right_panel_layout.addWidget(self.status_label)
-        self.button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel); right_panel_layout.addWidget(self.button_box)
+        self.status_label = QLabel("Click on FFT to place ROI, or drag existing ROI.")
+        right_panel_layout.addWidget(self.status_label)
+        
+        self.button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        right_panel_layout.addWidget(self.button_box)
         
         right_panel_layout.addStretch(1)
-        main_layout.addWidget(right_panel_widget, stretch=1)
+        main_splitter.addWidget(right_panel_widget)
+
+        # Ustawienie proporcji splittera
+        main_splitter.setSizes([320, 500, 380]) # Lewy, Środkowy, Prawy - dostosuj
+        main_splitter.setStretchFactor(1, 1) # Pozwól środkowemu panelowi (obraz FFT) rosnąć bardziej
 
     def _clear_3d_surface(self, surface_item: Optional[GLSurfacePlotItem]):
         """Reset surface plot to minimal valid state."""
