@@ -32,6 +32,7 @@ from ..logic.app_controller import AppController
 from ..core.history import HistoryNode
 from .ui_setup.menu_action_manager import MenuActionManager
 from .ui_setup.dock_panel_manager import DockPanelManager
+from ..gui.dialogs.substrate_spot_dialog import PREDEFINED_SUBSTRATE_NONE, PREDEFINED_SUBSTRATE_CUSTOM, LATTICE_TYPE_HEXAGONAL
 
 try:
     from lfa.gui.dialogs.preprocessing_dialogs import (GaussianBlurDialog, PlaneLevelingDialog, 
@@ -173,6 +174,8 @@ class MainWindow(QMainWindow):
             self.app_controller.spot_lists_updated.connect(self._on_spot_lists_or_params_changed)
             self.app_controller.spot_selection_parameters_changed.connect(self._on_spot_lists_or_params_changed)
             self.app_controller.adsorbate_sets_structure_changed.connect(self._on_adsorbate_sets_structure_changed)
+
+            self.app_controller.substrate_definition_changed.connect(self._on_substrate_definition_changed)
 
         if hasattr(self, 'fft_analysis_panel_widget'):
             self.fft_analysis_panel_widget.substrate_changed.connect(self._handle_substrate_changed)
@@ -361,69 +364,163 @@ class MainWindow(QMainWindow):
         logger.debug(f"_update_action_states: Preprocessing possible: {preprocessing_possible}, FFT Calc possible: {fft_calculation_possible}, Is FFT data: {is_fft_data}")
 
     @pyqtSlot()
+    def _on_substrate_definition_changed(self):
+        """
+        Slot wywoływany, gdy definicja substratu (typ, a_surf, nazwa) zmieni się w AppController.
+        Aktualizuje odpowiednie UI, np. ComboBox w FFTAnalysisPanel i odświeża widok.
+        """
+        logger.debug("MainWindow: Received substrate_definition_changed signal from AppController.")
+        if hasattr(self, 'fft_analysis_panel_widget') and self.fft_analysis_panel_widget:
+            # Ustaw ComboBox w FFTAnalysisPanel na podstawie wartości z AppController
+            # To zapewnia spójność między dialogiem a panelem głównym
+            current_def_name = self.app_controller.current_substrate_name
+            self.fft_analysis_panel_widget.set_substrate_combo_text(current_def_name)
+            
+            # Jeśli definicja to <Custom a_surf...>, można by też zaktualizować
+            # jakąś etykietę w panelu, aby pokazać aktualne a_surf, ale to opcjonalne.
+
+        self.display_image_data() # Odśwież widok, aby np. przerysować idealną siatkę
+        self._update_action_states()
+
+    @pyqtSlot()
     def open_substrate_spot_selection_dialog(self):
         logger.info("MainWindow: Opening substrate spot selection dialog...")
         
-        # 1. Sprawdź, czy aktywny jest obraz FFT i pobierz dane
         current_node_info = self.app_controller.get_current_node_info_for_dialogs()
-        if not (current_node_info and current_node_info[1] == "FFT"): # Indeks 1 to data_type
-            QMessageBox.warning(self, "Incorrect Data Type", 
-                                "Substrate spots can only be selected on an FFT image.")
-            logger.warning("Attempted to open substrate spot selection on non-FFT data.")
-            return
-        
-        if not SubstrateSpotSelectionDialog: # pragma: no cover
-            QMessageBox.critical(self, "Dialog Error", 
-                                 "SubstrateSpotSelectionDialog is not available. Please check application setup.")
-            logger.error("SubstrateSpotSelectionDialog class is not available.")
-            return
+        if not (current_node_info and current_node_info[1] == "FFT"):
+            QMessageBox.warning(self, "Incorrect Data Type", "Substrate spots can only be selected on an FFT image."); return
+        if not SubstrateSpotSelectionDialog: QMessageBox.critical(self, "Dialog Error", "SubstrateSpotSelectionDialog is not available."); return # pragma: no cover
 
-        parent_node_id, _, fft_image_data_copy = current_node_info
+        _, _, fft_image_data_copy = current_node_info
         
-        # 2. Pobierz istniejące piki substratu z AppController
-        current_substrate_spots = list(self.app_controller.substrate_spots) # Przekaż kopię
+        # --- POBIERANIE STANU POCZĄTKOWEGO Z APPCONTROLLER ---
+        initial_spots = list(self.app_controller.substrate_spots)
+        initial_type = self.app_controller.current_substrate_type if self.app_controller.current_substrate_type else LATTICE_TYPE_HEXAGONAL # Domyślny, jeśli None
+        initial_name = self.app_controller.current_substrate_name
+        initial_a_surf_val = self.app_controller.current_substrate_a_surf
         
-        expected_lattice_type = None
-        selected_substrate_name = self.app_controller.last_selected_substrate
-        if selected_substrate_name != "None" and selected_substrate_name != self.fft_analysis_panel_widget.custom_option_text: # type: ignore
-            lattice_data = KNOWN_LATTICES.get(selected_substrate_name)
-            if lattice_data:
-                expected_lattice_type = lattice_data.get("type")
-        elif self.app_controller.custom_lattice_info:
-            expected_lattice_type = self.app_controller.custom_lattice_info.get("type")
-        
-        logger.debug(f"Passing to SubstrateSpotSelectionDialog: existing_spots_count={len(current_substrate_spots)}, expected_lattice_type='{expected_lattice_type}'")
-        current_fft_node = self.history_manager.get_current_node() # Pobierz aktualny węzeł
-        if not (current_fft_node and current_fft_node.data_type == "FFT"): # Dodatkowe sprawdzenie
-             # To nie powinno się zdarzyć, jeśli current_node_info[1] == "FFT"
-             logger.error("Mismatch: current_node_info indicates FFT, but current_node is not.")
-             return
-        
-        current_real_fft_node_id = current_fft_node.node_id
-        # 3. Utwórz i wyświetl dialog
+        # Jeśli nazwa to custom, upewnij się, że a_surf jest przekazane
+        # Jeśli nazwa to predefiniowana, a_surf jest znane z KNOWN_LATTICES (dialog sam to obsłuży)
+        # Jeśli nazwa to NONE, a_surf może być None
+        if initial_name == PREDEFINED_SUBSTRATE_CUSTOM and initial_a_surf_val is None:
+            # Jeśli w AppController jest custom, ale nie ma a_surf, użyj jakiegoś default
+            initial_a_surf_val = 0.3 # Przykładowy default dla custom
+            logger.warning(f"No custom a_surf in AppController for CUSTOM, using default {initial_a_surf_val} for dialog.")
+
+        logger.debug(f"Passing to SubstrateSpotSelectionDialog: "
+                     f"initial_type='{initial_type}', initial_name='{initial_name}', initial_a_surf={initial_a_surf_val}")
+        # --- KONIEC POBIERANIA STANU POCZĄTKOWEGO ---
+
         dialog = SubstrateSpotSelectionDialog(
             fft_image_data=fft_image_data_copy,
-            history_manager=self.history_manager,
-            current_fft_node_id=current_real_fft_node_id,
-            current_spots=current_substrate_spots,
-            # default_refinement_method i default_refinement_roi_size są opcjonalne,
-            # ale jeśli chcesz je przekazać, pobierz je z app_controller
-            default_refinement_method=self.app_controller.spot_refinement_method,
-            default_refinement_roi_size=self.app_controller.refinement_roi_size,
+            history_manager=self.history_manager, # Przekaż history_manager
+            current_fft_node_id=current_node_info[0], # Przekaż ID węzła FFT
+            current_spots=initial_spots,
+            # --- PRZEKAZANIE STANU POCZĄTKOWEGO DO DIALOGU ---
+            initial_lattice_type=initial_type,
+            initial_selected_substrate_name=initial_name,
+            initial_custom_a_surf=initial_a_surf_val,
+            # --- KONIEC PRZEKAZANIA ---
+            default_refinement_method=self.app_controller.spot_refinement_method, # Domyślne z AppController
+            default_refinement_roi_size=self.app_controller.refinement_roi_size,   # Domyślne z AppController
             parent=self
         )
         
-        # 4. Obsłuż wynik dialogu
         if dialog.exec() == QDialog.DialogCode.Accepted:
-            new_spots = dialog.get_selected_spots()
-            logger.info(f"Substrate spots selection dialog accepted with {len(new_spots)} spots.")
-            
-            self.app_controller.substrate_spots = new_spots # Bezpośrednie ustawienie na razie
+            results = dialog.get_dialog_results() # Pobierz wszystkie wyniki z dialogu
+            new_spots = results.get("spots", [])
+            new_lattice_type = results.get("lattice_type")
+            new_a_surf = results.get("a_surf")
+            new_substrate_def_name = results.get("substrate_definition", PREDEFINED_SUBSTRATE_NONE)
 
-            self.statusBar().showMessage(f"Substrate spots updated: {len(new_spots)} spots.", 3000)
+            logger.info(f"Substrate spots selection accepted. Spots: {len(new_spots)}, "
+                        f"Type: {new_lattice_type}, a_surf: {new_a_surf}, Def: '{new_substrate_def_name}'")
+            
+            # --- WYWOŁANIE METODY APPCONTROLLER DO AKTUALIZACJI STANU ---
+            self.app_controller.set_substrate_definition_and_spots(
+                spots=new_spots,
+                lattice_type=new_lattice_type,
+                a_surf=new_a_surf,
+                substrate_definition_name=new_substrate_def_name
+            )
+            # --- KONIEC WYWOŁANIA ---
+            # AppController wyemituje sygnały, na które MainWindow zareaguje
+            # (np. _on_spot_lists_or_params_changed, _on_substrate_definition_changed)
+            self.statusBar().showMessage(f"Substrate spots and definition updated.", 3000)
         else:
             logger.info("Substrate spots selection cancelled.")
             self.statusBar().showMessage("Substrate spots selection cancelled.", 3000)
+
+
+    # @pyqtSlot()
+    # def open_substrate_spot_selection_dialog(self):
+    #     logger.info("MainWindow: Opening substrate spot selection dialog...")
+        
+    #     # 1. Sprawdź, czy aktywny jest obraz FFT i pobierz dane
+    #     current_node_info = self.app_controller.get_current_node_info_for_dialogs()
+    #     if not (current_node_info and current_node_info[1] == "FFT"): # Indeks 1 to data_type
+    #         QMessageBox.warning(self, "Incorrect Data Type", 
+    #                             "Substrate spots can only be selected on an FFT image.")
+    #         logger.warning("Attempted to open substrate spot selection on non-FFT data.")
+    #         return
+        
+    #     if not SubstrateSpotSelectionDialog: # pragma: no cover
+    #         QMessageBox.critical(self, "Dialog Error", 
+    #                              "SubstrateSpotSelectionDialog is not available. Please check application setup.")
+    #         logger.error("SubstrateSpotSelectionDialog class is not available.")
+    #         return
+
+    #     _, _, fft_image_data_copy = current_node_info
+
+    #     initial_spots = list(self.app_controller.substrate_spots)
+    #     initial_type = self.app_controller.current_substrate_type if self.app_controller.current_substrate_type else LATTICE_TYPE_HEXAGONAL # Domyślny, jeśli None
+    #     initial_name = self.app_controller.current_substrate_name
+    #     initial_a_surf_val = self.app_controller.current_substrate_a_surf
+        
+    #     # 2. Pobierz istniejące piki substratu z AppController
+    #     current_substrate_spots = list(self.app_controller.substrate_spots) # Przekaż kopię
+        
+    #     expected_lattice_type = None
+    #     selected_substrate_name = self.app_controller.last_selected_substrate
+    #     if selected_substrate_name != "None" and selected_substrate_name != self.fft_analysis_panel_widget.custom_option_text: # type: ignore
+    #         lattice_data = KNOWN_LATTICES.get(selected_substrate_name)
+    #         if lattice_data:
+    #             expected_lattice_type = lattice_data.get("type")
+    #     elif self.app_controller.custom_lattice_info:
+    #         expected_lattice_type = self.app_controller.custom_lattice_info.get("type")
+        
+    #     logger.debug(f"Passing to SubstrateSpotSelectionDialog: existing_spots_count={len(current_substrate_spots)}, expected_lattice_type='{expected_lattice_type}'")
+    #     current_fft_node = self.history_manager.get_current_node() # Pobierz aktualny węzeł
+    #     if not (current_fft_node and current_fft_node.data_type == "FFT"): # Dodatkowe sprawdzenie
+    #          # To nie powinno się zdarzyć, jeśli current_node_info[1] == "FFT"
+    #          logger.error("Mismatch: current_node_info indicates FFT, but current_node is not.")
+    #          return
+        
+    #     current_real_fft_node_id = current_fft_node.node_id
+    #     # 3. Utwórz i wyświetl dialog
+    #     dialog = SubstrateSpotSelectionDialog(
+    #         fft_image_data=fft_image_data_copy,
+    #         history_manager=self.history_manager,
+    #         current_fft_node_id=current_real_fft_node_id,
+    #         current_spots=current_substrate_spots,
+    #         # default_refinement_method i default_refinement_roi_size są opcjonalne,
+    #         # ale jeśli chcesz je przekazać, pobierz je z app_controller
+    #         default_refinement_method=self.app_controller.spot_refinement_method,
+    #         default_refinement_roi_size=self.app_controller.refinement_roi_size,
+    #         parent=self
+    #     )
+        
+    #     # 4. Obsłuż wynik dialogu
+    #     if dialog.exec() == QDialog.DialogCode.Accepted:
+    #         new_spots = dialog.get_selected_spots()
+    #         logger.info(f"Substrate spots selection dialog accepted with {len(new_spots)} spots.")
+            
+    #         self.app_controller.substrate_spots = new_spots # Bezpośrednie ustawienie na razie
+
+    #         self.statusBar().showMessage(f"Substrate spots updated: {len(new_spots)} spots.", 3000)
+    #     else:
+    #         logger.info("Substrate spots selection cancelled.")
+    #         self.statusBar().showMessage("Substrate spots selection cancelled.", 3000)
 
 
     @pyqtSlot()

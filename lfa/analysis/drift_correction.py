@@ -279,6 +279,12 @@ def match_and_fit_transform(
     final_ideal_pts = target_ideal_pts_px[ideal_indices]
     
     point_pairs_indices = list(zip(measured_indices, ideal_indices))
+    
+    # Print matched point pairs with coordinates
+    print("\nMatched point pairs (measured -> ideal):")
+    for i, (m_idx, i_idx) in enumerate(point_pairs_indices):
+        print(f"Pair {i+1}: ({final_measured_pts[m_idx][0]:.2f}, {final_measured_pts[m_idx][1]:.2f}) -> "
+              f"({final_ideal_pts[i_idx][0]:.2f}, {final_ideal_pts[i_idx][1]:.2f})")
 
     # 5. Fit affine transformation
     F, t = fit_affine_measured_to_ideal(final_measured_pts, final_ideal_pts)

@@ -14,6 +14,7 @@ from PyQt6.QtCore import QObject, pyqtSignal
 from ..core.data_models import STMImage # Potrzebne do type hinting i tworzenia obiektu
 from ..io.factory import load_stm_file  # Funkcja do ładowania pliku
 from ..core.history import HistoryNode   # Do tworzenia węzła historii
+from ..gui.dialogs.substrate_spot_dialog import PREDEFINED_SUBSTRATE_NONE, PREDEFINED_SUBSTRATE_CUSTOM
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +42,8 @@ class AppController(QObject):
     spot_selection_parameters_changed = pyqtSignal()
     # Sygnał emitowany po zmianie bieżącego zestawu adsorbatu (np. dodanie nowego, zmiana indeksu)
     adsorbate_sets_structure_changed = pyqtSignal()
+
+    substrate_definition_changed = pyqtSignal()
 
     def __init__(self, history_manager, parent: Optional[QObject] = None):
         """
@@ -78,6 +81,10 @@ class AppController(QObject):
         self.show_substrate_spots_markers: bool = True # Widoczność markerów substratu
         self.show_adsorbate_spots_markers: bool = True # Widoczność markerów adsorbatu
 
+        self.current_substrate_a_surf: Optional[float] = None # Przechowuje a_surf dla bieżącego substratu
+        self.current_substrate_type: Optional[str] = None   # Przechowuje typ 'hexagonal'/'square'
+        self.current_substrate_name: str = PREDEFINED_SUBSTRATE_NONE
+
         logger.info("AppController initialized.")
 
     def get_current_image_data_for_processing(self) -> Optional[Any]: # Any to tymczasowo np.ndarray
@@ -109,6 +116,12 @@ class AppController(QObject):
 
             if stm_image_obj and stm_image_obj.data is not None:
                 self.original_file_path = file_path # Ustaw ścieżkę w kontrolerze
+
+                self.clear_all_spot_data()
+                self.current_substrate_a_surf = None # Reset przy ładowaniu nowego pliku
+                self.current_substrate_type = None
+                self.current_substrate_name = PREDEFINED_SUBSTRATE_NONE
+                self.substrate_definition_changed.emit() # Poinformuj UI o resecie
 
                 self.history_manager.clear_history() # Wyczyść poprzednią historię
 
@@ -157,6 +170,60 @@ class AppController(QObject):
             # Inne nieoczekiwane błędy
             logger.exception(f"AppController: An unexpected error occurred while loading file {file_path}: {e}")
             self.file_loading_failed.emit(f"Unexpected error loading file: {e}")
+
+    def set_substrate_definition_and_spots(self,
+                                           spots: List[Tuple[float, float]],
+                                           lattice_type: Optional[str],
+                                           a_surf: Optional[float],
+                                           substrate_definition_name: str): # Nazwa z ComboBoxa dialogu
+        """
+        Ustawia piki substratu oraz definicję sieci (typ, a_surf, nazwa)
+        używaną do ich wyboru i potencjalnej analizy.
+        """
+        logger.info(f"AppController: Updating substrate spots ({len(spots)}) and definition: "
+                    f"Type={lattice_type}, a_surf={a_surf}, DefName='{substrate_definition_name}'")
+
+        # Aktualizacja pików
+        if self.substrate_spots != spots:
+            self.substrate_spots = list(spots) # Zawsze przechowuj kopię
+            self.spot_lists_updated.emit()
+
+        # Aktualizacja definicji sieci substratu
+        definition_changed = False
+        if self.current_substrate_type != lattice_type:
+            self.current_substrate_type = lattice_type
+            definition_changed = True
+        
+        if self.current_substrate_a_surf != a_surf:
+            self.current_substrate_a_surf = a_surf
+            definition_changed = True
+            
+        if self.current_substrate_name != substrate_definition_name:
+            self.current_substrate_name = substrate_definition_name
+            # Jeśli nazwa to "<Custom a_surf...>", to a_surf jest kluczowe.
+            # Jeśli to predefiniowana nazwa, a_surf jest z KNOWN_LATTICES.
+            # Jeśli to "None (Define a_surf below)", to a_surf może być None lub zdefiniowane.
+            if substrate_definition_name == PREDEFINED_SUBSTRATE_CUSTOM:
+                self.custom_lattice_info = { # Zaktualizuj lub utwórz custom_lattice_info
+                    "name": substrate_definition_name, # Lub bardziej unikalna nazwa
+                    "type": lattice_type,
+                    "a_surf": a_surf,
+                    "source": "User Defined in Dialog"
+                }
+                self.last_selected_substrate = substrate_definition_name # Ustaw jako "aktywny"
+            elif substrate_definition_name != PREDEFINED_SUBSTRATE_NONE:
+                self.custom_lattice_info = None # Wyczyść custom, jeśli wybrano predefiniowaną
+                self.last_selected_substrate = substrate_definition_name
+            else: # PREDEFINED_SUBSTRATE_NONE
+                self.custom_lattice_info = None
+                self.last_selected_substrate = PREDEFINED_SUBSTRATE_NONE
+
+            definition_changed = True
+
+        if definition_changed:
+            self.substrate_definition_changed.emit()
+            # spot_selection_parameters_changed może też być odpowiedni, jeśli typ sieci wpływa na parametry
+            self.spot_selection_parameters_changed.emit()
 
 
     def add_operation_to_history(self,

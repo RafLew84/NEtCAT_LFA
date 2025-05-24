@@ -6,6 +6,10 @@ import logging
 import numpy as np
 from typing import Dict, Tuple, List, Optional, Union
 
+LATTICE_TYPE_HEXAGONAL = "hexagonal"
+LATTICE_TYPE_SQUARE = "square"
+
+
 logger = logging.getLogger(__name__)
 
 # --- Lattice Definitions ---
@@ -137,3 +141,88 @@ def get_reciprocal_points(lattice_name_or_info: Union[str, Dict],
 
     logger.info(f"Generated {len(points)} reciprocal points for '{display_name}' up to order {max_hk}.")
     return points
+
+# --- NOWA FUNKCJA ---
+def get_nearest_reciprocal_points(
+    lattice_name_or_info: Union[str, Dict],
+    num_points_hex: int = 6, # Domyślnie 6 dla heksagonalnej
+    num_points_square: int = 4 # Domyślnie 4 dla kwadratowej
+) -> Optional[List[Tuple[float, float]]]:
+    """
+    Generates a specific number of nearest non-zero reciprocal lattice points
+    (G* = h*b1* + k*b2*) around the center (0,0).
+
+    Args:
+        lattice_name_or_info: Name of a known lattice or a lattice info dictionary.
+        num_points_hex (int): Number of nearest points to return for a hexagonal lattice.
+        num_points_square (int): Number of nearest points to return for a square lattice.
+
+    Returns:
+        Optional[List[Tuple[float, float]]]: A list containing the (Gx, Gy) coordinates
+                                             of the nearest reciprocal points, sorted by
+                                             distance from origin, or None on error.
+    """
+    lattice_info_dict: Optional[Dict] = None
+    display_name = "" # Dla logowania
+
+    if isinstance(lattice_name_or_info, str):
+        display_name = lattice_name_or_info
+        if display_name not in KNOWN_LATTICES:
+            logger.error(f"get_nearest_reciprocal_points: Unknown lattice name: {display_name}")
+            return None
+        lattice_info_dict = KNOWN_LATTICES[display_name]
+    elif isinstance(lattice_name_or_info, dict):
+        lattice_info_dict = lattice_name_or_info
+        display_name = lattice_info_dict.get("name", "Custom")
+    else:
+        logger.error("get_nearest_reciprocal_points: Invalid argument for lattice_name_or_info. Must be str or dict.")
+        return None
+
+    if not lattice_info_dict: # pragma: no cover
+        logger.error(f"get_nearest_reciprocal_points: Lattice info is empty for '{display_name}'.")
+        return None
+
+    lattice_type = lattice_info_dict.get("type")
+    if not lattice_type: # pragma: no cover
+        logger.error(f"get_nearest_reciprocal_points: Lattice type not specified in info for '{display_name}'.")
+        return None
+
+    # Wygeneruj wystarczająco dużą pulę punktów, aby mieć pewność, że znajdziemy najbliższe.
+    # max_hk=1 da 8 punktów, max_hk=2 da 24 punkty. Dla 6 najbliższych, max_hk=1 wystarczy.
+    # Dla bezpieczeństwa można użyć max_hk=2, jeśli struktura byłaby bardziej złożona.
+    # Na razie załóżmy, że max_hk=1 jest wystarczające dla typowych sieci.
+    # Jeśli chcemy być pewni, że mamy np. drugich najbliższych sąsiadów, trzeba by to dostosować.
+    # Dla heksagonalnej, 6 najbliższych to (1,0) i jego symetryczne odpowiedniki.
+    # Dla kwadratowej, 4 najbliższe to (1,0), (0,1) i ich symetryczne.
+    # max_hk=1 powinno być wystarczające.
+    candidate_points = get_reciprocal_points(lattice_info_dict, max_hk=1)
+
+    if not candidate_points:
+        logger.error(f"get_nearest_reciprocal_points: Could not generate candidate points for '{display_name}'.")
+        return None
+
+    # Posortuj punkty według odległości od (0,0) - czyli ich magnitudy
+    # Magnitude kwadratowa jest wystarczająca do sortowania: Gx^2 + Gy^2
+    sorted_points = sorted(candidate_points, key=lambda p: p[0]**2 + p[1]**2)
+
+    num_points_to_return = 0
+    if lattice_type == LATTICE_TYPE_HEXAGONAL:
+        num_points_to_return = num_points_hex
+    elif lattice_type == LATTICE_TYPE_SQUARE:
+        num_points_to_return = num_points_square
+    else: # pragma: no cover
+        logger.warning(f"get_nearest_reciprocal_points: Unsupported lattice type '{lattice_type}' for specific point count. Returning all from max_hk=1.")
+        # Można zwrócić błąd lub np. pierwszych N najbliższych, jeśli typ nieznany.
+        # Na razie zwróćmy tyle, ile jest w sorted_points, ale nie więcej niż np. 6.
+        return sorted_points[:min(len(sorted_points), 6)]
+
+
+    if len(sorted_points) < num_points_to_return: # pragma: no cover
+        logger.warning(f"get_nearest_reciprocal_points: Generated fewer candidate points ({len(sorted_points)}) "
+                       f"than requested ({num_points_to_return}) for '{display_name}' with max_hk=1. "
+                       f"Returning all found non-zero points.")
+        return sorted_points
+    
+    logger.info(f"Returning {num_points_to_return} nearest reciprocal points for '{display_name}' ({lattice_type}).")
+    return sorted_points[:num_points_to_return]
+# --- KONIEC NOWEJ FUNKCJI ---
