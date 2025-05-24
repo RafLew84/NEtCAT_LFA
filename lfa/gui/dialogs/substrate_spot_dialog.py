@@ -290,7 +290,7 @@ class SubstrateSpotSelectionDialog(QDialog):
         self.enable_gauss_3d_preview_checkbox = QCheckBox("Enable"); self.enable_gauss_3d_preview_checkbox.setChecked(False)
         gauss_3d_v_layout.addWidget(self.enable_gauss_3d_preview_checkbox)
         self.gl_gauss_view_widget = GLViewWidget(); self.gl_gauss_view_widget.setMinimumHeight(150); self.gl_gauss_view_widget.setMaximumHeight(200) # Ograniczenie wysokości
-        self.gl_gauss_surface_plot_item = GLSurfacePlotItem(shader='smooth', color=(1,0.5,0.5,0.7)) # Zmieniono na self.gl_gauss_surface_plot_item
+        self.gl_gauss_surface_plot_item = GLSurfacePlotItem(color=(1,0.5,0.5,0.7)) # Zmieniono na self.gl_gauss_surface_plot_item
         self.gl_gauss_view_widget.addItem(self.gl_gauss_surface_plot_item) # Poprawione dodawanie
         gauss_3d_v_layout.addWidget(self.gl_gauss_view_widget, 1)
         preview_grid_layout.addWidget(gauss_3d_container, 1, 1)
@@ -509,32 +509,56 @@ class SubstrateSpotSelectionDialog(QDialog):
             self._redraw_ideal_lattice_overlay()
 
     def _update_transform_button_state(self):
-        """Włącza/wyłącza przycisk Calculate Transformation."""
-        if not hasattr(self, 'calculate_transform_button'): return
+        """Włącza/wyłącza przycisk Calculate Transformation oraz aktualizuje etykietę statusu."""
+        if not hasattr(self, 'calculate_transform_button'):
+            return
 
         can_transform = False
-        # Wymagania: zdefiniowany typ sieci, a_surf ORAZ odpowiednia liczba pików
+        required_spots = 0
+        status_message = "Define lattice and select spots for transformation."
+
         if self.current_lattice_type and self.current_a_surf is not None and self.current_a_surf > 0:
-            # Dla transformacji potrzeba co najmniej 3 punktów
-            # Dla dopasowania do siatki, idealnie tyle, ile wymaga siatka (lub więcej)
-            # match_and_fit_transform wymaga, aby num_expected_matches == len(measured_pts)
-            # i len(ideal_pool) >= num_expected_matches
-            # Najprościej na razie: co najmniej 3 piki
-            if len(self.selected_spots) >= 3:
-                can_transform = True
+            if self.current_lattice_type == LATTICE_TYPE_HEXAGONAL:
+                required_spots = 6
+                if len(self.selected_spots) == required_spots:
+                    can_transform = True
+                    status_message = f"Ready to transform for {required_spots} spots (Hexagonal)."
+                elif len(self.selected_spots) > required_spots:
+                    status_message = f"Too many spots selected for Hexagonal (max {required_spots}). Remove {len(self.selected_spots) - required_spots}."
+                else:
+                    status_message = f"Select {required_spots - len(self.selected_spots)} more spot(s) for Hexagonal."
+            elif self.current_lattice_type == LATTICE_TYPE_SQUARE:
+                required_spots = 4
+                if len(self.selected_spots) == required_spots:
+                    can_transform = True
+                    status_message = f"Ready to transform for {required_spots} spots (Square)."
+                elif len(self.selected_spots) > required_spots:
+                    status_message = f"Too many spots selected for Square (max {required_spots}). Remove {len(self.selected_spots) - required_spots}."
+                else:
+                    status_message = f"Select {required_spots - len(self.selected_spots)} more spot(s) for Square."
+            else: # pragma: no cover (nieznany typ sieci, choć combo powinno to ograniczać)
+                status_message = "Unknown lattice type selected for spot limit."
+        else:
+            status_message = "Define lattice type and 'a_surf' first."
         
         self.calculate_transform_button.setEnabled(can_transform)
+        self.transform_status_label.setText(status_message)
+
         if not can_transform:
-            self.transform_status_label.setText("Select >= 3 spots and define lattice for transformation.")
-            # Wyczyść stare wyniki transformacji, jeśli warunki nie są spełnione
-            self.substrate_transformation_matrix_F = None
-            self.substrate_translation_vector_t = None
-            self.substrate_transform_analysis = None
-            self.fitted_substrate_spots_px.clear()
-            self.rotation_angle_label.setText("Rotation: -")
-            self.scale_factor_label.setText("Scale (X,Y): -")
-            self.rmse_label.setText("RMSE (px): -")
-            self._redraw_all_spot_markers() # Aby usunąć stare fitted_spots
+            # Wyczyść stare wyniki transformacji, jeśli warunki nie są już spełnione
+            if self.substrate_transformation_matrix_F is not None or \
+               self.substrate_translation_vector_t is not None or \
+               self.fitted_substrate_spots_px: # Sprawdź, czy jest co czyścić
+                
+                logger.debug("Conditions for transformation no longer met, clearing previous transform results.")
+                self.substrate_transformation_matrix_F = None
+                self.substrate_translation_vector_t = None
+                self.substrate_transform_analysis = None
+                self.fitted_substrate_spots_px.clear()
+                self.rotation_angle_label.setText("Rotation: -")
+                self.scale_factor_label.setText("Scale (X,Y): -")
+                self.rmse_label.setText("RMSE (px): -")
+                self._redraw_all_spot_markers() # Aby usunąć stare fitted_spots
 
     def _handle_fft_image_click(self, event):
         """Obsługuje kliknięcie na głównym obrazie FFT."""
@@ -866,6 +890,8 @@ class SubstrateSpotSelectionDialog(QDialog):
                 num_expected_matches=num_expected
             )
 
+            print(f"F: {F}")
+
             print("\nMatched point pairs with coordinates:")
             # Użyj final_measured_pts i final_ideal_pts z drift_correction.py
             final_measured_pts = measured_spots_px[[p[0] for p in point_pairs]]
@@ -893,19 +919,23 @@ class SubstrateSpotSelectionDialog(QDialog):
                 print(f"ideal: {ideal[0]}, {ideal[1]}")
                 self.fft_view_box.addItem(line)
 
-            F_inv = np.linalg.inv(F)
-            t_prime = (-t @ F_inv.T).flatten() # Upewnij się, że t_prime jest 1D array [tx, ty]
+            # F_inv = np.linalg.inv(F)
+            # t_prime = (-t @ F_inv.T).flatten() # Upewnij się, że t_prime jest 1D array [tx, ty]
 
             ideal_points_that_were_matched = ideal_spots_pool_px[[p[1] for p in point_pairs]]
 
             print(f"ideal_points_that_were_matched: {ideal_points_that_were_matched}")
+            measured_spots_used_in_fit = measured_spots_px[[p[0] for p in point_pairs]]
+            # transformed_ideals_onto_measured_space = apply_affine_transform(ideal_points_that_were_matched, F_inv, t_prime)
+            transformed_measured_to_ideal_space = apply_affine_transform(
+                measured_spots_used_in_fit,
+                F, # Używamy bezpośrednio F
+                t  # Używamy bezpośrednio t
+            )
+            print(f"transformed_ideals_onto_measured_space: {transformed_measured_to_ideal_space}")
             
-            transformed_ideals_onto_measured_space = apply_affine_transform(ideal_points_that_were_matched, F_inv, t_prime)
-            
-            print(f"transformed_ideals_onto_measured_space: {transformed_ideals_onto_measured_space}")
-            
-            if transformed_ideals_onto_measured_space is not None:
-                self.fitted_substrate_spots_px = [tuple(pt) for pt in transformed_ideals_onto_measured_space]
+            if transformed_measured_to_ideal_space is not None:
+                self.fitted_substrate_spots_px = [tuple(pt) for pt in transformed_measured_to_ideal_space]
             else: # pragma: no cover
                 self.fitted_substrate_spots_px = [] # Błąd transformacji
 
