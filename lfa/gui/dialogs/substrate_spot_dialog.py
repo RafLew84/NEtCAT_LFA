@@ -209,12 +209,14 @@ class SubstrateSpotSelectionDialog(QDialog):
         transform_layout = QFormLayout(transform_group)
         self.transform_status_label = QLabel("Select spots and define lattice.")
         self.calculate_transform_button = QPushButton("Calculate Transformation"); self.calculate_transform_button.setEnabled(False)
-        self.show_fitted_substrate_spots_checkbox = QCheckBox("Show Fitted Substrate Spots"); self.show_fitted_substrate_spots_checkbox.setChecked(True)
+        # self.show_fitted_substrate_spots_checkbox = QCheckBox("Show Fitted Substrate Spots")
+        # self.show_fitted_substrate_spots_checkbox.setChecked(True)
         self.rotation_angle_label = QLabel("Rotation: -")
         self.scale_factor_label = QLabel("Scale (X,Y): -")
         self.rmse_label = QLabel("RMSE (px): -")
         transform_layout.addRow(self.transform_status_label); transform_layout.addRow(self.calculate_transform_button)
-        transform_layout.addRow(self.show_fitted_substrate_spots_checkbox); transform_layout.addRow(self.rotation_angle_label)
+        # transform_layout.addRow(self.show_fitted_substrate_spots_checkbox)
+        transform_layout.addRow(self.rotation_angle_label)
         transform_layout.addRow(self.scale_factor_label); transform_layout.addRow(self.rmse_label)
         left_controls_layout.addWidget(transform_group)
 
@@ -374,8 +376,8 @@ class SubstrateSpotSelectionDialog(QDialog):
 
         if hasattr(self, 'calculate_transform_button'): # Upewnij się, że przycisk istnieje
             self.calculate_transform_button.clicked.connect(self._on_calculate_transform_clicked)
-        if hasattr(self, 'show_fitted_substrate_spots_checkbox'):
-            self.show_fitted_substrate_spots_checkbox.stateChanged.connect(self._redraw_all_spot_markers) # Przerysuj markery po zmianie checkboxa
+        # if hasattr(self, 'show_fitted_substrate_spots_checkbox'):
+        #     self.show_fitted_substrate_spots_checkbox.stateChanged.connect(self._redraw_all_spot_markers) # Przerysuj markery po zmianie checkboxa
 
 
     def _update_spots_list_widget(self):
@@ -462,11 +464,14 @@ class SubstrateSpotSelectionDialog(QDialog):
         #     if isinstance(item, pg.PlotDataItem):
         #         self.fft_view_box.removeItem(item)
 
-        if not self.selected_spots: # Jeśli nie ma spotów do narysowania, zakończ
+        if self.selected_spots: # Jeśli nie ma spotów do narysowania, zakończ
             spots_orig_data = [{'pos': spot, 'symbol': 'o', 'size': 10, 
                                 'pen': pg.mkPen('g', width=1.5), 'brush': pg.mkBrush(50,205,50,120)} 
                                for spot in self.selected_spots]
             if spots_orig_data:
+                if self.spot_markers_on_image: # Usuń stary, jeśli istnieje
+                    try: self.fft_view_box.removeItem(self.spot_markers_on_image)
+                    except RuntimeError: pass
                 self.spot_markers_on_image = ScatterPlotItem(spots=spots_orig_data)
                 self.fft_view_box.addItem(self.spot_markers_on_image)
 
@@ -487,9 +492,7 @@ class SubstrateSpotSelectionDialog(QDialog):
         else: # pragma: no cover
             logger.debug("No substrate spots to draw.")
 
-        if hasattr(self, 'show_fitted_substrate_spots_checkbox') and \
-           self.show_fitted_substrate_spots_checkbox.isChecked() and \
-           self.fitted_substrate_spots_px:
+        if self.fitted_substrate_spots_px:
             
             spots_fitted_data = [{'pos': spot, 'symbol': 'x', 'size': 12, # Inny symbol i rozmiar
                                    'pen': pg.mkPen('c', width=2.0)} # Inny kolor (cyjan)

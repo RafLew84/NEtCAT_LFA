@@ -79,8 +79,8 @@ class AppController(QObject):
         
         # Dodatkowe stany, które mogą być zarządzane centralnie
         self.show_ideal_lattice: bool = True # Czy pokazywać idealną sieć na FFT
-        self.show_substrate_spots_markers: bool = True # Widoczność markerów substratu
-        self.show_adsorbate_spots_markers: bool = True # Widoczność markerów adsorbatu
+        # self.show_substrate_spots_markers: bool = True # Widoczność markerów substratu
+        # self.show_adsorbate_spots_markers: bool = True # Widoczność markerów adsorbatu
 
         self.current_substrate_a_surf: Optional[float] = None # Przechowuje a_surf dla bieżącego substratu
         self.current_substrate_type: Optional[str] = None   # Przechowuje typ 'hexagonal'/'square'
@@ -105,13 +105,13 @@ class AppController(QObject):
 
         logger.info("AppController initialized.")
 
-    def set_show_fitted_substrate_spots(self, visible: bool):
-        if self.show_fitted_substrate_spots != visible:
-            self.show_fitted_substrate_spots = visible
-            logger.debug(f"AppController: Show fitted substrate spots set to {visible}")
-            # Emituj sygnał, który spowoduje odświeżenie widoku w MainWindow
-            # Może to być istniejący substrate_transform_results_updated lub nowy, np. view_parameters_changed
-            self.substrate_transform_results_updated.emit() # Ten sygnał już powoduje display_image_data()
+    # def set_show_fitted_substrate_spots(self, visible: bool):
+    #     if self.show_fitted_substrate_spots != visible:
+    #         self.show_fitted_substrate_spots = visible
+    #         logger.debug(f"AppController: Show fitted substrate spots set to {visible}")
+    #         # Emituj sygnał, który spowoduje odświeżenie widoku w MainWindow
+    #         # Może to być istniejący substrate_transform_results_updated lub nowy, np. view_parameters_changed
+    #         self.substrate_transform_results_updated.emit() # Ten sygnał już powoduje display_image_data()
 
     def get_current_image_data_for_processing(self) -> Optional[Any]: # Any to tymczasowo np.ndarray
         """Pobiera dane obrazu z bieżącego węzła historii do przetwarzania."""

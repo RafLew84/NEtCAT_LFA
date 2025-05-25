@@ -153,15 +153,6 @@ class FFTAnalysisPanel(QWidget):
         spot_selection_layout.addWidget(self.adsorbate_set_panel)
         self.adsorbate_set_panel.setVisible(False)
 
-        # Spot Visibility Checkboxes
-        self.show_fitted_substrate_spots_checkbox  = QCheckBox("Show Fitted Substrate Spots")
-        self.show_fitted_substrate_spots_checkbox .setChecked(True)
-        self.show_fitted_substrate_spots_checkbox .setToolTip("Show substrate spots after affine transformation to match ideal lattice (if calculated in dialog).")
-        self.show_adsorbate_spots_checkbox = QCheckBox("Show Adsorbate Spots")
-        self.show_adsorbate_spots_checkbox.setChecked(True)
-        spot_selection_layout.addWidget(self.show_fitted_substrate_spots_checkbox)
-        spot_selection_layout.addWidget(self.show_adsorbate_spots_checkbox)
-
         self.spot_selection_group.setLayout(spot_selection_layout)
         parent_layout.addWidget(self.spot_selection_group)
 
@@ -185,14 +176,8 @@ class FFTAnalysisPanel(QWidget):
             lambda state: self.show_ideal_lattice_changed.emit(state == Qt.CheckState.Checked.value)
         )
 
-        if hasattr(self, 'show_fitted_substrate_spots_checkbox'):
-            self.show_fitted_substrate_spots_checkbox.stateChanged.connect(
-                lambda state: self.fitted_substrate_spots_visibility_changed.emit(state == Qt.CheckState.Checked.value)
-            )
-
         # Spot Selection Mode
         self.rb_select_substrate.toggled.connect(self._handle_spot_selection_mode_toggle)
-        # self.rb_select_adsorbate jest połączony niejawnie, bo to grupa radio buttonów
 
         # Adsorbate Set Management
         self.adsorbate_set_combo.currentTextChanged.connect(self._handle_adsorbate_set_combo_change)
@@ -203,14 +188,6 @@ class FFTAnalysisPanel(QWidget):
         self.reselect_adsorbate_set_button.clicked.connect(self.reselect_current_adsorbate_set_triggered)
         self.clear_last_adsorbate_point_button.clicked.connect(self.clear_last_adsorbate_point_triggered)
         self.clear_all_adsorbate_sets_button.clicked.connect(self.clear_all_adsorbate_sets_triggered)
-
-        # Spot Visibility
-        self.show_fitted_substrate_spots_checkbox.stateChanged.connect(
-            lambda state: self.substrate_spots_visibility_changed.emit(state == Qt.CheckState.Checked.value)
-        )
-        self.show_adsorbate_spots_checkbox.stateChanged.connect(
-            lambda state: self.adsorbate_spots_visibility_changed.emit(state == Qt.CheckState.Checked.value)
-        )
 
     # --- Wewnętrzne Sloty ---
     def _handle_substrate_combo_change(self, text: str):
@@ -290,12 +267,6 @@ class FFTAnalysisPanel(QWidget):
             logger.warning(f"FFTAnalysisPanel: Unknown spot selection mode '{mode}'")
         self.rb_select_substrate.blockSignals(False)
         self.rb_select_adsorbate.blockSignals(False)
-
-    def is_substrate_spots_visible(self) -> bool:
-        return self.show_fitted_substrate_spots_checkbox.isChecked()
-
-    def is_adsorbate_spots_visible(self) -> bool:
-        return self.show_adsorbate_spots_checkbox.isChecked()
     
     def set_edit_substrate_spots_button_enabled(self, enabled: bool): # Nowa nazwa
         if hasattr(self, 'edit_substrate_spots_button'):

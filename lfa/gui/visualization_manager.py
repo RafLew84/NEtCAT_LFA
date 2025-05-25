@@ -398,6 +398,7 @@ class VisualizationManager(QObject):
                         self.view_box.removeItem(marker_set)
                     except RuntimeError: 
                         pass
+        
         self.adsorbate_spot_set_markers = []
         self._draw_spot_markers(substrate_spots_data, show_substrate, adsorbate_spot_sets_data, show_adsorbate)
 

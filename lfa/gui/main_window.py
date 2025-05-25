@@ -193,7 +193,7 @@ class MainWindow(QMainWindow):
             self.fft_analysis_panel_widget.clear_last_adsorbate_point_triggered.connect(self._on_clear_last_adsorbate_point_clicked)
             self.fft_analysis_panel_widget.substrate_spots_visibility_changed.connect(self._handle_substrate_spots_visibility_changed)
             self.fft_analysis_panel_widget.adsorbate_spots_visibility_changed.connect(self._handle_adsorbate_spots_visibility_changed)
-            self.fft_analysis_panel_widget.fitted_substrate_spots_visibility_changed.connect(self._handle_fitted_substrate_spots_visibility_changed)
+            # self.fft_analysis_panel_widget.fitted_substrate_spots_visibility_changed.connect(self._handle_fitted_substrate_spots_visibility_changed)
             self.fft_analysis_panel_widget.select_edit_substrate_spots_requested.connect(self.open_substrate_spot_selection_dialog)
             self.fft_analysis_panel_widget.select_edit_adsorbate_spots_requested.connect(self.open_adsorbate_spot_selection_dialog)
         
@@ -368,15 +368,15 @@ class MainWindow(QMainWindow):
                 self.fft_analysis_panel_widget.set_clear_all_adsorbate_sets_button_enabled(False)
         logger.debug(f"_update_action_states: Preprocessing possible: {preprocessing_possible}, FFT Calc possible: {fft_calculation_possible}, Is FFT data: {is_fft_data}")
 
-    @pyqtSlot(bool)
-    def _handle_fitted_substrate_spots_visibility_changed(self, is_visible: bool):
-        logger.debug(f"MainWindow: Fitted substrate spots visibility changed to {is_visible} via panel.")
-        self.app_controller.set_show_fitted_substrate_spots(is_visible)
-        # AppController po zmianie tego stanu wyemituje substrate_transform_results_updated,
-        # co powinno wywołać _on_substrate_transform_results_updated, a to z kolei display_image_data().
-        # Alternatywnie, jeśli set_show_fitted_substrate_spots nie emituje odpowiedniego sygnału,
-        # można tu bezpośrednio wywołać display_image_data():
-        # self.display_image_data()
+    # @pyqtSlot(bool)
+    # def _handle_fitted_substrate_spots_visibility_changed(self, is_visible: bool):
+    #     logger.debug(f"MainWindow: Fitted substrate spots visibility changed to {is_visible} via panel.")
+    #     self.app_controller.set_show_fitted_substrate_spots(is_visible)
+    #     # AppController po zmianie tego stanu wyemituje substrate_transform_results_updated,
+    #     # co powinno wywołać _on_substrate_transform_results_updated, a to z kolei display_image_data().
+    #     # Alternatywnie, jeśli set_show_fitted_substrate_spots nie emituje odpowiedniego sygnału,
+    #     # można tu bezpośrednio wywołać display_image_data():
+    #     # self.display_image_data()
 
     @pyqtSlot()
     def _on_substrate_definition_changed(self):
@@ -971,19 +971,12 @@ class MainWindow(QMainWindow):
         panel_custom_text = ""
 
         substrate_spots_to_draw = self.app_controller.displayable_fitted_substrate_spots_on_fft
-        show_substrate_markers = False # Domyślnie
-        if hasattr(self, 'fft_analysis_panel_widget') and self.fft_analysis_panel_widget:
-            show_substrate_markers = self.fft_analysis_panel_widget.is_substrate_spots_visible() # Ten checkbox teraz kontroluje widoczność *dopasowanych*
-            # Zmień tooltip tego checkboxa w FFTAnalysisPanel
 
         if hasattr(self, 'fft_analysis_panel_widget') and self.fft_analysis_panel_widget is not None:
             show_ideal_lattice = self.fft_analysis_panel_widget.is_show_ideal_lattice_checked() # lub self.app_controller.show_ideal_lattice
             selected_substrate = self.fft_analysis_panel_widget.get_current_substrate() # lub self.app_controller.last_selected_substrate
             panel_custom_text = self.fft_analysis_panel_widget.custom_option_text
         
-        show_fitted_substrate_markers = self.app_controller.show_fitted_substrate_spots
-        substrate_spots_to_draw = self.app_controller.displayable_fitted_substrate_spots_on_fft
-
         self.visualization_manager.update_view(
             current_node,
             # ... (parametry dla idealnej siatki) ...
@@ -993,10 +986,10 @@ class MainWindow(QMainWindow):
             panel_custom_text,  
             # --- Przekazanie odpowiednich danych i flagi widoczności ---
             substrate_spots_to_draw,      # Tylko dopasowane piki
-            show_fitted_substrate_markers, # Flaga widoczności dla nich
+            True, # Flaga widoczności dla nich
             # --- Koniec ---
             self.app_controller.adsorbate_spot_sets,
-            self.app_controller.show_adsorbate_spots_markers # Ta flaga też powinna być zarządzana przez AppController
+            True # Ta flaga też powinna być zarządzana przez AppController
         )
         if hasattr(self, '_update_action_states'): self._update_action_states()
     
