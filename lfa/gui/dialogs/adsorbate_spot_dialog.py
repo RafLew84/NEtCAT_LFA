@@ -132,19 +132,19 @@ class AdsorbateSpotSelectionDialog(QDialog):
         self.gl_gauss_placeholder: Optional[QWidget] = None
 
         self._init_ui()
-        # self._connect_signals()
-        # self._update_adsorbate_spots_list_widget() # Zmieniono nazwę
-        # self._redraw_all_markers_in_dialog() # Zmieniono nazwę
-        # self._update_add_spot_button_state()
-        # self._update_correction_button_state()
+        self._connect_signals()
+        self._update_adsorbate_spots_list_widget() # Zmieniono nazwę
+        self._redraw_all_markers_in_dialog() # Zmieniono nazwę
+        self._update_add_spot_button_state()
+        self._update_correction_button_state()
 
         if self.current_refinement_method == REFINEMENT_MAX_PIXEL: self.rb_refine_max_pixel.setChecked(True)
         elif self.current_refinement_method == REFINEMENT_GAUSSIAN_FIT: self.rb_refine_gaussian.setChecked(True)
         else: self.rb_refine_direct.setChecked(True)
         self.refinement_roi_size_spinbox.setValue(self.refinement_roi_size)
         
-        # self._on_refinement_method_changed()
-        # self._display_substrate_transform_info() # Wyświetl info o transformacji substratu
+        self._on_refinement_method_changed()
+        self._display_substrate_transform_info() # Wyświetl info o transformacji substratu
 
         logger.debug(f"AdsorbateSpotSelectionDialog for set {self.adsorbate_set_index} initialized.")
 
@@ -332,3 +332,369 @@ class AdsorbateSpotSelectionDialog(QDialog):
 
         main_splitter.setSizes([320, 500, 380])
         main_splitter.setStretchFactor(1, 1)
+
+    def _connect_signals(self):
+        """Connects all UI element signals to their respective slots."""
+        # Przyciski OK/Anuluj
+        self.button_box.accepted.connect(self.accept)
+        self.button_box.rejected.connect(self.reject)
+
+        # Przyciski zarządzania listą spotów adsorbatu
+        self.remove_spot_button.clicked.connect(self._remove_selected_spot)
+        self.clear_all_spots_button.clicked.connect(self._clear_all_spots_in_dialog) # Użyj poprawnej nazwy slotu
+
+        # Interakcja z głównym obrazem FFT
+        if self.fft_view_box and self.fft_view_box.scene(): # Upewnij się, że scena istnieje
+            self.fft_view_box.scene().sigMouseClicked.connect(self._handle_fft_image_click)
+        
+        # Interakcja z ROI
+        self.selection_roi.sigRegionChanged.connect(self._handle_roi_region_changing)
+        # self.selection_roi.sigRegionChangeFinished.connect(self._handle_roi_changed_finished) # Jeśli potrzebne
+
+        # Kontrolki metody uściślania
+        self.rb_refine_direct.toggled.connect(self._on_refinement_method_changed)
+        self.rb_refine_max_pixel.toggled.connect(self._on_refinement_method_changed)
+        self.rb_refine_gaussian.toggled.connect(self._on_refinement_method_changed)
+        self.refinement_roi_size_spinbox.valueChanged.connect(self._on_refinement_roi_size_changed)
+
+        # Przycisk dodawania piku adsorbatu
+        self.add_adsorbate_spot_button.clicked.connect(self._add_current_adsorbate_spot_from_roi) # Użyj poprawnej nazwy slotu
+
+        # Przycisk korekcji adsorbatu
+        self.apply_correction_button.clicked.connect(self._on_apply_substrate_correction_clicked) # Pamiętaj o zdefiniowaniu slotu
+
+        # Checkboxy podglądów Live
+        self.enable_2d_roi_preview_checkbox.stateChanged.connect(self._update_roi_previews)
+        self.enable_3d_roi_preview_checkbox.stateChanged.connect(self._update_roi_previews)
+        self.enable_gauss_2d_preview_checkbox.stateChanged.connect(self._update_roi_previews)
+        self.enable_gauss_3d_preview_checkbox.stateChanged.connect(self._update_roi_previews)
+
+        # Checkboxy dla wyświetlania spotów referencyjnych substratu i skorygowanych adsorbatu
+        self.show_ideal_substrate_checkbox.stateChanged.connect(self._redraw_all_markers_in_dialog)
+        self.show_fitted_substrate_checkbox.stateChanged.connect(self._redraw_all_markers_in_dialog)
+        self.show_corrected_adsorbate_checkbox.stateChanged.connect(self._redraw_all_markers_in_dialog)
+
+        logger.debug("AdsorbateSpotSelectionDialog signals connected.")
+    
+    def _clear_last_preview_gauss_fit(self): # Już istnieje
+        self.last_preview_gauss_fit_popt = None
+        self.last_preview_gauss_fit_center_abs = None
+        self.last_preview_gauss_roi_state = None
+        logger.debug("Cleared last preview Gaussian fit results for adsorbate dialog.")
+
+    @pyqtSlot(object)
+    def _handle_roi_region_changing(self, roi_item: Optional[pg.ROI] = None): # Już istnieje (logika do weryfikacji)
+        if roi_item is None: roi_item = self.selection_roi
+        if not isinstance(roi_item, RectROI): return
+        if roi_item.isVisible():
+            roi_pos = roi_item.pos()
+            roi_size = roi_item.size()
+            current_roi_w = int(round(roi_size.x()))
+            if current_roi_w != self.refinement_roi_size_spinbox.value() and \
+               self.refinement_roi_size_spinbox.minimum() <= current_roi_w <= self.refinement_roi_size_spinbox.maximum() and \
+               current_roi_w % 2 != 0 :
+                self.refinement_roi_size_spinbox.blockSignals(True)
+                self.refinement_roi_size_spinbox.setValue(current_roi_w)
+                self.refinement_roi_size_spinbox.blockSignals(False)
+            self._clear_last_preview_gauss_fit()
+            self._update_roi_previews()
+            logger.debug(f"Adsorbate ROI region changing: Pos ({roi_pos.x():.1f}, {roi_pos.y():.1f}), Size ({roi_size.x():.1f}, {roi_size.y():.1f})")
+            
+    def _update_roi_previews(self): # Już istnieje (logika do weryfikacji/uzupełnienia)
+        logger.debug("Adsorbate dialog: Updating ROI previews...")
+        # TODO: Implement or verify the full logic here, similar to SubstrateSpotSelectionDialog
+        # Pamiętaj o używaniu self.selected_adsorbate_spots_raw
+        pass
+
+    def _update_3d_surface_plot(self, surface_item: GLSurfacePlotItem, data_2d: Optional[np.ndarray]): # Już istnieje
+        if data_2d is None or data_2d.size == 0 or data_2d.ndim != 2:
+            self._clear_3d_surface(surface_item) # Użyj metody czyszczącej
+            return
+
+        h, w = data_2d.shape
+        x = np.linspace(-w/2, w/2, w)
+        y = np.linspace(-h/2, h/2, h)
+        
+        # Kolory można ustawić na podstawie wysokości Z
+        # Prosty gradient od niebieskiego do czerwonego
+        colors = np.empty((w,h,4), dtype=np.float32)
+        z_norm = (data_2d - data_2d.min()) / (data_2d.max() - data_2d.min() + 1e-9) # Normalizacja 0-1
+        colors[..., 0] = z_norm.T # R
+        colors[..., 1] = 0       # G
+        colors[..., 2] = 1 - z_norm.T # B
+        colors[..., 3] = 0.7     # Alpha
+
+        surface_item.setData(x=x, y=y, z=data_2d.T, colors=colors) # Transpozycja Z dla setData
+        # surface_item.opts['distance'] = 40 # Dostosuj odległość kamery
+        # surface_item.opts['elevation'] = 30
+        # surface_item.opts['azimuth'] = -90
+        
+    def _clear_3d_surface(self, surface_item: Optional[GLSurfacePlotItem]): # Już istnieje
+        if surface_item:
+            try:
+                # Ustaw minimalne prawidłowe dane
+                x = np.array([0, 1], dtype=np.float32)
+                y = np.array([0, 1], dtype=np.float32)
+                z = np.zeros((2, 2), dtype=np.float32)
+                colors = np.zeros((2, 2, 4), dtype=np.float32)
+                
+                surface_item.setData(x=x, y=y, z=z, colors=colors)
+                surface_item.meshDataChanged()
+            except Exception as e:
+                logger.error(f"Error clearing 3D surface: {e}")
+
+    @pyqtSlot()
+    def _on_refinement_method_changed(self): # Już istnieje (logika do weryfikacji)
+        is_gaussian_mode = self.rb_refine_gaussian.isChecked()
+        if hasattr(self, 'gauss_2d_container'): self.gauss_2d_container.setVisible(is_gaussian_mode)
+        if hasattr(self, 'gauss_3d_container'): self.gauss_3d_container.setVisible(is_gaussian_mode)
+        if self.rb_refine_direct.isChecked(): 
+            self.current_refinement_method = REFINEMENT_DIRECT_CLICK
+            self.refinement_roi_size_spinbox.setEnabled(False)
+            self.selection_roi.setVisible(False)
+            self.add_adsorbate_spot_button.setEnabled(False)
+            self.status_label.setText("Click directly on FFT to add adsorbate spot.")
+        else: 
+            self.current_refinement_method = REFINEMENT_MAX_PIXEL if self.rb_refine_max_pixel.isChecked() else REFINEMENT_GAUSSIAN_FIT; self.refinement_roi_size_spinbox.setEnabled(True); self.add_adsorbate_spot_button.setEnabled(self.selection_roi.isVisible()); self.status_label.setText("Click on FFT to place ROI, or drag ROI. Then Add Spot.")
+        if not is_gaussian_mode: self._clear_last_preview_gauss_fit()
+        self._update_roi_previews()
+        logger.debug(f"Adsorbate refinement method: {self.current_refinement_method}")
+
+
+    @pyqtSlot(int)
+    def _on_refinement_roi_size_changed(self, value: int): # Już istnieje (logika do weryfikacji)
+        self.refinement_roi_size = value
+        self._clear_last_preview_gauss_fit()
+        if self.selection_roi.isVisible():
+            current_pos = self.selection_roi.pos()
+            old_size = self.selection_roi.size()
+            center_x = current_pos.x() + old_size.x()/2
+            center_y = current_pos.y() + old_size.y()/2
+            new_pos_x = center_x - value/2
+            new_pos_y = center_y - value/2
+            self.selection_roi.setPos((new_pos_x, new_pos_y), update=False)
+            self.selection_roi.setSize((value,value), update=False)
+            self._handle_roi_region_changing()
+        logger.debug(f"Adsorbate refinement ROI size: {self.refinement_roi_size}")
+
+    @pyqtSlot()
+    def _add_current_adsorbate_spot_from_roi(self): # Zmieniono nazwę slotu
+        logger.debug("Attempting to add adsorbate spot from ROI...")
+        # TODO: Implementacja logiki dodawania piku adsorbatu, podobnie jak w Substrate,
+        # ale bez sprawdzania limitu (chyba że chcesz np. min 3 piki)
+        # Aktualizuj self.selected_adsorbate_spots_raw
+        # Wywołaj self._update_adsorbate_spots_list_widget()
+        # Wywołaj self._redraw_all_markers_in_dialog()
+        # Wywołaj self._update_correction_button_state()
+        pass
+
+    def _update_adsorbate_spots_list_widget(self): # Zmieniono nazwę metody
+        self.spots_list_widget.clear()
+        for i, (kx, ky) in enumerate(self.selected_adsorbate_spots_raw):
+            self.spots_list_widget.addItem(f"A{i+1} (Set {self.adsorbate_set_index + 1}): ({kx:.2f}, {ky:.2f})")
+        # self._update_add_spot_button_state() # Jeśli jest logika limitu
+        self._update_correction_button_state()
+
+
+    @pyqtSlot()
+    def _remove_selected_spot(self): # Już istnieje (logika do weryfikacji)
+        current_item = self.spots_list_widget.currentItem()
+        if current_item:
+            row = self.spots_list_widget.row(current_item)
+            if 0 <= row < len(self.selected_adsorbate_spots_raw):
+                del self.selected_adsorbate_spots_raw[row]
+                self._update_adsorbate_spots_list_widget()
+                self._redraw_all_markers_in_dialog()
+                logger.debug(f"Removed adsorbate spot at index {row} from set {self.adsorbate_set_index}")
+
+    @pyqtSlot()
+    def _clear_all_spots_in_dialog(self): # Już istnieje (logika do weryfikacji)
+        self.selected_adsorbate_spots_raw.clear()
+        self.corrected_adsorbate_spots_in_ideal_system.clear() # Wyczyść też skorygowane
+        self._update_adsorbate_spots_list_widget()
+        self._redraw_all_markers_in_dialog()
+        logger.debug(f"Cleared all adsorbate spots in dialog for set {self.adsorbate_set_index}.")
+
+    def _redraw_all_markers_in_dialog(self): # Zmieniono nazwę
+        logger.debug("Adsorbate dialog: Redrawing all markers...")
+        # Usuń wszystkie stare markery
+        if self.raw_adsorbate_spot_markers: 
+            try: 
+                self.fft_view_box.removeItem(self.raw_adsorbate_spot_markers)
+                self.raw_adsorbate_spot_markers = None
+            except RuntimeError: pass
+        if self.ideal_substrate_marker_item: 
+            try: 
+                self.fft_view_box.removeItem(self.ideal_substrate_marker_item)
+                self.ideal_substrate_marker_item = None
+            except RuntimeError: pass
+        if self.fitted_substrate_marker_item:
+            try: 
+                self.fft_view_box.removeItem(self.fitted_substrate_marker_item)
+                self.fitted_substrate_marker_item = None
+            except RuntimeError: pass
+        if self.corrected_adsorbate_marker_item: 
+            try: 
+                self.fft_view_box.removeItem(self.corrected_adsorbate_marker_item)
+                self.corrected_adsorbate_marker_item = None
+            except RuntimeError: pass
+            
+        # 1. Rysuj surowe piki adsorbatu (self.selected_adsorbate_spots_raw)
+        if self.selected_adsorbate_spots_raw:
+            raw_spots_data = [{'pos': spot, 'symbol': 'o', 'size': 10, 'pen': pg.mkPen('b', width=1.5), 'brush': pg.mkBrush(0,0,255,120)} for spot in self.selected_adsorbate_spots_raw]
+            self.raw_adsorbate_spot_markers = ScatterPlotItem(spots=raw_spots_data)
+            self.fft_view_box.addItem(self.raw_adsorbate_spot_markers)
+
+        # 2. Rysuj idealne piki substratu (jeśli checkbox i dane)
+        if self.show_ideal_substrate_checkbox.isChecked() and self.ideal_substrate_spots_to_display_px:
+            ideal_sub_data = [{'pos': spot, 'symbol': '+', 'size': 12, 'pen': pg.mkPen('m', width=1.5)} for spot in self.ideal_substrate_spots_to_display_px]
+            self.ideal_substrate_marker_item = ScatterPlotItem(spots=ideal_sub_data)
+            self.fft_view_box.addItem(self.ideal_substrate_marker_item)
+
+        # 3. Rysuj dopasowane piki substratu (jeśli checkbox i dane)
+        if self.show_fitted_substrate_checkbox.isChecked() and self.fitted_substrate_spots_to_display_px:
+            fitted_sub_data = [{'pos': spot, 'symbol': 'x', 'size': 12, 'pen': pg.mkPen('c', width=2.0)} for spot in self.fitted_substrate_spots_to_display_px]
+            self.fitted_substrate_marker_item = ScatterPlotItem(spots=fitted_sub_data)
+            self.fft_view_box.addItem(self.fitted_substrate_marker_item)
+
+        # 4. Rysuj skorygowane piki adsorbatu (jeśli checkbox i dane)
+        # Pamiętaj, że corrected_adsorbate_spots_in_ideal_system są w "idealnym" systemie.
+        # Do narysowania na oryginalnym FFT, trzeba je przetransformować z powrotem.
+        if self.show_corrected_adsorbate_checkbox.isChecked() and self.corrected_adsorbate_spots_in_ideal_system and self.sub_F_m2i is not None and self.sub_t_m2i is not None:
+            try:
+                F_inv = np.linalg.inv(self.sub_F_m2i)
+                # t_prime dla P_measured = P_ideal @ F_inv.T + t_prime
+                t_prime = (-self.sub_t_m2i @ F_inv.T).flatten() # type: ignore
+                
+                from ...analysis.drift_correction import apply_affine_transform # Import lokalny dla bezpieczeństwa
+                
+                spots_to_draw_on_fft = apply_affine_transform(
+                    np.array(self.corrected_adsorbate_spots_in_ideal_system),
+                    F_inv,
+                    t_prime
+                )
+                if spots_to_draw_on_fft is not None:
+                    corrected_ads_data = [{'pos': tuple(pt), 'symbol': 's', 'size': 10, 'pen': pg.mkPen('r', width=1.5), 'brush': pg.mkBrush(255,0,0,120)} for pt in spots_to_draw_on_fft]
+                    self.corrected_adsorbate_marker_item = ScatterPlotItem(spots=corrected_ads_data)
+                    self.fft_view_box.addItem(self.corrected_adsorbate_marker_item)
+            except Exception as e: # pragma: no cover
+                logger.error(f"Error transforming corrected adsorbate spots for display: {e}")
+
+
+    @pyqtSlot()
+    def _handle_fft_image_click(self, event): # Już istnieje (logika do weryfikacji)
+        if event.button() == Qt.MouseButton.LeftButton:
+            pos_viewbox = self.fft_view_box.mapSceneToView(event.scenePos())
+            mapped_pos = self.fft_image_item.mapToData(pos_viewbox)
+            if mapped_pos is not None:
+                kx, ky = int(round(mapped_pos.x())), int(round(mapped_pos.y()))
+                logger.debug(f"Adsorbate Dialog FFT click: (kx, ky) = ({kx}, {ky})")
+                roi_size = self.refinement_roi_size_spinbox.value()
+                roi_x = kx - roi_size//2
+                roi_y = ky - roi_size//2
+                if self.fft_data is not None: max_y, max_x = self.fft_data.shape
+                roi_x = np.clip(roi_x, 0, max_x - roi_size)
+                roi_y = np.clip(roi_y, 0, max_y - roi_size)
+                self.selection_roi.setPos((roi_x, roi_y), update=False)
+                self.selection_roi.setSize((roi_size,roi_size), update=False)
+                self.selection_roi.setVisible(True)
+                self.add_adsorbate_spot_button.setEnabled(True)
+                self._update_roi_previews()
+            event.accept()
+        else: event.ignore() # pragma: no cover
+            
+    def _update_add_spot_button_state(self): # Już istnieje (ew. modyfikacja logiki limitu)
+        # Dla adsorbatu może nie być sztywnego limitu, ale przycisk może być włączony, gdy ROI jest widoczne
+        self.add_adsorbate_spot_button.setEnabled(self.selection_roi.isVisible())
+        # Można dodać logikę, np. "Select at least 3 spots for lattice definition."
+        num_selected = len(self.selected_adsorbate_spots_raw)
+        if num_selected < 3:
+            self.status_label.setText(f"Select at least {3-num_selected} more adsorbate spot(s). Current: {num_selected}.")
+        else:
+            self.status_label.setText(f"Selected {num_selected} adsorbate spots. Ready to add or correct.")
+
+
+    def _update_correction_button_state(self): # TODO: Implement
+        """Włącza/wyłącza przycisk Apply Substrate Correction."""
+        can_correct = bool(self.sub_F_m2i is not None and self.sub_t_m2i is not None and self.selected_adsorbate_spots_raw)
+        self.apply_correction_button.setEnabled(can_correct)
+        if not (self.sub_F_m2i is not None and self.sub_t_m2i is not None):
+            self.sub_transform_info_label_status.setText("Status: Substrate transform not available.")
+
+
+    def _display_substrate_transform_info(self): # TODO: Implement
+        """Wyświetla informacje o przekazanej transformacji substratu."""
+        if self.sub_transform_analysis:
+            self.sub_transform_info_label_status.setText("Status: Substrate transform applied/available.")
+            self.sub_transform_info_label_rot.setText(f"Sub. Rotation (M->I): {self.sub_transform_analysis.get('rotation_angle_deg', 'N/A'):.2f}°")
+            s_x = self.sub_transform_analysis.get('principal_stretches', [np.nan, np.nan])[0]
+            s_y = self.sub_transform_analysis.get('principal_stretches', [np.nan, np.nan])[1]
+            self.sub_transform_info_label_scale.setText(f"Sub. Stretches (M->I): ({s_x:.3f}, {s_y:.3f})")
+            self.sub_transform_info_label_rmse.setText(f"Sub. Fit RMSE (M->I, px): {self.sub_transform_analysis.get('rmse', 'N/A'):.3f}")
+        else:
+            self.sub_transform_info_label_status.setText("Status: Substrate transform not available.")
+            self.sub_transform_info_label_rot.setText("Sub. Rotation: -")
+            self.sub_transform_info_label_scale.setText("Sub. Scale (X,Y): -")
+            self.sub_transform_info_label_rmse.setText("Sub. RMSE (px): -")
+
+    @pyqtSlot()
+    def _on_apply_substrate_correction_clicked(self): # TODO: Implement
+        logger.info("Apply Substrate Correction button clicked.")
+        # Tutaj logika z Kroku 8 (Faza III) - zastosowanie self.sub_F_m2i, self.sub_t_m2i
+        # do self.selected_adsorbate_spots_raw i zapisanie w self.corrected_adsorbate_spots_in_ideal_system
+        # oraz odświeżenie markerów.
+        if self.sub_F_m2i is None or self.sub_t_m2i is None or not self.selected_adsorbate_spots_raw:
+            QMessageBox.warning(self, "Cannot Correct", "Substrate transformation is not available or no adsorbate spots selected.")
+            return
+
+        try:
+            from ...analysis.drift_correction import apply_affine_transform
+            raw_spots_np = np.array(self.selected_adsorbate_spots_raw, dtype=float)
+            corrected_spots_np = apply_affine_transform(raw_spots_np, self.sub_F_m2i, self.sub_t_m2i)
+            if corrected_spots_np is not None:
+                self.corrected_adsorbate_spots_in_ideal_system = [tuple(pt) for pt in corrected_spots_np]
+                logger.info(f"Applied substrate correction to {len(self.corrected_adsorbate_spots_in_ideal_system)} adsorbate spots.")
+                self._redraw_all_markers_in_dialog() # Aby pokazać skorygowane, jeśli checkbox zaznaczony
+                self.status_label.setText(f"{len(self.corrected_adsorbate_spots_in_ideal_system)} adsorbate spots corrected.")
+            else:
+                raise ValueError("apply_affine_transform returned None")
+        except Exception as e:
+            logger.error(f"Error applying substrate correction to adsorbate spots: {e}")
+            QMessageBox.critical(self, "Correction Error", f"Could not apply correction: {e}")
+
+
+    def get_dialog_results(self) -> Dict[str, Any]: # TODO: Implement
+        return {
+            "raw_adsorbate_spots": list(self.selected_adsorbate_spots_raw),
+            "corrected_adsorbate_spots": list(self.corrected_adsorbate_spots_in_ideal_system),
+            "adsorbate_set_index": self.adsorbate_set_index
+        }
+
+    def accept(self): # TODO: Implement
+        # Można dodać walidację, np. czy wybrano przynajmniej 3 piki adsorbatu
+        if len(self.selected_adsorbate_spots_raw) < 1 and not self.corrected_adsorbate_spots_in_ideal_system: # Pozwól zaakceptować, jeśli są skorygowane
+            reply = QMessageBox.question(self, "No Spots Selected", 
+                                         "No adsorbate spots have been selected or corrected for this set. Continue anyway?",
+                                         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                         QMessageBox.StandardButton.No)
+            if reply == QMessageBox.StandardButton.No:
+                return
+        
+        logger.info(f"AdsorbateSpotSelectionDialog for set {self.adsorbate_set_index} accepted. "
+                    f"Raw spots: {len(self.selected_adsorbate_spots_raw)}, "
+                    f"Corrected spots: {len(self.corrected_adsorbate_spots_in_ideal_system)}")
+        super().accept()
+
+    def reject(self): # Już istnieje
+        logger.info(f"AdsorbateSpotSelectionDialog for set {self.adsorbate_set_index} rejected.")
+        super().reject()
+
+    def closeEvent(self, event): # Już istnieje (logika do weryfikacji)
+        logger.debug("AdsorbateSpotSelectionDialog closing. Cleaning up GL items.")
+        if hasattr(self, 'gl_roi_view_widget') and self.gl_roi_view_widget:
+            if hasattr(self, 'gl_roi_surface_plot_item') and self.gl_roi_surface_plot_item: self.gl_roi_view_widget.removeItem(self.gl_roi_surface_plot_item)
+            del self.gl_roi_surface_plot_item
+        if hasattr(self, 'gl_gauss_view_widget') and self.gl_gauss_view_widget:
+            if hasattr(self, 'gl_gauss_surface_plot_item') and self.gl_gauss_surface_plot_item: self.gl_gauss_view_widget.removeItem(self.gl_gauss_surface_plot_item)
+            del self.gl_gauss_surface_plot_item
+        super().closeEvent(event)
