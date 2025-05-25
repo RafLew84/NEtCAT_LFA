@@ -150,12 +150,12 @@ class SubstrateSpotSelectionDialog(QDialog):
 
         logger.debug("SubstrateSpotSelectionDialog initialized.")
 
-    def __del__(self):
-        """Additional cleanup for garbage collection."""
-        if hasattr(self, 'gl_roi_surface_plot_item') and self.gl_roi_surface_plot_item:
-            self.gl_roi_surface_plot_item.deleteLater()
-        if hasattr(self, 'gl_gauss_surface_plot_item') and self.gl_gauss_surface_plot_item:
-            self.gl_gauss_surface_plot_item.deleteLater()
+    # def __del__(self):
+    #     """Additional cleanup for garbage collection."""
+    #     if hasattr(self, 'gl_roi_surface_plot_item') and self.gl_roi_surface_plot_item:
+    #         self.gl_roi_surface_plot_item.deleteLater()
+    #     if hasattr(self, 'gl_gauss_surface_plot_item') and self.gl_gauss_surface_plot_item:
+    #         self.gl_gauss_surface_plot_item.deleteLater()
 
     def _init_ui(self):
         # Ustawienie głównego layoutu dialogu na QHBoxLayout, do którego dodamy splitter

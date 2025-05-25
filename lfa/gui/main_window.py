@@ -570,12 +570,19 @@ class MainWindow(QMainWindow):
 
 
         logger.debug(f"Passing to AdsorbateSpotSelectionDialog: set_index={current_set_idx}, existing_spots_count={len(current_adsorbate_spots_for_set)}")
-
+        current_fft_node = self.history_manager.get_current_node()
+        current_real_fft_node_id = current_fft_node.node_id
         # 3. Utwórz i wyświetl dialog
         dialog = AdsorbateSpotSelectionDialog(
             fft_image_data=fft_image_data_copy,
-            current_spots=current_adsorbate_spots_for_set,
-            adsorbate_set_index=current_set_idx, # Przekaż indeks zestawu
+            history_manager=self.history_manager,
+            current_fft_node_id=current_real_fft_node_id,
+            current_adsorbate_spots=current_adsorbate_spots_for_set,
+            # default_refinement_method i default_refinement_roi_size są opcjonalne,
+            # ale jeśli chcesz je przekazać, pobierz je z app_controller
+            adsorbate_set_index=current_set_idx,
+            default_refinement_method=self.app_controller.spot_refinement_method,
+            default_refinement_roi_size=self.app_controller.refinement_roi_size,
             parent=self
         )
         
