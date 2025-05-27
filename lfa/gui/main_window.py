@@ -349,7 +349,7 @@ class MainWindow(QMainWindow):
                    0 <= self.app_controller.current_adsorbate_set_index < len(self.app_controller.adsorbate_spot_sets) and \
                    self.app_controller.adsorbate_spot_sets[self.app_controller.current_adsorbate_set_index]:
                     can_clear_last_adsorbate = True
-                self.fft_analysis_panel_widget.set_clear_last_adsorbate_point_button_enabled(can_clear_last_adsorbate)
+                # self.fft_analysis_panel_widget.set_clear_last_adsorbate_point_button_enabled(can_clear_last_adsorbate)
                 
                 # Podobnie dla innych przycisków...
                 is_adsorbate_mode_active = (self.app_controller.spot_selection_mode == "Adsorbate")
@@ -646,7 +646,7 @@ class MainWindow(QMainWindow):
         if hasattr(self, '_update_selected_spots_display'):
             self._update_selected_spots_display() # Aktualizuje QTextEdit z listą pików
         
-        self.request_spot_markers_update() # Mówi VisualizationManager, aby przerysował markery
+        # self.request_spot_markers_update() # Mówi VisualizationManager, aby przerysował markery
         
         if hasattr(self, '_update_action_states'):
             self._update_action_states() # Aktualizuje dostępność przycisków np. "Clear Last Point"
@@ -743,14 +743,14 @@ class MainWindow(QMainWindow):
     def _handle_substrate_spots_visibility_changed(self, is_visible: bool):
         logger.debug(f"MainWindow: Substrate spots visibility changed to {is_visible} via panel.")
         self.app_controller.show_substrate_spots_markers = is_visible
-        self.request_spot_markers_update() # Na razie zostawiamy, aby działało
+        # self.request_spot_markers_update() # Na razie zostawiamy, aby działało
 
 
     @pyqtSlot(bool)
     def _handle_adsorbate_spots_visibility_changed(self, is_visible: bool):
         logger.debug(f"MainWindow: Adsorbate spots visibility changed to {is_visible} via panel.")
         self.app_controller.show_adsorbate_spots_markers = is_visible
-        self.request_spot_markers_update() # Na razie zostawiamy
+        # self.request_spot_markers_update() # Na razie zostawiamy
     
     def request_spot_markers_update(self):
         if hasattr(self, 'visualization_manager') and self.visualization_manager and \
@@ -888,7 +888,7 @@ class MainWindow(QMainWindow):
         """Slot for all visibility checkboxes."""
         logger.debug("Visibility checkbox changed, updating markers and ideal lattice.")
         self.display_image_data() # To odświeży idealną sieć, jeśli trzeba
-        self.request_spot_markers_update()
+        # self.request_spot_markers_update()
 
     @pyqtSlot(str)
     def on_substrate_combo_changed(self, selected_text: str):
