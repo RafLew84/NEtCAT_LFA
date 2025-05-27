@@ -72,6 +72,7 @@ class AppController(QObject):
         self.spot_selection_mode: str = "Substrate"  # Domyślnie "Substrate" lub "Adsorbate"
         self.spot_refinement_method: str = "Direct Click" # Domyślnie, inne opcje: "Max Pixel", "2D Gaussian Fit"
         self.refinement_roi_size: int = 5 # Domyślny rozmiar (np. średnica) obszaru ROI do uściślania
+        self.reference_ideal_substrate_spots_px: List[Tuple[float, float]] = []
 
         # Ustawienia dotyczące idealnej sieci i substratu
         self.custom_lattice_info: Optional[Dict[str, Any]] = None # Dla definicji własnej sieci
@@ -144,6 +145,7 @@ class AppController(QObject):
                 self.original_file_path = file_path # Ustaw ścieżkę w kontrolerze
 
                 self.clear_all_spot_data()
+                self.reference_ideal_substrate_spots_px.clear()
                 self.current_substrate_a_surf = None # Reset przy ładowaniu nowego pliku
                 self.current_substrate_type = None
                 self.current_substrate_name = PREDEFINED_SUBSTRATE_NONE
@@ -249,6 +251,10 @@ class AppController(QObject):
         else:
             self.custom_lattice_info = None
             self.last_selected_substrate = PREDEFINED_SUBSTRATE_NONE
+
+        new_ideal_ref_spots = results.get("ideal_substrate_spots_px_for_reference", [])
+        self.reference_ideal_substrate_spots_px = list(new_ideal_ref_spots)
+        logger.info(f"AppController: Updated reference ideal substrate spots count: {len(self.reference_ideal_substrate_spots_px)}")
 
         logger.info(f"AppController: Substrate analysis results updated. Spots: {len(self.user_selected_substrate_spots)}. "
                     f"Transform F: {'Set' if self.substrate_F_m2i is not None else 'None'}. "

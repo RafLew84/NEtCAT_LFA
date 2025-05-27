@@ -409,9 +409,9 @@ class MainWindow(QMainWindow):
                 s_y = analysis.get('principal_stretches', [np.nan, np.nan])[1]
                 self.fft_analysis_panel_widget.scale_factor_label.setText(f"Stretches (M->I): ({s_x:.3f}, {s_y:.3f})")
                 self.fft_analysis_panel_widget.rmse_label.setText(f"Fit RMSE (M->I, px): {analysis.get('rmse', 'N/A'):.3f}")
-                self.fft_analysis_panel_widget.show_fitted_substrate_spots_checkbox.setChecked(
-                    self.app_controller.show_fitted_substrate_spots
-            )
+            #     self.fft_analysis_panel_widget.show_fitted_substrate_spots_checkbox.setChecked(
+            #         self.app_controller.show_fitted_substrate_spots
+            # )
             else:
                 self.fft_analysis_panel_widget.rotation_angle_label.setText("Rotation: -")
                 self.fft_analysis_panel_widget.scale_factor_label.setText("Stretches: -")
@@ -572,17 +572,29 @@ class MainWindow(QMainWindow):
         logger.debug(f"Passing to AdsorbateSpotSelectionDialog: set_index={current_set_idx}, existing_spots_count={len(current_adsorbate_spots_for_set)}")
         current_fft_node = self.history_manager.get_current_node()
         current_real_fft_node_id = current_fft_node.node_id
+
+        sub_F = self.app_controller.substrate_F_m2i
+        sub_t = self.app_controller.substrate_t_m2i
+        sub_analysis = self.app_controller.substrate_transform_analysis_m2i
+
+        fitted_sub_spots_px = self.app_controller.displayable_fitted_substrate_spots_on_fft
+
+        ideal_sub_spots_for_ads_dialog = list(self.app_controller.reference_ideal_substrate_spots_px)
+
         # 3. Utwórz i wyświetl dialog
         dialog = AdsorbateSpotSelectionDialog(
             fft_image_data=fft_image_data_copy,
             history_manager=self.history_manager,
             current_fft_node_id=current_real_fft_node_id,
             current_adsorbate_spots=current_adsorbate_spots_for_set,
-            # default_refinement_method i default_refinement_roi_size są opcjonalne,
-            # ale jeśli chcesz je przekazać, pobierz je z app_controller
             adsorbate_set_index=current_set_idx,
             default_refinement_method=self.app_controller.spot_refinement_method,
             default_refinement_roi_size=self.app_controller.refinement_roi_size,
+            substrate_F_m2i=sub_F,
+            substrate_t_m2i=sub_t,
+            substrate_transform_analysis=sub_analysis,
+            ideal_substrate_spots_for_display_px=ideal_sub_spots_for_ads_dialog, # Przekaż obliczone/pobrane
+            fitted_substrate_spots_for_display_px=fitted_sub_spots_px,
             parent=self
         )
         
@@ -723,13 +735,13 @@ class MainWindow(QMainWindow):
            hasattr(self, 'fft_analysis_panel_widget') and self.fft_analysis_panel_widget:
             current_node = self.history_manager.get_current_node()
             if current_node and current_node.data_type == "FFT":
-                show_sub = self.app_controller.show_substrate_spots_markers
-                show_ads = self.app_controller.show_adsorbate_spots_markers
+                # show_sub = self.app_controller.show_substrate_spots_markers
+                # show_ads = self.app_controller.show_adsorbate_spots_markers
                 substrate_spots_data = self.app_controller.substrate_spots
                 adsorbate_spot_sets_data = self.app_controller.adsorbate_spot_sets
                 self.visualization_manager.redraw_spot_markers(
-                    substrate_spots_data, show_sub,
-                    adsorbate_spot_sets_data, show_ads
+                    substrate_spots_data, True,
+                    adsorbate_spot_sets_data, True
                 )
             else:
                  self.visualization_manager._clear_spot_markers_only()

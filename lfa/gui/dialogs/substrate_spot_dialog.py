@@ -131,6 +131,7 @@ class SubstrateSpotSelectionDialog(QDialog):
         self.substrate_translation_vector_t: Optional[np.ndarray] = initial_transform_t
         self.substrate_transform_analysis: Optional[Dict[str, Any]] = None # Wynik z analyze_affine_transform
         self.fitted_substrate_spots_px: List[Tuple[float, float]] = list(initial_fitted_spots) if initial_fitted_spots else []
+        self.calculated_ideal_substrate_spots_px: List[Tuple[float, float]] = []
         # ScatterPlotItem dla dopasowanych spotów
         self.fitted_spot_markers_on_image: Optional[ScatterPlotItem] = None
 
@@ -1156,11 +1157,14 @@ class SubstrateSpotSelectionDialog(QDialog):
             # ScatterPlotItem(pos=(x,y)) -> x to kx, y to ky
             display_y_px = center_display_kx + (Gx_nm_inv * Lx_nm) # Gx ~ kx
             display_x_px = center_display_ky + (Gy_nm_inv * Ly_nm) # Gy ~ ky
+            current_pixel_coord = (display_x_px, display_y_px)
             pixel_coords_for_scatter.append({
                 'pos': (display_x_px, display_y_px), 
                 'symbol': '+', 'size': 10,
                 'pen': pg.mkPen('r', width=1.5), 'brush': pg.mkBrush(None)
             })
+
+            self.calculated_ideal_substrate_spots_px.append(current_pixel_coord)
 
             print(f"display_x_px: {display_x_px}, display_y_px: {display_y_px}")
         
@@ -1185,7 +1189,8 @@ class SubstrateSpotSelectionDialog(QDialog):
             "transform_analysis_m2i": self.substrate_transform_analysis,    # Analiza F_m2i
             # To są piki, które mają być wyświetlone w MainWindow jako "dofitowane"
             # W poprzedniej dyskusji ustaliliśmy, że to idealne piki przetransformowane odwrotnie.
-            "displayable_fitted_spots": list(self.fitted_substrate_spots_px) 
+            "displayable_fitted_spots": list(self.fitted_substrate_spots_px),
+            "ideal_substrate_spots_px_for_reference": list(self.calculated_ideal_substrate_spots_px)
         }
 
     def accept(self): # Zaktualizowana metoda accept
