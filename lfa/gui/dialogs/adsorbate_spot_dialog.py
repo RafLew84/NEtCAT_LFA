@@ -615,6 +615,7 @@ class AdsorbateSpotSelectionDialog(QDialog):
         self._update_corrected_adsorbate_spots_list_widget()
         self._redraw_all_markers_in_dialog()
         logger.debug("Cleared all adsorbate spots in dialog.")
+        self._update_correction_button_state()
 
     def _redraw_all_markers_in_dialog(self):
         logger.debug("AdsorbateDialog: Redrawing all markers...")
@@ -640,7 +641,7 @@ class AdsorbateSpotSelectionDialog(QDialog):
             except RuntimeError: pass
 
         if self.selected_adsorbate_spots_raw:
-            d=[{'pos':s,'symbol':'o','size':10,'pen':pg.mkPen('b',width=1.5),'brush':pg.mkBrush(0,0,255,120)} for s in self.selected_adsorbate_spots_raw]
+            d=[{'pos':s,'symbol':'o','size':10,'pen':pg.mkPen('y',width=1.5),'brush':pg.mkBrush(0,0,255,120)} for s in self.selected_adsorbate_spots_raw]
             self.raw_adsorbate_spot_markers=ScatterPlotItem(spots=d)
             self.fft_view_box.addItem(self.raw_adsorbate_spot_markers)
         if self.show_ideal_substrate_checkbox.isChecked() and self.ideal_substrate_spots_to_display_px:
@@ -654,9 +655,9 @@ class AdsorbateSpotSelectionDialog(QDialog):
         
         if self.show_corrected_adsorbate_checkbox.isChecked() and self.corrected_adsorbate_spots_in_ideal_system and self.sub_F_m2i is not None and self.sub_t_m2i is not None:
             try:
-                F_inv=np.linalg.inv(self.sub_F_m2i)
-                t_prime=(-self.sub_t_m2i@F_inv.T).flatten() # type: ignore
-                from ...analysis.drift_correction import apply_affine_transform
+                # F_inv=np.linalg.inv(self.sub_F_m2i)
+                # t_prime=(-self.sub_t_m2i@F_inv.T).flatten() # type: ignore
+                # from ...analysis.drift_correction import apply_affine_transform
                 # spots_draw=apply_affine_transform(np.array(self.corrected_adsorbate_spots_in_ideal_system),F_inv,t_prime)
                 if self.corrected_adsorbate_spots_in_ideal_system is not None: d=[{'pos':tuple(p),'symbol':'s','size':10,'pen':pg.mkPen('r',width=1.5),'brush':pg.mkBrush(255,0,0,120)} for p in self.corrected_adsorbate_spots_in_ideal_system]
                 self.corrected_adsorbate_marker_item=ScatterPlotItem(spots=d)
