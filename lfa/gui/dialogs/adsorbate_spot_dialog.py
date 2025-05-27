@@ -635,7 +635,7 @@ class AdsorbateSpotSelectionDialog(QDialog):
                 t_prime=(-self.sub_t_m2i@F_inv.T).flatten() # type: ignore
                 from ...analysis.drift_correction import apply_affine_transform
                 spots_draw=apply_affine_transform(np.array(self.corrected_adsorbate_spots_in_ideal_system),F_inv,t_prime)
-                if spots_draw is not None: d=[{'pos':tuple(p),'symbol':'s','size':10,'pen':pg.mkPen('r',width=1.5),'brush':pg.mkBrush(255,0,0,120)} for p in spots_draw]
+                if self.corrected_adsorbate_spots_in_ideal_system is not None: d=[{'pos':tuple(p),'symbol':'s','size':10,'pen':pg.mkPen('r',width=1.5),'brush':pg.mkBrush(255,0,0,120)} for p in self.corrected_adsorbate_spots_in_ideal_system]
                 self.corrected_adsorbate_marker_item=ScatterPlotItem(spots=d)
                 self.fft_view_box.addItem(self.corrected_adsorbate_marker_item)
             except Exception as e:logger.error(f"Error transforming corrected adsorbate spots for display: {e}") # pragma: no cover
@@ -703,6 +703,7 @@ class AdsorbateSpotSelectionDialog(QDialog):
             from ...analysis.drift_correction import apply_affine_transform # Upewnij się, że import jest OK
             raw_spots_np = np.array(self.selected_adsorbate_spots_raw, dtype=float)
             corrected_spots_np = apply_affine_transform(raw_spots_np, self.sub_F_m2i, self.sub_t_m2i)
+            print(f"corrected_spots_np: {corrected_spots_np}")
             
             if corrected_spots_np is not None:
                 self.corrected_adsorbate_spots_in_ideal_system = [tuple(pt) for pt in corrected_spots_np]
