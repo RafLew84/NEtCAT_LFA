@@ -126,6 +126,7 @@ class AdsorbateSpotSelectionDialog(QDialog):
         self._init_ui()
         self._connect_signals() 
         self._update_adsorbate_spots_list_widget()
+        self._update_corrected_adsorbate_spots_list_widget() 
         self._redraw_all_markers_in_dialog() 
         self._update_add_spot_button_state() 
         self._update_correction_button_state()
@@ -185,6 +186,15 @@ class AdsorbateSpotSelectionDialog(QDialog):
         self.apply_correction_button.setEnabled(False)
         sub_transform_layout.addRow(self.apply_correction_button)
         left_controls_layout.addWidget(sub_transform_group)
+
+        corrected_spots_group = QGroupBox("Corrected Adsorbate Spots (Ideal System)")
+        corrected_spots_layout = QVBoxLayout(corrected_spots_group)
+        self.corrected_spots_list_widget = QListWidget()
+        self.corrected_spots_list_widget.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection) # Tylko do wyświetlania
+        self.corrected_spots_list_widget.addItem("Corrected spots will appear here after applying correction.")
+        corrected_spots_layout.addWidget(self.corrected_spots_list_widget)
+        left_controls_layout.addWidget(corrected_spots_group)
+
         left_controls_layout.addStretch(1)
         main_splitter.addWidget(left_controls_widget)
 
@@ -465,6 +475,18 @@ class AdsorbateSpotSelectionDialog(QDialog):
         colors[...,3]=0.7 # R, B, Alpha
         surface_item.setData(x=x,y=y,z=data_2d.T,colors=colors.transpose(1,0,2))
 
+    def _update_corrected_adsorbate_spots_list_widget(self):
+        """Aktualizuje QListWidget dla skorygowanych pików adsorbatu."""
+        self.corrected_spots_list_widget.clear()
+        if not self.corrected_adsorbate_spots_in_ideal_system:
+            self.corrected_spots_list_widget.addItem("No corrected spots yet.")
+            return
+        
+        for i, (kx, ky) in enumerate(self.corrected_adsorbate_spots_in_ideal_system):
+            # Te kx, ky są w "idealnym" systemie współrzędnych FFT
+            self.corrected_spots_list_widget.addItem(f"Corr. A{i+1}: ({kx:.2f}, {ky:.2f}) [Ideal Sys]")
+
+
     def _clear_3d_surface(self, surface_item: Optional[GLSurfacePlotItem]):
         if surface_item:
             x=np.array([0,1e-9])
@@ -590,6 +612,7 @@ class AdsorbateSpotSelectionDialog(QDialog):
         self.selected_adsorbate_spots_raw.clear()
         self.corrected_adsorbate_spots_in_ideal_system.clear()
         self._update_adsorbate_spots_list_widget()
+        self._update_corrected_adsorbate_spots_list_widget()
         self._redraw_all_markers_in_dialog()
         logger.debug("Cleared all adsorbate spots in dialog.")
 
@@ -634,7 +657,7 @@ class AdsorbateSpotSelectionDialog(QDialog):
                 F_inv=np.linalg.inv(self.sub_F_m2i)
                 t_prime=(-self.sub_t_m2i@F_inv.T).flatten() # type: ignore
                 from ...analysis.drift_correction import apply_affine_transform
-                spots_draw=apply_affine_transform(np.array(self.corrected_adsorbate_spots_in_ideal_system),F_inv,t_prime)
+                # spots_draw=apply_affine_transform(np.array(self.corrected_adsorbate_spots_in_ideal_system),F_inv,t_prime)
                 if self.corrected_adsorbate_spots_in_ideal_system is not None: d=[{'pos':tuple(p),'symbol':'s','size':10,'pen':pg.mkPen('r',width=1.5),'brush':pg.mkBrush(255,0,0,120)} for p in self.corrected_adsorbate_spots_in_ideal_system]
                 self.corrected_adsorbate_marker_item=ScatterPlotItem(spots=d)
                 self.fft_view_box.addItem(self.corrected_adsorbate_marker_item)
@@ -708,6 +731,7 @@ class AdsorbateSpotSelectionDialog(QDialog):
             if corrected_spots_np is not None:
                 self.corrected_adsorbate_spots_in_ideal_system = [tuple(pt) for pt in corrected_spots_np]
                 logger.info(f"Applied substrate correction to {len(self.corrected_adsorbate_spots_in_ideal_system)} adsorbate spots.")
+                self._update_corrected_adsorbate_spots_list_widget()
                 self._redraw_all_markers_in_dialog() # Aby pokazać skorygowane, jeśli checkbox zaznaczony
                 self.status_label.setText(f"{len(self.corrected_adsorbate_spots_in_ideal_system)} adsorbate spots corrected (in ideal system).")
             else: raise ValueError("apply_affine_transform returned None for adsorbate spots.") # pragma: no cover
