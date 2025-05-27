@@ -46,7 +46,7 @@ class FFTAnalysisPanel(QWidget):
 
     reselect_current_adsorbate_set_triggered = pyqtSignal() # Przycisk "Reselect Set"
     clear_all_adsorbate_sets_triggered = pyqtSignal() # Przycisk "Clear All Sets"
-    clear_last_adsorbate_point_triggered = pyqtSignal() # Przycisk "Clear Last Adsorbate Point"
+    # clear_last_adsorbate_point_triggered = pyqtSignal() # Przycisk "Clear Last Adsorbate Point"
     # Sygnał dla przycisku czyszczenia pików substratu
     select_edit_substrate_spots_requested = pyqtSignal()
     select_edit_adsorbate_spots_requested = pyqtSignal()
@@ -144,10 +144,10 @@ class FFTAnalysisPanel(QWidget):
 
         adsorbate_buttons_layout_bottom = QHBoxLayout()
         self.reselect_adsorbate_set_button = QPushButton("Clear Current Set") # Zmiana nazwy dla jasności
-        self.clear_last_adsorbate_point_button = QPushButton("Clear Last Point in Set") # Zmiana nazwy
+        # self.clear_last_adsorbate_point_button = QPushButton("Clear Last Point in Set") # Zmiana nazwy
         self.clear_all_adsorbate_sets_button = QPushButton("Clear All Sets")
         adsorbate_buttons_layout_bottom.addWidget(self.reselect_adsorbate_set_button)
-        adsorbate_buttons_layout_bottom.addWidget(self.clear_last_adsorbate_point_button)
+        # adsorbate_buttons_layout_bottom.addWidget(self.clear_last_adsorbate_point_button)
         adsorbate_buttons_layout_bottom.addWidget(self.clear_all_adsorbate_sets_button)
         adsorbate_set_form_layout.addRow(adsorbate_buttons_layout_bottom)
         spot_selection_layout.addWidget(self.adsorbate_set_panel)
@@ -186,7 +186,7 @@ class FFTAnalysisPanel(QWidget):
         self.edit_adsorbate_spots_button.clicked.connect(self.select_edit_adsorbate_spots_requested)
 
         self.reselect_adsorbate_set_button.clicked.connect(self.reselect_current_adsorbate_set_triggered)
-        self.clear_last_adsorbate_point_button.clicked.connect(self.clear_last_adsorbate_point_triggered)
+        # self.clear_last_adsorbate_point_button.clicked.connect(self.clear_last_adsorbate_point_triggered)
         self.clear_all_adsorbate_sets_button.clicked.connect(self.clear_all_adsorbate_sets_triggered)
 
     # --- Wewnętrzne Sloty ---
@@ -276,9 +276,9 @@ class FFTAnalysisPanel(QWidget):
         if hasattr(self, 'edit_adsorbate_spots_button'):
             self.edit_adsorbate_spots_button.setEnabled(enabled)
 
-    def set_clear_last_adsorbate_point_button_enabled(self, enabled: bool):
-        if hasattr(self, 'clear_last_adsorbate_point_button'):
-            self.clear_last_adsorbate_point_button.setEnabled(enabled)
+    # def set_clear_last_adsorbate_point_button_enabled(self, enabled: bool):
+    #     if hasattr(self, 'clear_last_adsorbate_point_button'):
+    #         self.clear_last_adsorbate_point_button.setEnabled(enabled)
 
     def set_reselect_adsorbate_set_button_enabled(self, enabled: bool):
         if hasattr(self, 'reselect_adsorbate_set_button'):

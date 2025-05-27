@@ -177,6 +177,8 @@ class MainWindow(QMainWindow):
 
             self.app_controller.substrate_definition_changed.connect(self._on_substrate_definition_changed)
 
+            self.app_controller.adsorbate_set_updated.connect(self._on_adsorbate_set_updated)
+
             self.app_controller.substrate_transform_results_updated.connect(self._on_substrate_transform_results_updated)
             self.app_controller.substrate_definition_changed.connect(self._on_substrate_definition_changed) # Już powinno być
             self.app_controller.spot_lists_updated.connect(self._on_spot_lists_or_params_changed) # Do ogólnych aktualizacji
@@ -190,7 +192,7 @@ class MainWindow(QMainWindow):
             self.fft_analysis_panel_widget.add_new_adsorbate_set_requested.connect(self._handle_add_new_adsorbate_set_request)
             self.fft_analysis_panel_widget.reselect_current_adsorbate_set_triggered.connect(self._on_reselect_adsorbate_set_clicked)
             self.fft_analysis_panel_widget.clear_all_adsorbate_sets_triggered.connect(self._on_clear_all_adsorbate_sets_clicked)
-            self.fft_analysis_panel_widget.clear_last_adsorbate_point_triggered.connect(self._on_clear_last_adsorbate_point_clicked)
+            # self.fft_analysis_panel_widget.clear_last_adsorbate_point_triggered.connect(self._on_clear_last_adsorbate_point_clicked)
             self.fft_analysis_panel_widget.substrate_spots_visibility_changed.connect(self._handle_substrate_spots_visibility_changed)
             self.fft_analysis_panel_widget.adsorbate_spots_visibility_changed.connect(self._handle_adsorbate_spots_visibility_changed)
             # self.fft_analysis_panel_widget.fitted_substrate_spots_visibility_changed.connect(self._handle_fitted_substrate_spots_visibility_changed)
@@ -325,7 +327,7 @@ class MainWindow(QMainWindow):
                0 <= self.app_controller.current_adsorbate_set_index < len(self.app_controller.adsorbate_spot_sets):
                 if self.app_controller.adsorbate_spot_sets[self.app_controller.current_adsorbate_set_index]:
                     can_clear_last_adsorbate = True
-            self.fft_analysis_panel_widget.set_clear_last_adsorbate_point_button_enabled(can_clear_last_adsorbate)
+            # self.fft_analysis_panel_widget.set_clear_last_adsorbate_point_button_enabled(can_clear_last_adsorbate)
 
             is_adsorbate_mode_active = (self.app_controller.spot_selection_mode == "Adsorbate")
             self.fft_analysis_panel_widget.set_reselect_adsorbate_set_button_enabled(is_adsorbate_mode_active)
@@ -363,7 +365,7 @@ class MainWindow(QMainWindow):
             else: # Jeśli nie ma danych FFT, wyłącz wszystkie przyciski w panelu
                 self.fft_analysis_panel_widget.set_edit_substrate_spots_button_enabled(False)
                 self.fft_analysis_panel_widget.set_edit_adsorbate_spots_button_enabled(False)
-                self.fft_analysis_panel_widget.set_clear_last_adsorbate_point_button_enabled(False)
+                # self.fft_analysis_panel_widget.set_clear_last_adsorbate_point_button_enabled(False)
                 self.fft_analysis_panel_widget.set_reselect_adsorbate_set_button_enabled(False)
                 self.fft_analysis_panel_widget.set_clear_all_adsorbate_sets_button_enabled(False)
         logger.debug(f"_update_action_states: Preprocessing possible: {preprocessing_possible}, FFT Calc possible: {fft_calculation_possible}, Is FFT data: {is_fft_data}")
@@ -377,6 +379,19 @@ class MainWindow(QMainWindow):
     #     # Alternatywnie, jeśli set_show_fitted_substrate_spots nie emituje odpowiedniego sygnału,
     #     # można tu bezpośrednio wywołać display_image_data():
     #     # self.display_image_data()
+
+    @pyqtSlot(int)
+    def _on_adsorbate_set_updated(self, set_index: int):
+        """
+        Slot wywoływany, gdy dane zestawu adsorbatu (surowe lub skorygowane) zostaną zaktualizowane.
+        Odświeża markery w VisualizationManager i potencjalnie inne UI.
+        """
+        logger.info(f"MainWindow: Adsorbate set {set_index} updated. Refreshing view.")
+        # Tekstowy podgląd pików jest aktualizowany przez _on_spot_lists_or_params_changed,
+        # który jest podłączony do app_controller.spot_lists_updated.
+        # Tutaj głównie chodzi o odświeżenie markerów graficznych.
+        self.display_image_data() # To powinno pobrać aktualne dane i flagi i przerysować
+        self._update_action_states() # Zaktualizuj stan przycisków
 
     @pyqtSlot()
     def _on_substrate_definition_changed(self):
@@ -600,18 +615,25 @@ class MainWindow(QMainWindow):
         
         # 4. Obsłuż wynik dialogu
         if dialog.exec() == QDialog.DialogCode.Accepted:
-            new_spots = dialog.get_selected_spots()
-            logger.info(f"Adsorbate spots selection for set {current_set_idx + 1} accepted with {len(new_spots)} spots.")
+            results = dialog.get_dialog_results()
+            
+            raw_spots_from_dialog = results.get("raw_adsorbate_spots", [])
+            corrected_spots_from_dialog = results.get("corrected_adsorbate_spots_in_ideal_system", [])
+            # Indeks zestawu powinien być ten sam, który przekazaliśmy, ale dialog go zwraca dla pewności
+            set_idx_from_dialog = results.get("adsorbate_set_index", current_set_idx) 
 
-            if 0 <= current_set_idx < len(self.app_controller.adsorbate_spot_sets):
-                self.app_controller.adsorbate_spot_sets[current_set_idx] = new_spots # Bezpośrednie ustawienie
-            else: # pragma: no cover
-                logger.error(f"Cannot update adsorbate spots: Invalid set index {current_set_idx} after dialog close.")
-
-            self.statusBar().showMessage(f"Adsorbate spots (Set {current_set_idx+1}) updated: {len(new_spots)} spots.", 3000)
+            logger.info(f"Adsorbate spots dialog (set {set_idx_from_dialog + 1}) accepted. "
+                        f"Raw: {len(raw_spots_from_dialog)}, Corrected: {len(corrected_spots_from_dialog)}")
+            
+            self.app_controller.update_adsorbate_set_results(
+                set_index=set_idx_from_dialog,
+                raw_spots=raw_spots_from_dialog,
+                corrected_spots_ideal_system=corrected_spots_from_dialog
+            )
+            self.statusBar().showMessage(f"Adsorbate spots (Set {set_idx_from_dialog + 1}) updated.", 3000)
         else:
             logger.info(f"Adsorbate spots selection for set {current_set_idx + 1} cancelled.")
-            self.statusBar().showMessage(f"Adsorbate spots (Set {current_set_idx+1}) selection cancelled.", 3000)
+            self.statusBar().showMessage(f"Adsorbate spots (Set {current_set_idx + 1}) selection cancelled.", 3000)
 
 
     @pyqtSlot()
@@ -990,6 +1012,7 @@ class MainWindow(QMainWindow):
         panel_custom_text = ""
 
         substrate_spots_to_draw = self.app_controller.displayable_fitted_substrate_spots_on_fft
+        corrected_adsorbate_sets_ideal_sys = self.app_controller.corrected_adsorbate_spot_sets
 
         if hasattr(self, 'fft_analysis_panel_widget') and self.fft_analysis_panel_widget is not None:
             show_ideal_lattice = self.fft_analysis_panel_widget.is_show_ideal_lattice_checked() # lub self.app_controller.show_ideal_lattice
@@ -1007,7 +1030,7 @@ class MainWindow(QMainWindow):
             substrate_spots_to_draw,      # Tylko dopasowane piki
             True, # Flaga widoczności dla nich
             # --- Koniec ---
-            self.app_controller.adsorbate_spot_sets,
+            corrected_adsorbate_sets_ideal_sys,
             True # Ta flaga też powinna być zarządzana przez AppController
         )
         if hasattr(self, '_update_action_states'): self._update_action_states()
@@ -1061,10 +1084,10 @@ class MainWindow(QMainWindow):
         logger.info("MainWindow: Clearing substrate spots.")
         self.app_controller.clear_substrate_spots()
 
-    @pyqtSlot()
-    def _on_clear_last_adsorbate_point_clicked(self):
-        logger.debug("MainWindow: Clearing last adsorbate point button clicked.")
-        self.app_controller.clear_last_adsorbate_spot()
+    # @pyqtSlot()
+    # def _on_clear_last_adsorbate_point_clicked(self):
+    #     logger.debug("MainWindow: Clearing last adsorbate point button clicked.")
+    #     self.app_controller.clear_last_adsorbate_spot()
 
 
     @pyqtSlot()

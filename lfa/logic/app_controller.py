@@ -38,6 +38,7 @@ class AppController(QObject):
 
     # Sygnał emitowany po zmianie list pików (substratu lub któregokolwiek zestawu adsorbatu)
     spot_lists_updated = pyqtSignal()
+    adsorbate_set_updated = pyqtSignal(int)
     # Sygnał emitowany po zmianie trybu wyboru pików (Substrate/Adsorbate) lub metody uściślania
     spot_selection_parameters_changed = pyqtSignal()
     # Sygnał emitowany po zmianie bieżącego zestawu adsorbatu (np. dodanie nowego, zmiana indeksu)
@@ -66,6 +67,7 @@ class AppController(QObject):
         # Dane dotyczące wyboru pików
         self.substrate_spots: List[Tuple[float, float]] = []
         self.adsorbate_spot_sets: List[List[Tuple[float, float]]] = [[]] # Zawsze zaczynamy z jednym pustym zestawem
+        self.corrected_adsorbate_spot_sets: List[List[Tuple[float, float]]] = [[]]
         self.current_adsorbate_set_index: int = 0
 
         # Tryby i parametry wyboru/uściślania pików
@@ -152,6 +154,8 @@ class AppController(QObject):
                 self.substrate_definition_changed.emit() # Poinformuj UI o resecie
 
                 self.history_manager.clear_history() # Wyczyść poprzednią historię
+                self.corrected_adsorbate_spot_sets = [[]]
+                if hasattr(self, 'adsorbate_set_updated'): self.adsorbate_set_updated.emit(0)
 
                 # Przygotuj parametry dla węzła "Original"
                 # Te parametry są istotne dla MetadataWidget i potencjalnie dla innych operacji
@@ -496,17 +500,51 @@ class AppController(QObject):
         """Czyści wszystkie zestawy pików adsorbatu i resetuje do jednego pustego zestawu."""
         if self.adsorbate_spot_sets != [[]] or self.current_adsorbate_set_index != 0 : # Jeśli faktycznie jest co czyścić
             self.adsorbate_spot_sets = [[]]
+            self.corrected_adsorbate_spot_sets = [[]]
             self.current_adsorbate_set_index = 0
             logger.info("All adsorbate spot sets cleared. Reset to one empty set.")
-            self.spot_lists_updated.emit() # Ogólna aktualizacja list
-            self.adsorbate_sets_structure_changed.emit() # Sygnał o zmianie struktury zestawów (np. dla ComboBoxa)
+            self.adsorbate_sets_structure_changed.emit() # Dla ComboBoxa
+            self.adsorbate_set_updated.emit(0)
         else:
             logger.debug("No adsorbate sets to clear or already in default state.")
+
+    def update_adsorbate_set_results(self, 
+                                     set_index: int, 
+                                     raw_spots: List[Tuple[float, float]], 
+                                     corrected_spots_ideal_system: List[Tuple[float, float]]):
+        """
+        Aktualizuje surowe i skorygowane piki dla danego zestawu adsorbatu.
+        """
+        if not (0 <= set_index < len(self.adsorbate_spot_sets)):
+            logger.error(f"AppController: Invalid set_index {set_index} for updating adsorbate spots.")
+            return
+
+        # Upewnij się, że lista skorygowanych ma odpowiedni rozmiar
+        while len(self.corrected_adsorbate_spot_sets) <= set_index:
+            self.corrected_adsorbate_spot_sets.append([])
+
+        raw_changed = self.adsorbate_spot_sets[set_index] != raw_spots
+        corrected_changed = self.corrected_adsorbate_spot_sets[set_index] != corrected_spots_ideal_system
+
+        if raw_changed:
+            self.adsorbate_spot_sets[set_index] = list(raw_spots)
+            logger.info(f"AppController: Updated raw adsorbate spots for set {set_index}. Count: {len(raw_spots)}")
+        
+        if corrected_changed:
+            self.corrected_adsorbate_spot_sets[set_index] = list(corrected_spots_ideal_system)
+            logger.info(f"AppController: Updated corrected adsorbate spots (ideal sys) for set {set_index}. Count: {len(corrected_spots_ideal_system)}")
+
+        if raw_changed or corrected_changed:
+            self.adsorbate_set_updated.emit(set_index) # Emituj z indeksem zmienionego zestawu
+            # spot_lists_updated może być nadal używany do ogólnych aktualizacji, np. tekstowego podglądu
+            if raw_changed and hasattr(self, 'spot_lists_updated'):
+                 self.spot_lists_updated.emit()
 
 
     def add_new_adsorbate_set(self):
         """Dodaje nowy, pusty zestaw pików adsorbatu i ustawia go jako bieżący."""
         self.adsorbate_spot_sets.append([])
+        self.corrected_adsorbate_spot_sets.append([])
         self.current_adsorbate_set_index = len(self.adsorbate_spot_sets) - 1
         logger.info(f"Added new adsorbate set. Index: {self.current_adsorbate_set_index}")
         self.spot_lists_updated.emit() # Aktualizacja ogólna (np. dla _update_action_states)
@@ -529,6 +567,7 @@ class AppController(QObject):
             changed = True
         if self.adsorbate_spot_sets != [[]] or self.current_adsorbate_set_index != 0:
             self.adsorbate_spot_sets = [[]]
+            self.corrected_adsorbate_spot_sets = [[]]
             self.current_adsorbate_set_index = 0
             changed = True
         
@@ -542,6 +581,7 @@ class AppController(QObject):
         if hasattr(self, 'spot_lists_updated'): self.spot_lists_updated.emit()
         if hasattr(self, 'adsorbate_sets_structure_changed'): self.adsorbate_sets_structure_changed.emit()
         if hasattr(self, 'substrate_transform_results_updated'): self.substrate_transform_results_updated.emit()
+        if changed and hasattr(self, 'adsorbate_set_updated'): self.adsorbate_set_updated.emit(0)
         logger.debug("All spot data and substrate transform results cleared.")
         
         if changed:
