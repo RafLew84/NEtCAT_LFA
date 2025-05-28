@@ -32,7 +32,7 @@ from ..logic.app_controller import AppController
 from ..core.history import HistoryNode
 from .ui_setup.menu_action_manager import MenuActionManager
 from .ui_setup.dock_panel_manager import DockPanelManager
-from ..gui.dialogs.substrate_spot_dialog import PREDEFINED_SUBSTRATE_NONE, PREDEFINED_SUBSTRATE_CUSTOM, LATTICE_TYPE_HEXAGONAL
+from ..gui.dialogs.substrate_spot_dialog import PREDEFINED_SUBSTRATE_NONE, PREDEFINED_SUBSTRATE_CUSTOM, LATTICE_TYPE_HEXAGONAL, LATTICE_TYPE_SQUARE
 
 try:
     from lfa.gui.dialogs.preprocessing_dialogs import (GaussianBlurDialog, PlaneLevelingDialog, 
@@ -183,6 +183,9 @@ class MainWindow(QMainWindow):
             self.app_controller.substrate_definition_changed.connect(self._on_substrate_definition_changed) # Już powinno być
             self.app_controller.spot_lists_updated.connect(self._on_spot_lists_or_params_changed) # Do ogólnych aktualizacji
 
+            self.app_controller.substrate_real_space_params_updated.connect(self._on_substrate_real_space_params_updated)
+            self.app_controller.adsorbate_real_space_params_updated.connect(self._on_adsorbate_real_space_params_updated)
+
         if hasattr(self, 'fft_analysis_panel_widget'):
             self.fft_analysis_panel_widget.substrate_changed.connect(self._handle_substrate_changed)
             self.fft_analysis_panel_widget.custom_lattice_define_requested.connect(self._handle_custom_lattice_request)
@@ -198,6 +201,8 @@ class MainWindow(QMainWindow):
             # self.fft_analysis_panel_widget.fitted_substrate_spots_visibility_changed.connect(self._handle_fitted_substrate_spots_visibility_changed)
             self.fft_analysis_panel_widget.select_edit_substrate_spots_requested.connect(self.open_substrate_spot_selection_dialog)
             self.fft_analysis_panel_widget.select_edit_adsorbate_spots_requested.connect(self.open_adsorbate_spot_selection_dialog)
+            self.fft_analysis_panel_widget.calculate_substrate_real_space_params_requested.connect(self._on_calculate_substrate_rs_params_button_clicked)
+            self.fft_analysis_panel_widget.calculate_adsorbate_real_space_params_requested.connect(self._on_calculate_adsorbate_rs_params_button_clicked)
         
         if hasattr(self, 'visualization_manager') and self.visualization_manager:
             self.visualization_manager.fft_view_clicked.connect(self._on_fft_view_clicked_from_visualizer)
@@ -296,6 +301,9 @@ class MainWindow(QMainWindow):
         is_stm_data = False
         is_fft_data = False
 
+        can_calc_sub_rs = False
+        can_calc_ads_rs = False
+
         if has_node:
             current_node_data_type = current_node.data_type
             is_stm_data = (current_node_data_type == "STM")
@@ -303,6 +311,29 @@ class MainWindow(QMainWindow):
 
         preprocessing_possible = has_node
         fft_calculation_possible = is_stm_data
+
+        if self.app_controller:
+            # Warunki dla obliczeń parametrów rzeczywistych substratu
+            if (self.app_controller.substrate_lattice_type and 
+                self.app_controller.substrate_a_surf and self.app_controller.substrate_a_surf > 0 and
+                self.app_controller.reference_ideal_substrate_spots_px and # Muszą być zdefiniowane idealne piki
+                self.app_controller.current_fft_data_shape): # I kształt FFT
+                
+                expected_spot_count = 0
+                if self.app_controller.substrate_lattice_type == LATTICE_TYPE_HEXAGONAL: expected_spot_count = 6
+                elif self.app_controller.substrate_lattice_type == LATTICE_TYPE_SQUARE: expected_spot_count = 4
+                if len(self.app_controller.reference_ideal_substrate_spots_px) == expected_spot_count : # Musi być DOKŁADNIE tyle idealnych referencyjnych
+                    can_calc_sub_rs = True
+
+            # Warunki dla obliczeń parametrów rzeczywistych adsorbatu
+            if (self.app_controller.corrected_adsorbate_spot_sets and # Muszą istnieć skorygowane piki
+                0 <= self.app_controller.current_adsorbate_set_index < len(self.app_controller.corrected_adsorbate_spot_sets) and
+                len(self.app_controller.corrected_adsorbate_spot_sets[self.app_controller.current_adsorbate_set_index]) >= 3 and # Co najmniej 3 skorygowane piki
+                self.app_controller.current_fft_data_shape and # Kształt FFT
+                # Potrzebne Lx, Ly, które są pobierane z Original Node
+                self.history_manager.get_root_node_for_node(self.history_manager.current_node_id if self.history_manager.current_node_id else "") is not None 
+                ): # Upewnij się, że można dotrzeć do Original Node
+                can_calc_ads_rs = True
 
         if hasattr(self, 'gaussian_blur_action'): self.gaussian_blur_action.setEnabled(preprocessing_possible)
         if hasattr(self, 'gaussian_sharpen_action'): self.gaussian_sharpen_action.setEnabled(preprocessing_possible)
@@ -333,6 +364,9 @@ class MainWindow(QMainWindow):
             self.fft_analysis_panel_widget.set_reselect_adsorbate_set_button_enabled(is_adsorbate_mode_active)
             can_clear_all_adsorbate = is_adsorbate_mode_active and any(s for s in self.app_controller.adsorbate_spot_sets)
             self.fft_analysis_panel_widget.set_clear_all_adsorbate_sets_button_enabled(can_clear_all_adsorbate)
+
+            self.fft_analysis_panel_widget.set_calculate_substrate_rs_button_enabled(can_calc_sub_rs)
+            self.fft_analysis_panel_widget.set_calculate_adsorbate_rs_button_enabled(can_calc_ads_rs)
 
         if hasattr(self, 'fft_analysis_panel_widget') and self.fft_analysis_panel_widget:
             if is_fft_data:
@@ -379,6 +413,37 @@ class MainWindow(QMainWindow):
     #     # Alternatywnie, jeśli set_show_fitted_substrate_spots nie emituje odpowiedniego sygnału,
     #     # można tu bezpośrednio wywołać display_image_data():
     #     # self.display_image_data()
+
+    @pyqtSlot(dict)
+    def _on_substrate_real_space_params_updated(self, params: dict):
+        logger.debug(f"MainWindow: Received substrate_real_space_params_updated: {params}")
+        if hasattr(self, 'fft_analysis_panel_widget') and self.fft_analysis_panel_widget:
+            self.fft_analysis_panel_widget.update_substrate_real_space_display(params.get("error", None) is None and params or None) # Przekaż None, jeśli jest błąd
+
+    @pyqtSlot(int, dict) # indeks zestawu, parametry
+    def _on_adsorbate_real_space_params_updated(self, set_index: int, params: dict):
+        logger.debug(f"MainWindow: Received adsorbate_real_space_params_updated for set {set_index}: {params}")
+        if hasattr(self, 'fft_analysis_panel_widget') and self.fft_analysis_panel_widget:
+            # Aktualizuj tylko, jeśli dotyczy to bieżącego zestawu wyświetlanego w panelu
+            # (FFTAnalysisPanel wyświetla tylko dla current_adsorbate_set_index)
+            if set_index == self.app_controller.current_adsorbate_set_index:
+                 self.fft_analysis_panel_widget.update_adsorbate_real_space_display(params.get("error", None) is None and params or None)
+            else: # pragma: no cover
+                 # Jeśli obliczono dla innego zestawu, można by to zignorować lub przechować
+                 logger.debug(f"Adsorbate real space params updated for set {set_index}, but current view is for set {self.app_controller.current_adsorbate_set_index}.")
+
+    @pyqtSlot()
+    def _on_calculate_substrate_rs_params_button_clicked(self):
+        logger.debug("MainWindow: Calculate Substrate Real Space Params button clicked.")
+        self.app_controller.calculate_and_store_substrate_real_params()
+
+    @pyqtSlot(int) # Odbiera indeks zestawu adsorbatu
+    def _on_calculate_adsorbate_rs_params_button_clicked(self, set_index: int):
+        logger.debug(f"MainWindow: Calculate Adsorbate Real Space Params button clicked for set {set_index}.")
+        # Upewnij się, że przekazywany set_index jest poprawny (np. zgodny z app_controller.current_adsorbate_set_index)
+        # lub przekaż app_controller.current_adsorbate_set_index bezpośrednio
+        self.app_controller.calculate_and_store_adsorbate_real_params(self.app_controller.current_adsorbate_set_index)
+
 
     @pyqtSlot(int)
     def _on_adsorbate_set_updated(self, set_index: int):

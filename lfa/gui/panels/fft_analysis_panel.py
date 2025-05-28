@@ -3,7 +3,7 @@ import logging
 import numpy as np
 from typing import Optional, Dict, Any
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QGroupBox, QFormLayout, QComboBox,
+    QWidget, QVBoxLayout, QGroupBox, QFormLayout, QComboBox, QTextEdit,
     QCheckBox, QRadioButton, QSpinBox, QPushButton, QHBoxLayout, QLabel
 )
 from PyQt6.QtCore import pyqtSignal, Qt
@@ -56,6 +56,9 @@ class FFTAnalysisPanel(QWidget):
     substrate_spots_visibility_changed = pyqtSignal(bool)
     adsorbate_spots_visibility_changed = pyqtSignal(bool)
 
+    calculate_substrate_real_space_params_requested = pyqtSignal()
+    calculate_adsorbate_real_space_params_requested = pyqtSignal(int)
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self._init_ui()
@@ -72,6 +75,8 @@ class FFTAnalysisPanel(QWidget):
 
         # --- Spot Selection Controls ---
         self._create_spot_selection_group(main_layout)
+
+        self._create_real_space_params_group(main_layout)
 
         main_layout.addStretch(1) # Dodaj rozciągliwą przestrzeń na dole
         self.setLayout(main_layout)
@@ -95,6 +100,40 @@ class FFTAnalysisPanel(QWidget):
 
         self.lattice_group.setLayout(lattice_layout)
         parent_layout.addWidget(self.lattice_group)
+
+    def _create_real_space_params_group(self, parent_layout: QVBoxLayout):
+        self.real_space_group = QGroupBox("Real Space Lattice Parameters")
+        real_space_layout = QVBoxLayout(self.real_space_group) # Główny layout dla tej grupy
+
+        # Sekcja Substratu
+        substrate_params_group = QGroupBox("Substrate")
+        substrate_params_form = QFormLayout(substrate_params_group)
+        self.sub_rs_a1_label = QLabel("a1: - nm")
+        self.sub_rs_a2_label = QLabel("a2: - nm")
+        self.sub_rs_alpha_label = QLabel("Angle: - °")
+        substrate_params_form.addRow("Vector 1 |a1|:", self.sub_rs_a1_label)
+        substrate_params_form.addRow("Vector 2 |a2|:", self.sub_rs_a2_label)
+        substrate_params_form.addRow("Angle α (a1,a2):", self.sub_rs_alpha_label)
+        self.calculate_substrate_rs_button = QPushButton("Calculate Substrate Parameters")
+        self.calculate_substrate_rs_button.setEnabled(False) # Początkowo wyłączony
+        substrate_params_form.addRow(self.calculate_substrate_rs_button)
+        real_space_layout.addWidget(substrate_params_group)
+
+        # Sekcja Adsorbatu (dla bieżącego zestawu)
+        adsorbate_params_group = QGroupBox("Adsorbate (Current Set)")
+        adsorbate_params_form = QFormLayout(adsorbate_params_group)
+        self.ads_rs_a1_label = QLabel("a1: - nm")
+        self.ads_rs_a2_label = QLabel("a2: - nm")
+        self.ads_rs_alpha_label = QLabel("Angle: - °")
+        adsorbate_params_form.addRow("Vector 1 |a1|:", self.ads_rs_a1_label)
+        adsorbate_params_form.addRow("Vector 2 |a2|:", self.ads_rs_a2_label)
+        adsorbate_params_form.addRow("Angle α (a1,a2):", self.ads_rs_alpha_label)
+        self.calculate_adsorbate_rs_button = QPushButton("Calculate Adsorbate Parameters (Current Set)")
+        self.calculate_adsorbate_rs_button.setEnabled(False) # Początkowo wyłączony
+        adsorbate_params_form.addRow(self.calculate_adsorbate_rs_button)
+        real_space_layout.addWidget(adsorbate_params_group)
+
+        parent_layout.addWidget(self.real_space_group)
 
     def _create_spot_selection_group(self, parent_layout: QVBoxLayout):
         """Creates the 'Spot Selection' group box and its controls."""
@@ -189,7 +228,21 @@ class FFTAnalysisPanel(QWidget):
         # self.clear_last_adsorbate_point_button.clicked.connect(self.clear_last_adsorbate_point_triggered)
         self.clear_all_adsorbate_sets_button.clicked.connect(self.clear_all_adsorbate_sets_triggered)
 
-    # --- Wewnętrzne Sloty ---
+        if hasattr(self, 'calculate_substrate_rs_button'):
+            self.calculate_substrate_rs_button.clicked.connect(
+                self.calculate_substrate_real_space_params_requested
+            )
+        if hasattr(self, 'calculate_adsorbate_rs_button'):
+            self.calculate_adsorbate_rs_button.clicked.connect(
+                # Sygnał musi być opakowany w lambda, jeśli chcemy przekazać argument,
+                # ale AppController zna current_adsorbate_set_index, więc MainWindow
+                # wywoła metodę kontrolera z tym indeksem.
+                # W tym przypadku, FFTAnalysisPanel może po prostu emitować ogólny sygnał.
+                lambda: self.calculate_adsorbate_real_space_params_requested.emit(
+                    self.adsorbate_set_combo.currentIndex() # Przekaż aktualny indeks z combo
+                )
+            )
+
     def _handle_substrate_combo_change(self, text: str):
         logger.debug(f"FFTAnalysisPanel: Substrate combo changed to '{text}'")
         if text == self.custom_option_text:
@@ -217,6 +270,36 @@ class FFTAnalysisPanel(QWidget):
             # MainWindow doda nowy set i zaktualizuje to combo.
         else:
             self.current_adsorbate_set_changed.emit(text)
+
+    def update_substrate_real_space_display(self, params: Optional[Dict[str, Any]]):
+        if hasattr(self, 'sub_rs_a1_label'): # Sprawdź, czy UI jest zainicjalizowane
+            if params and "a1_nm" in params:
+                self.sub_rs_a1_label.setText(f"{params['a1_nm']:.3f} nm")
+                self.sub_rs_a2_label.setText(f"{params.get('a2_nm', 'N/A'):.3f} nm")
+                self.sub_rs_alpha_label.setText(f"{params.get('alpha_deg', 'N/A'):.2f} °")
+            else:
+                self.sub_rs_a1_label.setText("- nm")
+                self.sub_rs_a2_label.setText("- nm")
+                self.sub_rs_alpha_label.setText("- °")
+
+    def set_calculate_substrate_rs_button_enabled(self, enabled: bool):
+        if hasattr(self, 'calculate_substrate_rs_button'):
+            self.calculate_substrate_rs_button.setEnabled(enabled)
+
+    def set_calculate_adsorbate_rs_button_enabled(self, enabled: bool):
+        if hasattr(self, 'calculate_adsorbate_rs_button'):
+            self.calculate_adsorbate_rs_button.setEnabled(enabled)
+
+    def update_adsorbate_real_space_display(self, params: Optional[Dict[str, Any]]):
+        if hasattr(self, 'ads_rs_a1_label'):
+            if params and "a1_nm" in params:
+                self.ads_rs_a1_label.setText(f"{params['a1_nm']:.3f} nm")
+                self.ads_rs_a2_label.setText(f"{params.get('a2_nm', 'N/A'):.3f} nm")
+                self.ads_rs_alpha_label.setText(f"{params.get('alpha_deg', 'N/A'):.2f} °")
+            else:
+                self.ads_rs_a1_label.setText("- nm")
+                self.ads_rs_a2_label.setText("- nm")
+                self.ads_rs_alpha_label.setText("- °")
 
     # --- Metody publiczne do zarządzania stanem UI z zewnątrz (jeśli potrzebne) ---
     def set_substrate_combo_text(self, text: str):
