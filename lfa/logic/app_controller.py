@@ -29,7 +29,7 @@ MAX_SUBSTRATE_SPOTS = 8 # Maksymalna liczba pików substratu
 
 try:
     from ..analysis.lattice import (
-        get_real_space_lattice_parameters, # Główna nowa funkcja
+        get_real_space_lattice_parameters, calculate_real_space_vectors_from_g, convert_g_vector_px_to_nm_inv,
         LATTICE_TYPE_HEXAGONAL, LATTICE_TYPE_SQUARE, # Stałe, jeśli potrzebne do logiki
     )
     LATTICE_ANALYSIS_FUNCTIONS_AVAILABLE = True
@@ -297,60 +297,6 @@ class AppController(QObject):
         if transform_changed or spots_changed or def_changed: # Jeśli cokolwiek się zmieniło, co wpływa na transformację lub jej wyświetlanie
             self.substrate_transform_results_updated.emit()
 
-    # def set_substrate_definition_and_spots(self,
-    #                                        spots: List[Tuple[float, float]],
-    #                                        lattice_type: Optional[str],
-    #                                        a_surf: Optional[float],
-    #                                        substrate_definition_name: str): # Nazwa z ComboBoxa dialogu
-    #     """
-    #     Ustawia piki substratu oraz definicję sieci (typ, a_surf, nazwa)
-    #     używaną do ich wyboru i potencjalnej analizy.
-    #     """
-    #     logger.info(f"AppController: Updating substrate spots ({len(spots)}) and definition: "
-    #                 f"Type={lattice_type}, a_surf={a_surf}, DefName='{substrate_definition_name}'")
-
-    #     # Aktualizacja pików
-    #     if self.substrate_spots != spots:
-    #         self.substrate_spots = list(spots) # Zawsze przechowuj kopię
-    #         self.spot_lists_updated.emit()
-
-    #     # Aktualizacja definicji sieci substratu
-    #     definition_changed = False
-    #     if self.current_substrate_type != lattice_type:
-    #         self.current_substrate_type = lattice_type
-    #         definition_changed = True
-        
-    #     if self.current_substrate_a_surf != a_surf:
-    #         self.current_substrate_a_surf = a_surf
-    #         definition_changed = True
-            
-    #     if self.current_substrate_name != substrate_definition_name:
-    #         self.current_substrate_name = substrate_definition_name
-    #         # Jeśli nazwa to "<Custom a_surf...>", to a_surf jest kluczowe.
-    #         # Jeśli to predefiniowana nazwa, a_surf jest z KNOWN_LATTICES.
-    #         # Jeśli to "None (Define a_surf below)", to a_surf może być None lub zdefiniowane.
-    #         if substrate_definition_name == PREDEFINED_SUBSTRATE_CUSTOM:
-    #             self.custom_lattice_info = { # Zaktualizuj lub utwórz custom_lattice_info
-    #                 "name": substrate_definition_name, # Lub bardziej unikalna nazwa
-    #                 "type": lattice_type,
-    #                 "a_surf": a_surf,
-    #                 "source": "User Defined in Dialog"
-    #             }
-    #             self.last_selected_substrate = substrate_definition_name # Ustaw jako "aktywny"
-    #         elif substrate_definition_name != PREDEFINED_SUBSTRATE_NONE:
-    #             self.custom_lattice_info = None # Wyczyść custom, jeśli wybrano predefiniowaną
-    #             self.last_selected_substrate = substrate_definition_name
-    #         else: # PREDEFINED_SUBSTRATE_NONE
-    #             self.custom_lattice_info = None
-    #             self.last_selected_substrate = PREDEFINED_SUBSTRATE_NONE
-
-    #         definition_changed = True
-
-    #     if definition_changed:
-    #         self.substrate_definition_changed.emit()
-    #         # spot_selection_parameters_changed może też być odpowiedni, jeśli typ sieci wpływa na parametry
-    #         self.spot_selection_parameters_changed.emit()
-
     def calculate_and_store_substrate_real_params(self):
         """
         Calculates real-space lattice parameters for the substrate based on
@@ -372,9 +318,6 @@ class AppController(QObject):
             self.substrate_real_space_params_updated.emit({"error": "Substrate definition for fit missing."})
             return
         
-        # Używamy displayable_fitted_substrate_spots_on_fft, które są idealnymi punktami
-        # przetransformowanymi tak, aby pasowały do kliknięć użytkownika.
-        # Te punkty reprezentują wierzchołki "zdeformowanej" idealnej siatki na obrazie FFT.
         if not self.displayable_fitted_substrate_spots_on_fft:
             logger.warning("Fitted substrate spots (in FFT px) are not available.")
             self.substrate_real_space_params_updated.emit({"error": "Fitted substrate spots missing."})
@@ -411,11 +354,7 @@ class AppController(QObject):
             (kx_abs - center_kx_px, ky_abs - center_ky_px)
             for kx_abs, ky_abs in self.displayable_fitted_substrate_spots_on_fft
         ]
-        
-        # Sprawdź, czy mamy odpowiednią liczbę pików dla danego typu sieci
-        # Liczba displayable_fitted_substrate_spots_on_fft powinna odpowiadać liczbie
-        # idealnych punktów, które zostały dopasowane (czyli 6 dla hex, 4 dla square,
-        # jeśli `ideal_points_that_were_matched` w dialogu miało tyle elementów).
+
         expected_spot_count = 0
         if self.substrate_lattice_type == LATTICE_TYPE_HEXAGONAL: expected_spot_count = 6
         elif self.substrate_lattice_type == LATTICE_TYPE_SQUARE: expected_spot_count = 4
@@ -454,99 +393,6 @@ class AppController(QObject):
             logger.warning("Failed to calculate substrate real space parameters from fitted spots.")
             self.substrate_real_space_params_updated.emit({"error": "Calculation failed in lattice module."})
 
-
-
-    # def calculate_and_store_substrate_real_params(self):
-    #     """
-    #     Calculates real-space lattice parameters for the currently defined substrate
-    #     and stores them. Emits a signal upon completion.
-    #     """
-    #     if not LATTICE_ANALYSIS_FUNCTIONS_AVAILABLE: # pragma: no cover
-    #         logger.error("Lattice analysis functions (get_real_space_lattice_parameters) not available.")
-    #         self.substrate_real_space_params_updated.emit({"error": "Lattice functions missing."})
-    #         return
-
-    #     logger.info("AppController: Attempting to calculate substrate real space parameters.")
-
-    #     # 1. Walidacja danych wejściowych
-    #     if not (self.substrate_lattice_type and self.substrate_a_surf and self.substrate_a_surf > 0):
-    #         logger.warning("Substrate definition (type/a_surf) not set. Cannot calculate real space params.")
-    #         self.substrate_real_space_params_updated.emit({"error": "Substrate definition incomplete."})
-    #         return
-        
-    #     if not self.reference_ideal_substrate_spots_px:
-    #         logger.warning("Reference ideal substrate spots (in FFT px) are not available.")
-    #         # Spróbuj je wygenerować, jeśli ich nie ma, ale definicja substratu jest
-    #         # To jest bardziej skomplikowane, bo get_substrate_ideal_spots_for_real_space_calc
-    #         # potrzebuje Lx, Ly i kształtu FFT - załóżmy, że reference_ideal_substrate_spots_px
-    #         # są ustawiane po dialogu substratu.
-    #         # Lepsze byłoby, gdyby metoda `update_substrate_analysis_results` zawsze je ustawiała.
-    #         self.substrate_real_space_params_updated.emit({"error": "Reference ideal spots missing."})
-    #         return
-
-    #     if not self.current_fft_data_shape: # pragma: no cover
-    #         logger.warning("Current FFT data shape not available. Cannot calculate real space params.")
-    #         self.substrate_real_space_params_updated.emit({"error": "FFT shape missing."})
-    #         return
-
-    #     # 2. Pobierz Lx_nm, Ly_nm
-    #     # Zakładamy, że jest aktywny jakiś węzeł FFT, aby znaleźć jego korzeń "Original"
-    #     current_node = self.history_manager.get_current_node()
-    #     if not current_node: # pragma: no cover
-    #          logger.warning("No current history node available for Lx/Ly."); self.substrate_real_space_params_updated.emit({"error": "No active node."}); return
-        
-    #     root_node = self.history_manager.get_root_node_for_node(current_node.node_id)
-    #     if not (root_node and root_node.operation_name == "Original" and root_node.parameters): # pragma: no cover
-    #         logger.warning("Could not get Original node parameters for Lx/Ly."); self.substrate_real_space_params_updated.emit({"error": "Original node params missing."}); return
-        
-    #     Lx_nm = root_node.parameters.get("size_nm_x")
-    #     Ly_nm = root_node.parameters.get("size_nm_y")
-
-    #     if not (Lx_nm and Ly_nm and Lx_nm > 0 and Ly_nm > 0): # pragma: no cover
-    #         logger.warning("Invalid Lx/Ly from Original node."); self.substrate_real_space_params_updated.emit({"error": "Invalid Lx/Ly."}); return
-
-    #     # 3. Przygotuj wektory g* względem centrum FFT
-    #     # self.reference_ideal_substrate_spots_px to absolutne pozycje pikselowe na FFT
-    #     fft_rows_ky, fft_cols_kx = self.current_fft_data_shape
-    #     center_kx_px = fft_cols_kx / 2.0
-    #     center_ky_px = fft_rows_ky / 2.0
-
-    #     selected_g_vectors_relative_px = [
-    #         (kx_abs - center_kx_px, ky_abs - center_ky_px)
-    #         for kx_abs, ky_abs in self.reference_ideal_substrate_spots_px
-    #     ]
-        
-    #     # Sprawdź, czy mamy odpowiednią liczbę pików dla danego typu sieci
-    #     expected_spot_count = 0
-    #     if self.substrate_lattice_type == LATTICE_TYPE_HEXAGONAL: expected_spot_count = 6
-    #     elif self.substrate_lattice_type == LATTICE_TYPE_SQUARE: expected_spot_count = 4
-        
-    #     if len(selected_g_vectors_relative_px) != expected_spot_count and expected_spot_count > 0:
-    #         logger.warning(f"Incorrect number of reference spots ({len(selected_g_vectors_relative_px)}) "
-    #                        f"for {self.substrate_lattice_type} (expected {expected_spot_count}). Cannot calculate.")
-    #         self.substrate_real_space_params_updated.emit({"error": f"Need {expected_spot_count} ref. spots."})
-    #         return
-
-
-    #     # 4. Wywołaj funkcję z lattice.py
-    #     results = get_real_space_lattice_parameters(
-    #         selected_g_vectors_relative_px=selected_g_vectors_relative_px,
-    #         lattice_type=self.substrate_lattice_type,
-    #         Lx_nm=Lx_nm,
-    #         Ly_nm=Ly_nm,
-    #         fft_shape_cols_kx=fft_cols_kx,
-    #         fft_shape_rows_ky=fft_rows_ky
-    #     )
-
-    #     if results:
-    #         self.substrate_real_space_results = results
-    #         logger.info(f"Successfully calculated substrate real space parameters: {results}")
-    #         self.substrate_real_space_params_updated.emit(results)
-    #     else: # pragma: no cover
-    #         self.substrate_real_space_results = None
-    #         logger.warning("Failed to calculate substrate real space parameters.")
-    #         self.substrate_real_space_params_updated.emit({"error": "Calculation failed in lattice module."})
-
     
     def calculate_and_store_adsorbate_real_params(self, set_index: int):
         """
@@ -579,58 +425,16 @@ class AppController(QObject):
         if not (root_node and root_node.parameters): logger.warning("Cannot get Lx, Ly for adsorbate."); self.adsorbate_real_space_params_updated.emit(set_index, {"error": "Original node params missing."}); return # pragma: no cover
         Lx_nm = root_node.parameters.get("size_nm_x"); Ly_nm = root_node.parameters.get("size_nm_y")
         if not (Lx_nm and Ly_nm and Lx_nm > 0 and Ly_nm > 0): logger.warning("Invalid Lx/Ly."); self.adsorbate_real_space_params_updated.emit(set_index, {"error": "Invalid Lx/Ly."}); return # pragma: no cover
-
-        # 2. Przygotuj wektory g* względem centrum "idealnego" FFT
-        # corrected_spots_ideal_px są już w "idealnym" systemie pikseli FFT, wycentrowanym.
-        # Funkcja select_reciprocal_lattice_basis_vectors oczekuje wektorów od centrum.
-        # Musimy wybrać, który z corrected_spots_ideal_px jest centrum (0,0) lub jak wybrać wektory.
-        
-        # Założenie: użytkownik wybrał piki tak, że pierwszy może być traktowany jako centrum (0,0)
-        # lub trzeba zaimplementować bardziej zaawansowany wybór.
-        # Na razie proste: jeśli są 3, pierwszy to centrum, dwa pozostałe definiują g1*, g2*.
-        
-        # Przekształć corrected_spots_ideal_px na wektory względem (domniemanego) centrum,
-        # jeśli nie są już wektorami od (0,0) idealnego systemu.
-        # `corrected_spots_ideal_px` są POZYCJAMI w idealnym systemie FFT.
         
         fft_rows_ky, fft_cols_kx = self.current_fft_data_shape
         center_kx_ideal_px = fft_cols_kx / 2.0
         center_ky_ideal_px = fft_rows_ky / 2.0
-
-        # Jeśli `corrected_spots_ideal_px` to absolutne pozycje w idealnym systemie,
-        # potrzebujemy ich jako wektorów od centrum tego idealnego systemu.
-        # Jeśli jeden z nich to (0,0) tego systemu, to jest proste.
-        # Załóżmy, że użytkownik wybiera piki, które *już* są wektorami g*
-        # (lub jeden z nich jest (0,0) a pozostałe to g1*, g2*).
-        # Dla prostoty, załóżmy, że użytkownik wskazuje piki, które są końcami wektorów g*
-        # zaczepionych w (0,0) idealnej przestrzeni odwrotnej.
-        # Jeśli są 3 piki: (0,0), g1*, g2*. Wtedy g1* i g2* to bezpośrednio wybrane piki.
-        # To wymaga od użytkownika, aby wybrał pik (0,0) w dialogu adsorbatu.
-        #
-        # Bardziej ogólnie: jeśli mamy N>=3 skorygowanych pików, musimy wybrać 2 wektory bazowe.
-        # TODO: Implement a robust way to select basis g-vectors for adsorbate from N spots.
-        # For now, let's assume a simple case for demonstration if 3 spots are given:
-        # (0,0)-like, g1, g2. Or just take first two non-collinear if more are given.
         
         if len(corrected_spots_ideal_px) < 2 : # Potrzebujemy co najmniej 2 wektorów g*
             logger.warning(f"Need at least 2 (non-origin) corrected adsorbate spots to define basis for set {set_index}.")
             self.adsorbate_real_space_params_updated.emit(set_index, {"error": "Need >= 2 non-origin spots."})
             return
 
-        # Załóżmy, że corrected_spots_ideal_px to już są wektory g* (w pikselach idealnego systemu, od (0,0))
-        # Jeśli nie, trzeba je przeliczyć. Np. jeśli pierwszy to (0,0):
-        # g_vectors_adsorbate_px = []
-        # origin_like_spot = corrected_spots_ideal_px[0] # Załóżmy, że pierwszy to (0,0) lub blisko
-        # for spot_px in corrected_spots_ideal_px[1:]:
-        #    g_vectors_adsorbate_px.append( (spot_px[0] - origin_like_spot[0], spot_px[1] - origin_like_spot[1]) )
-        # if len(g_vectors_adsorbate_px) < 2: ... return
-        # g1_ads_px, g2_ads_px = g_vectors_adsorbate_px[0], g_vectors_adsorbate_px[1] # Uproszczenie
-
-        # Bardziej robustne: użyj funkcji podobnej do select_reciprocal_lattice_basis_vectors,
-        # ale dla nieznanego typu sieci, próbującej znaleźć dwa najkrótsze, liniowo niezależne wektory.
-        # Na razie, dla testu, weźmy pierwsze dwa z listy `corrected_spots_ideal_px`
-        # zakładając, że są to już wektory g* względem centrum idealnego systemu.
-        # To duże uproszczenie!
         if len(corrected_spots_ideal_px) >= 2:
             g1_ads_px = (corrected_spots_ideal_px[0][0] - center_kx_ideal_px, corrected_spots_ideal_px[0][1] - center_ky_ideal_px)
             g2_ads_px = (corrected_spots_ideal_px[1][0] - center_kx_ideal_px, corrected_spots_ideal_px[1][1] - center_ky_ideal_px)
