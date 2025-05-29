@@ -25,11 +25,18 @@ REFINEMENT_DIRECT_CLICK = "Direct Click"
 REFINEMENT_MAX_PIXEL = "Max Pixel"
 REFINEMENT_GAUSSIAN_FIT = "2D Gaussian Fit"
 
+ADSORBATE_LATTICE_TYPE_UNKNOWN = "Unknown"
+ADSORBATE_LATTICE_TYPE_HEXAGONAL = "Hexagonal"
+ADSORBATE_LATTICE_TYPE_SQUARE = "Square"
+
 MAX_SUBSTRATE_SPOTS = 8 # Maksymalna liczba pików substratu
 
 try:
     from ..analysis.lattice import (
-        get_real_space_lattice_parameters, calculate_real_space_vectors_from_g, convert_g_vector_px_to_nm_inv,
+        get_real_space_lattice_parameters, 
+        calculate_real_space_vectors_from_g, 
+        convert_g_vector_px_to_nm_inv, 
+        select_adsorbate_reciprocal_basis_vectors_px,
         LATTICE_TYPE_HEXAGONAL, LATTICE_TYPE_SQUARE, # Stałe, jeśli potrzebne do logiki
     )
     LATTICE_ANALYSIS_FUNCTIONS_AVAILABLE = True
@@ -60,6 +67,8 @@ class AppController(QObject):
 
     substrate_real_space_params_updated = pyqtSignal(dict)
     adsorbate_real_space_params_updated = pyqtSignal(int, dict)
+
+    adsorbate_expected_type_updated = pyqtSignal(int, str)
 
     def __init__(self, history_manager, parent: Optional[QObject] = None):
         """
@@ -123,6 +132,7 @@ class AppController(QObject):
         self.current_fft_data_shape: Optional[Tuple[int, int]] = None
         self.substrate_real_space_results: Optional[Dict[str, Any]] = None
         self.adsorbate_real_space_results: Dict[int, Dict[str, Any]] = {} 
+        self.adsorbate_expected_lattice_types: Dict[int, str] = {0: ADSORBATE_LATTICE_TYPE_UNKNOWN}
 
         logger.info("AppController initialized.")
 
@@ -170,12 +180,13 @@ class AppController(QObject):
                 self.current_substrate_type = None
                 self.current_substrate_name = PREDEFINED_SUBSTRATE_NONE
                 self.substrate_definition_changed.emit() # Poinformuj UI o resecie
+                self.adsorbate_expected_lattice_types = {0: ADSORBATE_LATTICE_TYPE_UNKNOWN}
 
                 self.history_manager.clear_history() # Wyczyść poprzednią historię
                 self.corrected_adsorbate_spot_sets = [[]]
                 if hasattr(self, 'adsorbate_set_updated'): self.adsorbate_set_updated.emit(0)
                 if hasattr(self, 'adsorbate_real_space_params_updated'): self.adsorbate_real_space_params_updated.emit(0, {})
-
+                if hasattr(self, 'adsorbate_expected_type_updated'): self.adsorbate_expected_type_updated.emit(0, ADSORBATE_LATTICE_TYPE_UNKNOWN)
                 # Przygotuj parametry dla węzła "Original"
                 # Te parametry są istotne dla MetadataWidget i potencjalnie dla innych operacji
                 root_params = {
@@ -412,72 +423,92 @@ class AppController(QObject):
             self.adsorbate_real_space_params_updated.emit(set_index, {"error": "Invalid set index."})
             return
         
-        corrected_spots_ideal_px = self.corrected_adsorbate_spot_sets[set_index]
-        if not corrected_spots_ideal_px or len(corrected_spots_ideal_px) < 3: # Wymaga co najmniej 3 pików do zdefiniowania 2 wektorów
-            logger.warning(f"Not enough corrected adsorbate spots (need >=3, got {len(corrected_spots_ideal_px)}) for set {set_index}.")
-            self.adsorbate_real_space_params_updated.emit(set_index, {"error": "Need >= 3 corrected spots."})
+        corrected_spots_ideal_px_abs = self.corrected_adsorbate_spot_sets[set_index] # To są absolutne pozycje w idealnym FFT
+        
+        # Pobierz spodziewany typ sieci dla tego zestawu
+        expected_ads_type = self.adsorbate_expected_lattice_types.get(set_index, ADSORBATE_LATTICE_TYPE_UNKNOWN)
+        
+        num_corrected_spots = len(corrected_spots_ideal_px_abs)
+
+        # Minimalna liczba spotów do zdefiniowania 2 wektorów to 2 (jeśli są to już wektory od centrum)
+        # lub 3 (jeśli jeden to centrum, a dwa pozostałe definiują wektory).
+        # Funkcja select_adsorbate_reciprocal_basis_vectors_px sama obsłuży walidację liczby spotów.
+        if num_corrected_spots < 2:
+            logger.warning(f"Not enough corrected adsorbate spots (need >=2, got {num_corrected_spots}) for set {set_index}.")
+            self.adsorbate_real_space_params_updated.emit(set_index, {"error": f"Need >= 2 corrected spots, got {num_corrected_spots}."})
             return
 
         if not self.current_fft_data_shape: # pragma: no cover
             logger.warning("Current FFT data shape not available."); self.adsorbate_real_space_params_updated.emit(set_index, {"error": "FFT shape missing."}); return
 
         root_node = self.history_manager.get_root_node_for_node(self.history_manager.get_current_node().node_id) # type: ignore
-        if not (root_node and root_node.parameters): logger.warning("Cannot get Lx, Ly for adsorbate."); self.adsorbate_real_space_params_updated.emit(set_index, {"error": "Original node params missing."}); return # pragma: no cover
-        Lx_nm = root_node.parameters.get("size_nm_x"); Ly_nm = root_node.parameters.get("size_nm_y")
-        if not (Lx_nm and Ly_nm and Lx_nm > 0 and Ly_nm > 0): logger.warning("Invalid Lx/Ly."); self.adsorbate_real_space_params_updated.emit(set_index, {"error": "Invalid Lx/Ly."}); return # pragma: no cover
+        if not (root_node and root_node.parameters): 
+            logger.warning("Cannot get Lx, Ly for adsorbate.")
+            self.adsorbate_real_space_params_updated.emit(set_index, {"error": "Original node params missing."})
+            return # pragma: no cover
+        Lx_nm = root_node.parameters.get("size_nm_x")
+        Ly_nm = root_node.parameters.get("size_nm_y")
+        if not (Lx_nm and Ly_nm and Lx_nm > 0 and Ly_nm > 0): 
+            logger.warning("Invalid Lx/Ly.")
+            self.adsorbate_real_space_params_updated.emit(set_index, {"error": "Invalid Lx/Ly."})
+            return # pragma: no cover
         
         fft_rows_ky, fft_cols_kx = self.current_fft_data_shape
         center_kx_ideal_px = fft_cols_kx / 2.0
         center_ky_ideal_px = fft_rows_ky / 2.0
         
-        if len(corrected_spots_ideal_px) < 2 : # Potrzebujemy co najmniej 2 wektorów g*
-            logger.warning(f"Need at least 2 (non-origin) corrected adsorbate spots to define basis for set {set_index}.")
-            self.adsorbate_real_space_params_updated.emit(set_index, {"error": "Need >= 2 non-origin spots."})
-            return
+        # 2. Przygotuj wektory g* adsorbatu względem centrum idealnego systemu FFT
+        # corrected_spots_ideal_px_abs to absolutne pozycje (kx, ky) w idealnym systemie FFT
+        g_vectors_adsorbate_relative_px = [
+            (spot_abs_kx - center_kx_ideal_px, spot_abs_ky - center_ky_ideal_px)
+            for spot_abs_kx, spot_abs_ky in corrected_spots_ideal_px_abs
+        ]
 
-        if len(corrected_spots_ideal_px) >= 2:
-            g1_ads_px = (corrected_spots_ideal_px[0][0] - center_kx_ideal_px, corrected_spots_ideal_px[0][1] - center_ky_ideal_px)
-            g2_ads_px = (corrected_spots_ideal_px[1][0] - center_kx_ideal_px, corrected_spots_ideal_px[1][1] - center_ky_ideal_px)
-            # Sprawdź, czy nie są współliniowe z centrum lub ze sobą
-            if np.linalg.norm(g1_ads_px) < 1e-3 or np.linalg.norm(g2_ads_px) < 1e-3:
-                logger.warning(f"Adsorbate g-vectors too short for set {set_index}."); self.adsorbate_real_space_params_updated.emit(set_index, {}); return
-            
-            # Sprawdzenie współliniowości g1 i g2
-            cross_prod_z = g1_ads_px[0]*g2_ads_px[1] - g1_ads_px[1]*g2_ads_px[0]
-            if abs(cross_prod_z) < 1e-3: # Zbyt mały iloczyn wektorowy (współliniowe)
-                 logger.warning(f"Adsorbate g-vectors are collinear for set {set_index}."); self.adsorbate_real_space_params_updated.emit(set_index, {}); return
-        else:
-            logger.warning(f"Not enough corrected adsorbate spots to form basis for set {set_index}.")
-            self.adsorbate_real_space_params_updated.emit(set_index, {"error": "Need >= 2 distinct spots."})
+        # 3. Wywołaj nową funkcję do wyboru wektorów bazowych g* dla adsorbatu
+        basis_g_ads_px = select_adsorbate_reciprocal_basis_vectors_px(
+            corrected_g_vectors_relative_px=g_vectors_adsorbate_relative_px,
+            expected_lattice_type=expected_ads_type
+        )
+
+        if basis_g_ads_px is None:
+            logger.warning(f"Failed to select basis g-vectors for adsorbate set {set_index} with type '{expected_ads_type}'.")
+            self.adsorbate_real_space_params_updated.emit(set_index, {"error": "Basis g-vector selection failed."})
             return
+        g1_ads_px, g2_ads_px = basis_g_ads_px
             
-        # 3. Konwersja na nm^-1
+        # 4. Konwersja na nm^-1
         g1_ads_nm_inv = convert_g_vector_px_to_nm_inv(g1_ads_px, Lx_nm, Ly_nm, fft_cols_kx, fft_rows_ky)
         g2_ads_nm_inv = convert_g_vector_px_to_nm_inv(g2_ads_px, Lx_nm, Ly_nm, fft_cols_kx, fft_rows_ky)
 
         if g1_ads_nm_inv is None or g2_ads_nm_inv is None: # pragma: no cover
-            self.adsorbate_real_space_params_updated.emit(set_index, {"error": "g-vector conversion failed."}); return
+            self.adsorbate_real_space_params_updated.emit(set_index, {"error": "g-vector conversion to nm^-1 failed."}); return
 
-        # 4. Obliczenie wektorów sieci rzeczywistej a1, a2 (w nm)
+        # 5. Obliczenie wektorów sieci rzeczywistej a1, a2 (w nm)
         real_space_vecs_ads = calculate_real_space_vectors_from_g(g1_ads_nm_inv, g2_ads_nm_inv)
         if real_space_vecs_ads is None: # pragma: no cover
-            self.adsorbate_real_space_params_updated.emit(set_index, {"error": "Real space vector calc failed."}); return
+            self.adsorbate_real_space_params_updated.emit(set_index, {"error": "Real space vector calculation failed (g-vectors likely collinear)."}); return
         a1_ads_vec_nm, a2_ads_vec_nm = real_space_vecs_ads
 
-        # 5. Parametry
+        # 6. Parametry
         a1_ads_mag_nm = np.linalg.norm(a1_ads_vec_nm)
         a2_ads_mag_nm = np.linalg.norm(a2_ads_vec_nm)
-        dot_product_ads = np.dot(a1_ads_vec_nm, a2_ads_vec_nm)
+        
         if a1_ads_mag_nm < 1e-9 or a2_ads_mag_nm < 1e-9: # pragma: no cover
-             self.adsorbate_real_space_params_updated.emit(set_index, {"error": "Real vectors too short."}); return
+            logger.warning(f"Calculated real space vectors for adsorbate set {set_index} have zero or near-zero magnitude.")
+            self.adsorbate_real_space_params_updated.emit(set_index, {"error": "Calculated real vectors too short."}); return
+
+        dot_product_ads = np.dot(a1_ads_vec_nm, a2_ads_vec_nm)
         cos_alpha_ads = np.clip(dot_product_ads / (a1_ads_mag_nm * a2_ads_mag_nm), -1.0, 1.0)
         alpha_ads_deg = np.degrees(np.arccos(cos_alpha_ads))
 
         results = {
             "a1_nm": a1_ads_mag_nm, "a2_nm": a2_ads_mag_nm, "alpha_deg": alpha_ads_deg,
             "a1_vec_nm": a1_ads_vec_nm, "a2_vec_nm": a2_ads_vec_nm,
-            "g1_vec_px_ideal_sys": g1_ads_px, "g2_vec_px_ideal_sys": g2_ads_px, # W pikselach idealnego systemu
-            "g1_vec_nm_inv": g1_ads_nm_inv, "g2_vec_nm_inv": g2_ads_nm_inv
+            "g1_vec_px_ideal_sys": g1_ads_px, # Wektory bazowe g* w pikselach (względem centrum idealnego FFT)
+            "g2_vec_px_ideal_sys": g2_ads_px,
+            "g1_vec_nm_inv": g1_ads_nm_inv, 
+            "g2_vec_nm_inv": g2_ads_nm_inv,
+            "source_corrected_spots_ideal_px": corrected_spots_ideal_px_abs # Piki, z których liczono
         }
         logger.info(f"Adsorbate set {set_index} real space params: a1={a1_ads_mag_nm:.3f}nm, a2={a2_ads_mag_nm:.3f}nm, alpha={alpha_ads_deg:.2f}deg")
         self.adsorbate_real_space_results[set_index] = results
@@ -664,6 +695,23 @@ class AppController(QObject):
                 self.spot_lists_updated.emit()
         else: logger.debug("Not in adsorbate mode or invalid set index for reselect_current_adsorbate_set.") # pragma: no cover
 
+    def set_expected_adsorbate_lattice_type(self, set_index: int, lattice_type: str):
+        """Ustawia spodziewany typ sieci dla danego zestawu adsorbatu."""
+        valid_types = [ADSORBATE_LATTICE_TYPE_UNKNOWN, ADSORBATE_LATTICE_TYPE_HEXAGONAL, ADSORBATE_LATTICE_TYPE_SQUARE]
+        if not (0 <= set_index < len(self.adsorbate_spot_sets)) or lattice_type not in valid_types:
+            logger.warning(f"AppController: Invalid set_index {set_index} or lattice_type '{lattice_type}' for adsorbate.")
+            return
+        
+        if self.adsorbate_expected_lattice_types.get(set_index) != lattice_type:
+            self.adsorbate_expected_lattice_types[set_index] = lattice_type
+            logger.info(f"AppController: Expected lattice type for adsorbate set {set_index} set to '{lattice_type}'.")
+            # Po zmianie typu, poprzednie obliczenia parametrów rzeczywistych dla tego zestawu są nieaktualne
+            if set_index in self.adsorbate_real_space_results:
+                del self.adsorbate_real_space_results[set_index]
+                # Poinformuj UI o zresetowaniu parametrów dla tego zestawu
+                if hasattr(self, 'adsorbate_real_space_params_updated'): self.adsorbate_real_space_params_updated.emit(set_index, {}) 
+            
+            self.adsorbate_expected_type_updated.emit(set_index, lattice_type)
 
     def clear_all_adsorbate_sets(self):
         """Czyści wszystkie zestawy pików adsorbatu i resetuje do jednego pustego zestawu."""
@@ -671,8 +719,11 @@ class AppController(QObject):
             self.adsorbate_spot_sets = [[]]
             self.corrected_adsorbate_spot_sets = [[]]
             self.current_adsorbate_set_index = 0
+            self.adsorbate_expected_lattice_types = {0: ADSORBATE_LATTICE_TYPE_UNKNOWN}
+        # ... (emisja sygnałów) ...
             logger.info("All adsorbate spot sets cleared. Reset to one empty set.")
             self.adsorbate_sets_structure_changed.emit() # Dla ComboBoxa
+            if hasattr(self, 'adsorbate_expected_type_updated'): self.adsorbate_expected_type_updated.emit(0, ADSORBATE_LATTICE_TYPE_UNKNOWN)
             self.adsorbate_set_updated.emit(0)
         else:
             logger.debug("No adsorbate sets to clear or already in default state.")
@@ -712,6 +763,7 @@ class AppController(QObject):
         if set_index in self.adsorbate_real_space_results:
             del self.adsorbate_real_space_results[set_index]
             self.adsorbate_real_space_params_updated.emit(set_index, {})
+            if hasattr(self, 'adsorbate_real_space_params_updated'): self.adsorbate_real_space_params_updated.emit(set_index, {})
 
 
     def add_new_adsorbate_set(self):
@@ -719,9 +771,13 @@ class AppController(QObject):
         self.adsorbate_spot_sets.append([])
         self.corrected_adsorbate_spot_sets.append([])
         self.current_adsorbate_set_index = len(self.adsorbate_spot_sets) - 1
+        new_set_index = len(self.adsorbate_spot_sets) - 1
         logger.info(f"Added new adsorbate set. Index: {self.current_adsorbate_set_index}")
+        last_selected_type_in_panel = ADSORBATE_LATTICE_TYPE_UNKNOWN
+        self.adsorbate_expected_lattice_types[new_set_index] = last_selected_type_in_panel
         self.spot_lists_updated.emit() # Aktualizacja ogólna (np. dla _update_action_states)
         self.adsorbate_sets_structure_changed.emit() # Sygnał dla GUI o zmianie liczby zestawów
+        if hasattr(self, 'adsorbate_expected_type_updated'): self.adsorbate_expected_type_updated.emit(new_set_index, last_selected_type_in_panel)
 
     def set_current_adsorbate_set_by_index(self, index: int):
         """Ustawia bieżący zestaw adsorbatu na podstawie indeksu."""
@@ -752,12 +808,14 @@ class AppController(QObject):
         self.substrate_transform_analysis_m2i = None
         self.displayable_fitted_substrate_spots_on_fft.clear()
         self.substrate_real_space_results = None
+        self.adsorbate_expected_lattice_types = {0: ADSORBATE_LATTICE_TYPE_UNKNOWN}
 
         if hasattr(self, 'substrate_real_space_params_updated'): self.substrate_real_space_params_updated.emit({})
         if hasattr(self, 'spot_lists_updated'): self.spot_lists_updated.emit()
         if hasattr(self, 'adsorbate_sets_structure_changed'): self.adsorbate_sets_structure_changed.emit()
         if hasattr(self, 'substrate_transform_results_updated'): self.substrate_transform_results_updated.emit()
         if hasattr(self, 'adsorbate_real_space_params_updated'): self.adsorbate_real_space_params_updated.emit(0, {})
+        if hasattr(self, 'adsorbate_expected_type_updated'): self.adsorbate_expected_type_updated.emit(0, ADSORBATE_LATTICE_TYPE_UNKNOWN)
         if changed and hasattr(self, 'adsorbate_set_updated'): self.adsorbate_set_updated.emit(0)
         logger.debug("All spot data and substrate transform results cleared.")
         

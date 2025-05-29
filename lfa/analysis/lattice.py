@@ -9,6 +9,14 @@ from typing import Dict, Tuple, List, Optional, Union, Any
 LATTICE_TYPE_HEXAGONAL = "hexagonal"
 LATTICE_TYPE_SQUARE = "square"
 
+LATTICE_TYPE_HEXAGONAL = "hexagonal"
+LATTICE_TYPE_SQUARE = "square"
+LATTICE_TYPE_UNKNOWN = "Unknown" # Dodajemy typ "Unknown"
+
+ADSORBATE_LATTICE_TYPE_UNKNOWN = "Unknown"
+ADSORBATE_LATTICE_TYPE_HEXAGONAL = "Hexagonal"
+ADSORBATE_LATTICE_TYPE_SQUARE = "Square"
+
 
 logger = logging.getLogger(__name__)
 
@@ -506,3 +514,201 @@ def get_real_space_lattice_parameters(
     }
     logger.info(f"Calculated real space params: a1={a1_s_mag_nm:.4f}nm, a2={a2_s_mag_nm:.4f}nm, alpha={alpha_s_deg:.2f}deg")
     return results
+
+def select_adsorbate_reciprocal_basis_vectors_px(
+    corrected_g_vectors_relative_px: List[Tuple[float, float]], # Wektory g* adsorbatu od centrum idealnego systemu
+    expected_lattice_type: str,
+) -> Optional[Tuple[Tuple[float, float], Tuple[float, float]]]:
+    """
+    Selects two primary reciprocal lattice basis vectors (g1_A*, g2_A*) for an adsorbate
+    from a list of its corrected g-vectors (in pixels, relative to FFT center of the ideal system),
+    considering the expected lattice type and the number of provided spots.
+
+    Args:
+        corrected_g_vectors_relative_px: List of (dkx_px, dky_px) g-vectors for the adsorbate,
+                                         relative to the center of the ideal FFT system.
+        expected_lattice_type: String indicating the expected lattice type
+                               ("Hexagonal", "Square", "Unknown").
+
+    Returns:
+        A tuple containing two basis vectors (g1_A_px, g2_A_px), or None if selection fails.
+        Each vector is a tuple (dkx_px, dky_px).
+    """
+    num_spots_selected = len(corrected_g_vectors_relative_px)
+    logger.info(f"Selecting adsorbate basis g-vectors. Expected type: '{expected_lattice_type}', Spots provided: {num_spots_selected}")
+
+    if not corrected_g_vectors_relative_px or num_spots_selected < 2:
+        logger.warning("Not enough adsorbate g-vectors provided (need at least 2) to define a basis.")
+        return None
+
+    # --- Scenariusz 1: Użytkownik wybrał dokładnie 2 spoty (traktowane jako g1* i g2*) ---
+    if num_spots_selected == 2:
+        g1_px = corrected_g_vectors_relative_px[0]
+        g2_px = corrected_g_vectors_relative_px[1]
+        
+        # Sprawdź, czy nie są zerowe lub współliniowe
+        norm_g1 = np.linalg.norm(g1_px)
+        norm_g2 = np.linalg.norm(g2_px)
+        if norm_g1 < 1e-6 or norm_g2 < 1e-6:
+            logger.warning("Adsorbate (2 spots): One or both selected g-vectors are zero length.")
+            return None
+        
+        # Iloczyn wektorowy (składowa z) do sprawdzenia współliniowości
+        cross_product_z = g1_px[0] * g2_px[1] - g1_px[1] * g2_px[0]
+        if abs(cross_product_z) / (norm_g1 * norm_g2) < 1e-3: # Sprawdzenie sinusa kąta
+            logger.warning("Adsorbate (2 spots): Selected g-vectors are collinear.")
+            return None
+            
+        logger.info(f"Adsorbate (2 spots defined): Using g1*={g1_px}, g2*={g2_px}")
+        return g1_px, g2_px
+
+    # --- Scenariusz 2: Spodziewany typ "Hexagonal" ---
+    elif expected_lattice_type == LATTICE_TYPE_HEXAGONAL.capitalize(): # Porównaj z wielką literą, jak w ComboBoxie
+        if num_spots_selected < 2 : # Potrzebujemy co najmniej 2 do zdefiniowania, ideał to 6
+             logger.warning(f"Hexagonal Adsorbate: Not enough spots (need >= 2, got {num_spots_selected}).")
+             return None
+        if num_spots_selected < 6:
+            logger.warning(f"Hexagonal Adsorbate: {num_spots_selected} spots provided, less than ideal 6. "
+                           "Attempting to find basis. Result may be less accurate.")
+        
+        # Sortuj wektory po długości (od najkrótszego) - zakładamy, że piki pierwszego rzędu są najsilniejsze/najbliższe
+        # A następnie po kącie, aby uzyskać spójność
+        sorted_g_vecs_by_len = sorted(corrected_g_vectors_relative_px, key=lambda v: np.linalg.norm(v))
+        
+        # Weź 'num_to_consider' najkrótszych wektorów (np. 6, jeśli dostępne, lub wszystkie)
+        num_to_consider = min(num_spots_selected, 6)
+        candidate_vecs = sorted_g_vecs_by_len[:num_to_consider]
+        
+        # Jeśli mamy 6 spotów, zastosuj metodę uśredniania dla anizotropii
+        if num_spots_selected >= 6: # Używamy >= 6, aby obsłużyć też przypadek, gdy użytkownik kliknął więcej
+            # Sortuj 6 najkrótszych po kącie
+            sorted_angularly = sorted(candidate_vecs, key=lambda v: np.arctan2(v[1], v[0]))
+
+            # Wektory osi (uśredniające przeciwległe pary)
+            # Zakładamy, że sorted_angularly[0] i sorted_angularly[3] to para, itd.
+            d1 = (np.array(sorted_angularly[0]) - np.array(sorted_angularly[3])) / 2.0
+            d2 = (np.array(sorted_angularly[1]) - np.array(sorted_angularly[4])) / 2.0
+            d3 = (np.array(sorted_angularly[2]) - np.array(sorted_angularly[5])) / 2.0
+            
+            # Lista wektorów osi, które nie są zerowe
+            axis_vectors = [v for v in [d1, d2, d3] if np.linalg.norm(v) > 1e-6]
+            if len(axis_vectors) < 2:
+                logger.warning("Hexagonal Adsorbate (6 spots): Could not determine at least two distinct axes.")
+                return None
+            
+            # Wybierz d1 jako g1_A* (pierwszy niezerowy wektor osi)
+            g1_px = tuple(axis_vectors[0])
+            
+            # Wybierz jako g2_A* ten z pozostałych wektorów osi, który tworzy kąt najbliższy 60 stopni z g1_px
+            best_g2_candidate = None
+            min_angle_diff_to_60 = float('inf')
+            target_angle_rad = np.pi / 3 # 60 stopni
+            norm_g1 = np.linalg.norm(g1_px)
+
+            for v_cand_np in axis_vectors[1:]: # Sprawdź pozostałe wektory osi
+                norm_v_cand = np.linalg.norm(v_cand_np)
+                if norm_v_cand < 1e-6: continue
+
+                dot_product = np.dot(g1_px, v_cand_np)
+                cos_theta = np.clip(dot_product / (norm_g1 * norm_v_cand), -1.0, 1.0)
+                angle_rad = np.arccos(cos_theta)
+                
+                angle_diff = abs(angle_rad - target_angle_rad) # Różnica od 60 stopni
+                # Można też sprawdzić różnicę od 120, jeśli to ma sens dla wyboru bazy
+                # angle_diff_120 = abs(angle_rad - 2*target_angle_rad) 
+                # current_min_diff = min(angle_diff, angle_diff_120)
+
+                if angle_diff < min_angle_diff_to_60:
+                    min_angle_diff_to_60 = angle_diff
+                    best_g2_candidate = v_cand_np
+            
+            if best_g2_candidate is not None:
+                g2_px = tuple(best_g2_candidate)
+                logger.info(f"Adsorbate Hexagonal (6 spots aniso): Basis g1*={g1_px}, g2*={g2_px}")
+                return g1_px, g2_px
+            else: # pragma: no cover (powinno znaleźć, jeśli są co najmniej 2 osie)
+                logger.warning("Adsorbate Hexagonal (6 spots aniso): Could not determine a suitable second basis vector from axes.")
+                return None
+
+        elif num_spots_selected >= 2: # Mniej niż 6, ale co najmniej 2 dla Hexagonal
+            logger.warning("Hexagonal Adsorbate: Less than 6 spots.")
+            # Użyj logiki dla "Unknown" - znajdź dwa najkrótsze, liniowo niezależne
+            return None
+
+
+    # --- Scenariusz 3: Spodziewany typ "Square" ---
+    elif expected_lattice_type == LATTICE_TYPE_SQUARE.capitalize():
+        if num_spots_selected < 2: # Potrzebujemy co najmniej 2, ideał to 4
+            logger.warning(f"Square Adsorbate: Not enough spots (need >= 2, got {num_spots_selected}).")
+            return None
+        if num_spots_selected < 4:
+            logger.warning(f"Square Adsorbate: {num_spots_selected} spots provided, less than ideal 4. "
+                           "Attempting to find basis. Result may be less accurate.")
+
+        sorted_g_vecs_by_len = sorted(corrected_g_vectors_relative_px, key=lambda v: np.linalg.norm(v))
+        num_to_consider = min(num_spots_selected, 4)
+        candidate_vecs = sorted_g_vecs_by_len[:num_to_consider]
+
+        if num_spots_selected >= 4: # Używamy >= 4
+            # Sortuj 4 najkrótsze po kącie
+            sorted_angularly = sorted(candidate_vecs, key=lambda v: np.arctan2(v[1], v[0]))
+            # Wektory osi
+            d1 = (np.array(sorted_angularly[0]) - np.array(sorted_angularly[2])) / 2.0
+            d2 = (np.array(sorted_angularly[1]) - np.array(sorted_angularly[3])) / 2.0
+
+            norm_d1 = np.linalg.norm(d1); norm_d2 = np.linalg.norm(d2)
+            if norm_d1 < 1e-6 or norm_d2 < 1e-6:
+                logger.warning("Square Adsorbate (4 spots): Axis vectors have zero length.")
+                return None
+
+            # Sprawdź prostopadłość d1 i d2
+            cos_angle_d1_d2 = np.dot(d1, d2) / (norm_d1 * norm_d2)
+            if abs(cos_angle_d1_d2) > 0.2: # Kąt znacząco różny od 90 stopni (cos(90)=0, cos(78)~0.2)
+                logger.warning(f"Square Adsorbate (4 spots): Axis vectors d1, d2 are not orthogonal (cos_angle={cos_angle_d1_d2:.2f}). "
+                               "Consider re-selecting spots or using 'Unknown' type.")
+                # Można spróbować wybrać inną parę lub zwrócić błąd, lub przejść do logiki "Unknown"
+                # Na razie, jeśli nie są prostopadłe, użyjemy ich tak czy inaczej, aby opisać równoległobok
+            
+            g1_px = tuple(d1)
+            g2_px = tuple(d2)
+            logger.info(f"Adsorbate Square/Rect (4 spots): Basis g1*={g1_px}, g2*={g2_px}")
+            return g1_px, g2_px
+
+    # --- Scenariusz 4: Spodziewany typ "Unknown" (lub fallback z innych typów) ---
+    elif expected_lattice_type == ADSORBATE_LATTICE_TYPE_UNKNOWN: # num_spots_selected >=2 jest już sprawdzane na początku
+        # Znajdź dwa najkrótsze, liniowo niezależne wektory
+        if len(corrected_g_vectors_relative_px) < 2: # pragma: no cover (już sprawdzane)
+             return None 
+        
+        # Sortuj wszystkie dostępne wektory po długości
+        sorted_g_vecs_by_len = sorted(corrected_g_vectors_relative_px, key=lambda v: np.linalg.norm(v))
+        
+        g1_px_cand = np.array(sorted_g_vecs_by_len[0])
+        if np.linalg.norm(g1_px_cand) < 1e-6:
+            logger.warning("Adsorbate (Unknown): Shortest g-vector is zero length.")
+            return None
+
+        g2_px_cand = None
+        for i in range(1, len(sorted_g_vecs_by_len)):
+            current_g2_cand = np.array(sorted_g_vecs_by_len[i])
+            if np.linalg.norm(current_g2_cand) < 1e-6: continue # Pomiń wektory zerowe
+
+            # Sprawdź współliniowość z g1_px_cand
+            cross_product_z = g1_px_cand[0] * current_g2_cand[1] - g1_px_cand[1] * current_g2_cand[0]
+            # Sprawdź sinus kąta, aby uniknąć problemów z normalizacją dla bardzo krótkich wektorów
+            if abs(cross_product_z) / (np.linalg.norm(g1_px_cand) * np.linalg.norm(current_g2_cand) + 1e-9) > 1e-3: # Nie są współliniowe
+                g2_px_cand = current_g2_cand
+                break
+        
+        if g2_px_cand is None:
+            logger.warning("Adsorbate (Unknown): Could not find two non-collinear g-vectors.")
+            return None
+            
+        g1_px = tuple(g1_px_cand)
+        g2_px = tuple(g2_px_cand)
+        logger.info(f"Adsorbate (Unknown type, {num_spots_selected} spots): Selected basis g1*={g1_px}, g2*={g2_px}")
+        return g1_px, g2_px
+
+    else: # pragma: no cover (nie powinno się zdarzyć, jeśli typy są ograniczone w UI)
+        logger.error(f"Unsupported expected_lattice_type '{expected_lattice_type}' or insufficient spots for selection.")
+        return None

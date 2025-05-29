@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QGroupBox, QFormLayout, QComboBox, QTextEdit,
     QCheckBox, QRadioButton, QSpinBox, QPushButton, QHBoxLayout, QLabel
 )
-from PyQt6.QtCore import pyqtSignal, Qt
+from PyQt6.QtCore import pyqtSignal, Qt, pyqtSlot
 
 # Dostosuj ścieżki importu, jeśli KNOWN_LATTICES lub CustomLatticeDialog są w innych miejscach
 # Zakładam, że KNOWN_LATTICES jest w lfa.analysis.lattice
@@ -22,6 +22,10 @@ except ImportError:
     logging.warning("FFTAnalysisPanel: Could not perform standard relative imports for KNOWN_LATTICES. Using placeholders.")
     KNOWN_LATTICES = {"Placeholder (Error)": {}}
     # CustomLatticeDialog = None
+
+ADSORBATE_LATTICE_TYPE_UNKNOWN = "Unknown"
+ADSORBATE_LATTICE_TYPE_HEXAGONAL = "Hexagonal"
+ADSORBATE_LATTICE_TYPE_SQUARE = "Square"
 
 
 logger = logging.getLogger(__name__)
@@ -59,8 +63,11 @@ class FFTAnalysisPanel(QWidget):
     calculate_substrate_real_space_params_requested = pyqtSignal()
     calculate_adsorbate_real_space_params_requested = pyqtSignal(int)
 
+    expected_adsorbate_lattice_type_changed = pyqtSignal(int, str)
+
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.current_selected_expected_adsorbate_type = ADSORBATE_LATTICE_TYPE_UNKNOWN
         self._init_ui()
         self._connect_internal_signals() # Dedykowana metoda do podłączania wewnętrznych sygnałów
 
@@ -177,6 +184,15 @@ class FFTAnalysisPanel(QWidget):
         self.adsorbate_set_combo.addItem("<Add New Set...>")
         adsorbate_set_form_layout.addRow("Current Set:", self.adsorbate_set_combo)
 
+        self.expected_adsorbate_type_combo = QComboBox()
+        self.expected_adsorbate_type_combo.addItems([
+            ADSORBATE_LATTICE_TYPE_UNKNOWN,
+            ADSORBATE_LATTICE_TYPE_HEXAGONAL,
+            ADSORBATE_LATTICE_TYPE_SQUARE
+        ])
+        self.expected_adsorbate_type_combo.setCurrentText(ADSORBATE_LATTICE_TYPE_UNKNOWN)
+        adsorbate_set_form_layout.addRow("Expected Adsorbate Type:", self.expected_adsorbate_type_combo)
+
         adsorbate_buttons_layout_top = QHBoxLayout()
         self.edit_adsorbate_spots_button = QPushButton("Edit/Select Current Set Spots")
         adsorbate_buttons_layout_top.addWidget(self.edit_adsorbate_spots_button)
@@ -228,6 +244,9 @@ class FFTAnalysisPanel(QWidget):
         # self.clear_last_adsorbate_point_button.clicked.connect(self.clear_last_adsorbate_point_triggered)
         self.clear_all_adsorbate_sets_button.clicked.connect(self.clear_all_adsorbate_sets_triggered)
 
+        if hasattr(self, 'expected_adsorbate_type_combo'):
+            self.expected_adsorbate_type_combo.currentTextChanged.connect(self._handle_expected_adsorbate_type_changed)
+
         if hasattr(self, 'calculate_substrate_rs_button'):
             self.calculate_substrate_rs_button.clicked.connect(
                 self.calculate_substrate_real_space_params_requested
@@ -267,9 +286,14 @@ class FFTAnalysisPanel(QWidget):
     def _handle_adsorbate_set_combo_change(self, text: str):
         if text == "<Add New Set...>":
             self.add_new_adsorbate_set_requested.emit()
-            # MainWindow doda nowy set i zaktualizuje to combo.
+            # Po dodaniu nowego, `update_adsorbate_set_combo` ustawi typ na `current_selected_expected_adsorbate_type`
+            # lub na podstawie danych z AppController, jeśli są.
         else:
             self.current_adsorbate_set_changed.emit(text)
+            # Po zmianie zestawu, zaktualizuj `expected_adsorbate_type_combo`
+            # na podstawie wartości dla tego zestawu z AppController
+            # To będzie robione przez MainWindow w reakcji na sygnał z AppController
+
 
     def update_substrate_real_space_display(self, params: Optional[Dict[str, Any]]):
         if hasattr(self, 'sub_rs_a1_label'): # Sprawdź, czy UI jest zainicjalizowane
@@ -370,3 +394,30 @@ class FFTAnalysisPanel(QWidget):
     def set_clear_all_adsorbate_sets_button_enabled(self, enabled: bool):
         if hasattr(self, 'clear_all_adsorbate_sets_button'):
             self.clear_all_adsorbate_sets_button.setEnabled(enabled)
+
+    def set_expected_adsorbate_type(self, type_name: str):
+        """Ustawia tekst w expected_adsorbate_type_combo bez emitowania sygnału."""
+        if hasattr(self, 'expected_adsorbate_type_combo'):
+            self.expected_adsorbate_type_combo.blockSignals(True)
+            idx = self.expected_adsorbate_type_combo.findText(type_name)
+            if idx != -1:
+                self.expected_adsorbate_type_combo.setCurrentIndex(idx)
+            else: # pragma: no cover
+                logger.warning(f"FFTAnalysisPanel: Could not find text '{type_name}' in expected_adsorbate_type_combo.")
+                self.expected_adsorbate_type_combo.setCurrentText(ADSORBATE_LATTICE_TYPE_UNKNOWN) # Fallback
+            self.expected_adsorbate_type_combo.blockSignals(False)
+            self.current_selected_expected_adsorbate_type = self.expected_adsorbate_type_combo.currentText()
+
+    @pyqtSlot(str)
+    def _handle_expected_adsorbate_type_changed(self, selected_type: str):
+        current_set_idx = self.adsorbate_set_combo.currentIndex()
+        # Sprawdź, czy to nie jest pozycja "<Add New Set...>"
+        # Zakładamy, że ostatnia pozycja to "<Add New Set...>"
+        if current_set_idx >= 0 and current_set_idx < (self.adsorbate_set_combo.count() -1 ):
+             self.current_selected_expected_adsorbate_type = selected_type # Zapamiętaj dla nowych zestawów
+             logger.debug(f"FFTAnalysisPanel: Expected adsorbate type for set index {current_set_idx} changed to '{selected_type}'. Emitting signal.")
+             self.expected_adsorbate_lattice_type_changed.emit(current_set_idx, selected_type)
+        elif self.adsorbate_set_combo.count() == 1 and current_set_idx == 0 : # Tylko "Set 1" (bez opcji Add)
+             self.current_selected_expected_adsorbate_type = selected_type
+             logger.debug(f"FFTAnalysisPanel: Expected adsorbate type for set index {current_set_idx} changed to '{selected_type}'. Emitting signal.")
+             self.expected_adsorbate_lattice_type_changed.emit(current_set_idx, selected_type)
