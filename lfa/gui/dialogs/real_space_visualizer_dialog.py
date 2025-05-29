@@ -89,24 +89,26 @@ class RealSpaceFFTVisualizerDialog(QDialog):
 
     def _init_ui(self):
         top_level_layout = QHBoxLayout(self)
+        # Główny splitter dzielący na trzy części
         main_splitter = QSplitter(Qt.Orientation.Horizontal)
         top_level_layout.addWidget(main_splitter)
 
         # === PANEL FFT (LEWY) ===
+        # (Bez zmian w stosunku do poprzedniej wersji, ale teraz dodawany jako pierwszy do main_splitter)
         self.fft_panel_widget = GraphicsLayoutWidget()
         self.fft_view_box = self.fft_panel_widget.addViewBox(row=0, col=0, lockAspect=True, invertY=True)
         self.fft_image_item_vis = ImageItem()
         self.fft_view_box.addItem(self.fft_image_item_vis)
         self.fft_view_box.setMenuEnabled(True)
         self.fft_view_box.setMouseMode(ViewBox.PanMode)
+        # TODO: Pamiętaj o zainicjalizowaniu obrazu FFT w self.fft_image_item_vis w update_visualizations()
+        # if self.fft_data_to_display is not None: # Przykładowo, jeśli masz taki atrybut
+        #     self.fft_image_item_vis.setImage(self.fft_data_to_display.T)
         main_splitter.addWidget(self.fft_panel_widget)
 
-        # === PANEL PRZESTRZENI RZECZYWISTEJ I KONTROLEK (PRAWY) ===
-        right_main_widget = QWidget()
-        right_main_layout = QVBoxLayout(right_main_widget)
-        right_splitter = QSplitter(Qt.Orientation.Vertical)
-        right_main_layout.addWidget(right_splitter)
 
+        # === PANEL PRZESTRZENI RZECZYWISTEJ (ŚRODKOWY) ===
+        # (Poprzednio część prawego panelu, teraz samodzielny)
         self.real_space_plot_widget = PlotWidget()
         plot_item_rs = self.real_space_plot_widget.getPlotItem()
         if plot_item_rs:
@@ -115,27 +117,37 @@ class RealSpaceFFTVisualizerDialog(QDialog):
             plot_item_rs.setLabel('left', 'Y (nm)')
             plot_item_rs.setLabel('bottom', 'X (nm)')
             plot_item_rs.showGrid(x=True, y=True, alpha=0.3)
-        right_splitter.addWidget(self.real_space_plot_widget)
+        main_splitter.addWidget(self.real_space_plot_widget)
 
-        controls_widget = QWidget()
-        controls_layout = QVBoxLayout(controls_widget)
+
+        # === PANEL KONTROLEK (PRAWY) ===
+        # (Zawartość poprzedniego prawego panelu, oprócz real_space_plot_widget)
+        controls_panel_widget = QWidget()
+        controls_panel_layout = QVBoxLayout(controls_panel_widget)
+        controls_panel_widget.setMinimumWidth(350) # Ustaw szerokość dla panelu kontrolek
+        controls_panel_widget.setMaximumWidth(450)
+
+        # Grupa "Display Options"
         display_options_group = QGroupBox("Display Options")
-        display_options_form = QFormLayout(display_options_group)
+        self.display_options_form = QFormLayout(display_options_group) # Zapisz referencję
         self.cb_show_substrate_real_lattice = QCheckBox("Substrate Real Lattice")
         self.cb_show_substrate_real_lattice.setChecked(True)
-        display_options_form.addRow(self.cb_show_substrate_real_lattice)
-        # Dynamiczne checkboxy dla adsorbatów będą w osobnym layoucie
-        self.adsorbate_display_checkbox_layout = QVBoxLayout() # Layout dla dynamicznych checkboxów
-        display_options_form.addRow(QLabel("Adsorbate Sets (Real Space):"))
-        display_options_form.addRow(self.adsorbate_display_checkbox_layout) # Dodaj layout do formularza
+        self.display_options_form.addRow(self.cb_show_substrate_real_lattice)
+        
+        self.adsorbate_display_checkbox_layout = QVBoxLayout() # Layout dla dynamicznych checkboxów adsorbatu
+        self.display_options_form.addRow(QLabel("Adsorbate Sets (Real Space):"))
+        self.display_options_form.addRow(self.adsorbate_display_checkbox_layout)
+        
         self.cb_show_g_substrate_fft = QCheckBox("Substrate g* vectors (on FFT)")
         self.cb_show_g_substrate_fft.setChecked(True)
-        display_options_form.addRow(self.cb_show_g_substrate_fft)
+        self.display_options_form.addRow(self.cb_show_g_substrate_fft)
+        
         self.cb_show_g_adsorbate_fft = QCheckBox("Adsorbate g* vectors (Current Set, on FFT)")
         self.cb_show_g_adsorbate_fft.setChecked(True)
-        display_options_form.addRow(self.cb_show_g_adsorbate_fft)
-        controls_layout.addWidget(display_options_group)
+        self.display_options_form.addRow(self.cb_show_g_adsorbate_fft)
+        controls_panel_layout.addWidget(display_options_group)
 
+        # Grupa "Substrate Transformation Info"
         transform_info_group = QGroupBox("Substrate Transformation Info")
         transform_info_layout = QFormLayout(transform_info_group)
         self.info_sub_rot_label = QLabel("-")
@@ -143,47 +155,145 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         self.info_sub_rmse_label = QLabel("-")
         transform_info_layout.addRow("Rot (M->I):", self.info_sub_rot_label)
         transform_info_layout.addRow("Stretch (M->I):", self.info_sub_scale_label)
-        transform_info_layout.addRow("RMSE (M->I):", self.info_sub_rmse_label)
-        controls_layout.addWidget(transform_info_group)
+        transform_info_layout.addRow("Fit RMSE (M->I, px):", self.info_sub_rmse_label)
+        controls_panel_layout.addWidget(transform_info_group)
 
+        # Grupa "Substrate Real Space Parameters"
         sub_real_params_group = QGroupBox("Substrate Real Space Parameters")
         sub_real_params_layout = QFormLayout(sub_real_params_group)
-        self.sub_real_a1_label = QLabel("- nm")
-        self.sub_real_a2_label = QLabel("- nm")
-        self.sub_real_alpha_label = QLabel("- °")
-        sub_real_params_layout.addRow("|a1|:", self.sub_real_a1_label)
-        sub_real_params_layout.addRow("|a2|:", self.sub_real_a2_label)
-        sub_real_params_layout.addRow("Angle α:", self.sub_real_alpha_label)
-        controls_layout.addWidget(sub_real_params_group)
+        self.sub_real_a1_label = QLabel("- nm"); self.sub_real_a2_label = QLabel("- nm"); self.sub_real_alpha_label = QLabel("- °")
+        sub_real_params_layout.addRow("|a1|:", self.sub_real_a1_label); sub_real_params_layout.addRow("|a2|:", self.sub_real_a2_label); sub_real_params_layout.addRow("Angle α:", self.sub_real_alpha_label)
+        controls_panel_layout.addWidget(sub_real_params_group)
         
-        ads_real_params_group = QGroupBox("Adsorbate Real Space Parameters")
+        # Grupa "Adsorbate Real Space Parameters (Current Set)"
+        ads_real_params_group = QGroupBox("Adsorbate Real Space Parameters") # Usunięto "(Current Set)" z tytułu grupy
         ads_real_params_layout = QFormLayout(ads_real_params_group)
-        self.ads_set_combo_vis = QComboBox()
-        ads_real_params_layout.addRow("Select Set:", self.ads_set_combo_vis)
-        self.ads_real_a1_label = QLabel("- nm")
-        self.ads_real_a2_label = QLabel("- nm")
-        self.ads_real_alpha_label = QLabel("- °")
-        ads_real_params_layout.addRow("|a1|:", self.ads_real_a1_label)
-        ads_real_params_layout.addRow("|a2|:", self.ads_real_a2_label)
-        ads_real_params_layout.addRow("Angle α:", self.ads_real_alpha_label)
+        self.ads_set_combo_vis = QComboBox() # ComboBox do wyboru zestawu adsorbatu
+        ads_real_params_layout.addRow("Select Adsorbate Set:", self.ads_set_combo_vis)
+        self.ads_real_a1_label = QLabel("- nm"); self.ads_real_a2_label = QLabel("- nm"); self.ads_real_alpha_label = QLabel("- °")
+        ads_real_params_layout.addRow("|a1|:", self.ads_real_a1_label); ads_real_params_layout.addRow("|a2|:", self.ads_real_a2_label); ads_real_params_layout.addRow("Angle α:", self.ads_real_alpha_label)
         self.angle_sub_ads_label = QLabel("- °")
         ads_real_params_layout.addRow("Sub-Ads Angle:", self.angle_sub_ads_label)
         self.calculate_sub_ads_angle_button = QPushButton("Calculate Sub-Ads Angle")
         ads_real_params_layout.addRow(self.calculate_sub_ads_angle_button)
-        controls_layout.addWidget(ads_real_params_group)
+        controls_panel_layout.addWidget(ads_real_params_group)
 
-        controls_layout.addStretch(1)
-        right_splitter.addWidget(controls_widget)
-        right_splitter.setSizes([350, 350])
-        main_splitter.addWidget(right_main_widget)
-        main_splitter.setSizes([650, 550])
-        main_splitter.setStretchFactor(0,1)
+        controls_panel_layout.addStretch(1) # Wypełniacz na dole panelu kontrolek
         
+        # Przycisk Close
         self.close_button = QPushButton("Close")
-        button_layout_final = QHBoxLayout()
+        button_layout_final = QHBoxLayout() # Użyj QHBoxLayout do wyśrodkowania lub wyrównania
         button_layout_final.addStretch(1)
         button_layout_final.addWidget(self.close_button)
-        right_main_layout.addLayout(button_layout_final)
+        controls_panel_layout.addLayout(button_layout_final) # Dodaj na dole panelu kontrolek
+
+        main_splitter.addWidget(controls_panel_widget)
+
+        # Ustawienie proporcji splittera (lewy-FFT, środkowy-RealSpace, prawy-Kontrolki)
+        # Dostosuj te wartości do swoich preferencji
+        main_splitter.setSizes([500, 400, 300]) 
+        main_splitter.setStretchFactor(0, 1) # Panel FFT może się rozciągać
+        main_splitter.setStretchFactor(1, 1) # Panel RealSpace może się rozciągać
+        main_splitter.setStretchFactor(2, 0) # Panel kontrolek ma bardziej stałą szerokość
+    
+
+    # def _init_ui(self):
+    #     top_level_layout = QHBoxLayout(self)
+    #     main_splitter = QSplitter(Qt.Orientation.Horizontal)
+    #     top_level_layout.addWidget(main_splitter)
+
+    #     # === PANEL FFT (LEWY) ===
+    #     self.fft_panel_widget = GraphicsLayoutWidget()
+    #     self.fft_view_box = self.fft_panel_widget.addViewBox(row=0, col=0, lockAspect=True, invertY=True)
+    #     self.fft_image_item_vis = ImageItem()
+    #     self.fft_view_box.addItem(self.fft_image_item_vis)
+    #     self.fft_view_box.setMenuEnabled(True)
+    #     self.fft_view_box.setMouseMode(ViewBox.PanMode)
+    #     main_splitter.addWidget(self.fft_panel_widget)
+
+    #     # === PANEL PRZESTRZENI RZECZYWISTEJ I KONTROLEK (PRAWY) ===
+    #     right_main_widget = QWidget()
+    #     right_main_layout = QVBoxLayout(right_main_widget)
+    #     right_splitter = QSplitter(Qt.Orientation.Vertical)
+    #     right_main_layout.addWidget(right_splitter)
+
+    #     self.real_space_plot_widget = PlotWidget()
+    #     plot_item_rs = self.real_space_plot_widget.getPlotItem()
+    #     if plot_item_rs:
+    #         plot_item_rs.setAspectLocked(True)
+    #         plot_item_rs.setTitle("Real Space Lattice Visualization")
+    #         plot_item_rs.setLabel('left', 'Y (nm)')
+    #         plot_item_rs.setLabel('bottom', 'X (nm)')
+    #         plot_item_rs.showGrid(x=True, y=True, alpha=0.3)
+    #     right_splitter.addWidget(self.real_space_plot_widget)
+
+    #     controls_widget = QWidget()
+    #     controls_layout = QVBoxLayout(controls_widget)
+    #     display_options_group = QGroupBox("Display Options")
+    #     display_options_form = QFormLayout(display_options_group)
+    #     self.cb_show_substrate_real_lattice = QCheckBox("Substrate Real Lattice")
+    #     self.cb_show_substrate_real_lattice.setChecked(True)
+    #     display_options_form.addRow(self.cb_show_substrate_real_lattice)
+    #     # Dynamiczne checkboxy dla adsorbatów będą w osobnym layoucie
+    #     self.adsorbate_display_checkbox_layout = QVBoxLayout() # Layout dla dynamicznych checkboxów
+    #     display_options_form.addRow(QLabel("Adsorbate Sets (Real Space):"))
+    #     display_options_form.addRow(self.adsorbate_display_checkbox_layout) # Dodaj layout do formularza
+    #     self.cb_show_g_substrate_fft = QCheckBox("Substrate g* vectors (on FFT)")
+    #     self.cb_show_g_substrate_fft.setChecked(True)
+    #     display_options_form.addRow(self.cb_show_g_substrate_fft)
+    #     self.cb_show_g_adsorbate_fft = QCheckBox("Adsorbate g* vectors (Current Set, on FFT)")
+    #     self.cb_show_g_adsorbate_fft.setChecked(True)
+    #     display_options_form.addRow(self.cb_show_g_adsorbate_fft)
+    #     controls_layout.addWidget(display_options_group)
+
+    #     transform_info_group = QGroupBox("Substrate Transformation Info")
+    #     transform_info_layout = QFormLayout(transform_info_group)
+    #     self.info_sub_rot_label = QLabel("-")
+    #     self.info_sub_scale_label = QLabel("-")
+    #     self.info_sub_rmse_label = QLabel("-")
+    #     transform_info_layout.addRow("Rot (M->I):", self.info_sub_rot_label)
+    #     transform_info_layout.addRow("Stretch (M->I):", self.info_sub_scale_label)
+    #     transform_info_layout.addRow("RMSE (M->I):", self.info_sub_rmse_label)
+    #     controls_layout.addWidget(transform_info_group)
+
+    #     sub_real_params_group = QGroupBox("Substrate Real Space Parameters")
+    #     sub_real_params_layout = QFormLayout(sub_real_params_group)
+    #     self.sub_real_a1_label = QLabel("- nm")
+    #     self.sub_real_a2_label = QLabel("- nm")
+    #     self.sub_real_alpha_label = QLabel("- °")
+    #     sub_real_params_layout.addRow("|a1|:", self.sub_real_a1_label)
+    #     sub_real_params_layout.addRow("|a2|:", self.sub_real_a2_label)
+    #     sub_real_params_layout.addRow("Angle α:", self.sub_real_alpha_label)
+    #     controls_layout.addWidget(sub_real_params_group)
+        
+    #     ads_real_params_group = QGroupBox("Adsorbate Real Space Parameters")
+    #     ads_real_params_layout = QFormLayout(ads_real_params_group)
+    #     self.ads_set_combo_vis = QComboBox()
+    #     ads_real_params_layout.addRow("Select Set:", self.ads_set_combo_vis)
+    #     self.ads_real_a1_label = QLabel("- nm")
+    #     self.ads_real_a2_label = QLabel("- nm")
+    #     self.ads_real_alpha_label = QLabel("- °")
+    #     ads_real_params_layout.addRow("|a1|:", self.ads_real_a1_label)
+    #     ads_real_params_layout.addRow("|a2|:", self.ads_real_a2_label)
+    #     ads_real_params_layout.addRow("Angle α:", self.ads_real_alpha_label)
+    #     self.angle_sub_ads_label = QLabel("- °")
+    #     ads_real_params_layout.addRow("Sub-Ads Angle:", self.angle_sub_ads_label)
+    #     self.calculate_sub_ads_angle_button = QPushButton("Calculate Sub-Ads Angle")
+    #     ads_real_params_layout.addRow(self.calculate_sub_ads_angle_button)
+    #     controls_layout.addWidget(ads_real_params_group)
+
+    #     controls_layout.addStretch(1)
+    #     right_splitter.addWidget(controls_widget)
+    #     right_splitter.setSizes([350, 350])
+    #     main_splitter.addWidget(right_main_widget)
+    #     main_splitter.setSizes([650, 550])
+    #     main_splitter.setStretchFactor(0,1)
+        
+    #     self.close_button = QPushButton("Close")
+    #     button_layout_final = QHBoxLayout()
+    #     button_layout_final.addStretch(1)
+    #     button_layout_final.addWidget(self.close_button)
+    #     right_main_layout.addLayout(button_layout_final)
 
     def _connect_signals(self):
         self.close_button.clicked.connect(self.accept)
@@ -545,11 +655,17 @@ class RealSpaceFFTVisualizerDialog(QDialog):
             QMessageBox.critical(self, "Calculation Error", f"Could not calculate angle: {e}")
 
 
-    def get_dialog_results(self) -> Dict[str, Any]: return {}
-    def accept(self): logger.info("RealSpaceFFTVisualizerDialog closed by OK/Close.")
-    super().accept()
-    def reject(self): logger.info("RealSpaceFFTVisualizerDialog rejected/closed.")
-    super().reject()
+    def get_dialog_results(self) -> Dict[str, Any]: 
+        return {}
+
+    def accept(self): 
+        logger.info("RealSpaceFFTVisualizerDialog closed by OK/Close.")
+        super().accept()
+
+    def reject(self): 
+        logger.info("RealSpaceFFTVisualizerDialog rejected/closed.")
+        super().reject()
+        
     def closeEvent(self, event):
         logger.debug("RealSpaceFFTVisualizerDialog closeEvent. Cleaning up GL items.")
         if hasattr(self, 'gl_roi_view_widget') and self.gl_roi_view_widget:
