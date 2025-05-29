@@ -85,6 +85,14 @@ except ImportError:
     CustomLatticeDialog = None
     LATTICE_ANALYSIS_AVAILABLE = False
 
+try:
+    from .dialogs.real_space_visualizer_dialog import RealSpaceFFTVisualizerDialog
+    REAL_SPACE_VIS_DIALOG_AVAILABLE = True
+except ImportError: # pragma: no cover
+    RealSpaceFFTVisualizerDialog = None
+    REAL_SPACE_VIS_DIALOG_AVAILABLE = False
+    logging.warning("Could not import RealSpaceFFTVisualizerDialog.")
+
 class MainWindow(QMainWindow):
     """
     The main application window inheriting from QMainWindow.
@@ -106,6 +114,7 @@ class MainWindow(QMainWindow):
         self._init_core_attributes()
 
         self.menu_manager = MenuActionManager(self) 
+        self.real_space_visualizer_dialog_instance: Optional[RealSpaceFFTVisualizerDialog] = None
 
         self.dock_manager = DockPanelManager(
             main_window=self,
@@ -339,6 +348,16 @@ class MainWindow(QMainWindow):
             elif current_hist_node.data_type == "FFT":
                 is_fft_data_active = True
 
+        can_visualize_real_space = False
+        if self.app_controller and REAL_SPACE_VIS_DIALOG_AVAILABLE:
+            # Warunek: muszą być obliczone parametry rzeczywiste substratu LUB adsorbatu
+            # ORAZ musi być aktywny obraz FFT
+            current_hist_node = self.history_manager.get_current_node()
+            if current_hist_node and current_hist_node.data_type == "FFT":
+                if self.app_controller.substrate_real_space_results or \
+                   (self.app_controller.current_adsorbate_set_index in self.app_controller.adsorbate_real_space_results):
+                    can_visualize_real_space = True
+
         # --- Logika dla Akcji Menu ---
         # Preprocessing: dostępne, jeśli jest jakikolwiek aktywny węzeł (STM lub FFT)
         preprocessing_actions_enabled = has_active_node
@@ -348,7 +367,6 @@ class MainWindow(QMainWindow):
         if hasattr(self, 'median_filter_action'): self.median_filter_action.setEnabled(preprocessing_actions_enabled and DIALOG_CLASSES_EXIST)
         if hasattr(self, 'nlmeans_action'): self.nlmeans_action.setEnabled(preprocessing_actions_enabled and DIALOG_CLASSES_EXIST)
         if hasattr(self, 'bm3d_action'): self.bm3d_action.setEnabled(preprocessing_actions_enabled and DIALOG_CLASSES_EXIST)
-
         # Analysis:
         # Obliczanie FFT: tylko jeśli aktywny węzeł to STM
         if hasattr(self, 'fft_action'): self.fft_action.setEnabled(is_stm_data_active and DIALOG_CLASSES_EXIST)
@@ -363,6 +381,9 @@ class MainWindow(QMainWindow):
         # --- Logika dla FFTAnalysisPanel ---
         if hasattr(self, 'fft_analysis_dock'): # Dok panelu FFT
             self.fft_analysis_dock.setVisible(is_fft_data_active)
+
+        if hasattr(self, 'visualize_real_space_action'): # Akcja z MenuActionManager
+            self.visualize_real_space_action.setEnabled(can_visualize_real_space)
 
         if hasattr(self, 'fft_analysis_panel_widget') and self.fft_analysis_panel_widget:
             panel = self.fft_analysis_panel_widget
@@ -560,6 +581,49 @@ class MainWindow(QMainWindow):
     #     # Alternatywnie, jeśli set_show_fitted_substrate_spots nie emituje odpowiedniego sygnału,
     #     # można tu bezpośrednio wywołać display_image_data():
     #     # self.display_image_data()
+
+    @pyqtSlot()
+    def open_real_space_fft_visualizer(self):
+        logger.info("MainWindow: Opening Real Space/FFT Visualizer dialog...")
+        if not REAL_SPACE_VIS_DIALOG_AVAILABLE: # pragma: no cover
+            QMessageBox.critical(self, "Error", "RealSpaceFFTVisualizerDialog is not available.")
+            return
+
+        current_fft_node = self.history_manager.get_current_node()
+        if not (current_fft_node and current_fft_node.data_type == "FFT"): # pragma: no cover
+            QMessageBox.warning(self, "No FFT Data", "Please calculate FFT first to use the visualizer.")
+            return
+
+        # Można tworzyć nową instancję za każdym razem lub pokazywać istniejącą (jeśli nie jest modalna)
+        # Dla modalnego dialogu, tworzymy nową:
+        if self.real_space_visualizer_dialog_instance is not None: # pragma: no cover (jeśli zawsze tworzymy nowy)
+            # Jeśli dialog nie jest modalny i może istnieć, można go pokazać:
+            # self.real_space_visualizer_dialog_instance.show()
+            # self.real_space_visualizer_dialog_instance.raise_()
+            # self.real_space_visualizer_dialog_instance.activateWindow()
+            # Ale dla exec() lepiej tworzyć nowy lub upewnić się, że stary jest zniszczony
+            # Możemy pozwolić na tylko jedną instancję modalną
+            if self.real_space_visualizer_dialog_instance.isVisible():
+                 logger.warning("RealSpaceFFTVisualizerDialog is already open.")
+                 self.real_space_visualizer_dialog_instance.raise_()
+                 self.real_space_visualizer_dialog_instance.activateWindow()
+                 return
+            else: # Został zamknięty, ale referencja może istnieć, lepiej ją usunąć
+                 self.real_space_visualizer_dialog_instance.deleteLater()
+                 self.real_space_visualizer_dialog_instance = None
+
+
+        dialog = RealSpaceFFTVisualizerDialog(
+            app_controller=self.app_controller,
+            history_manager=self.history_manager,
+            current_fft_node_id=current_fft_node.node_id, # Przekaż ID bieżącego węzła FFT
+            parent=self
+        )
+        self.real_space_visualizer_dialog_instance = dialog # Zapisz referencję, jeśli chcemy zarządzać instancją
+        dialog.exec() # Modalny dialog
+        # Po zamknięciu modalnego dialogu, można wyczyścić referencję, jeśli nie chcemy go reużywać
+        self.real_space_visualizer_dialog_instance = None 
+        logger.info("RealSpaceFFTVisualizerDialog closed.")
 
     @pyqtSlot(int, str)
     def _handle_expected_adsorbate_type_changed_from_panel(self, set_index: int, selected_type: str):

@@ -124,6 +124,16 @@ class MenuActionManager:
         analysis_menu.addAction(sel_ads_action)
         self.main_window.select_adsorbate_spots_action = sel_ads_action # Ustaw atrybut
 
+        analysis_menu.addSeparator()
+        vis_action = self._create_action(
+            text="Visualize Real Space...",
+            status_tip="Open dialog for real space and FFT visualization",
+            triggered_slot=self.main_window.open_real_space_fft_visualizer, # Nowy slot
+            enabled=False # Początkowo wyłączone
+        )
+        analysis_menu.addAction(vis_action)
+        self.main_window.visualize_real_space_action = vis_action # Ustaw atrybut
+
 
     def _create_view_menu(self):
         self.main_window.view_menu = self.menu_bar.addMenu("&View")
