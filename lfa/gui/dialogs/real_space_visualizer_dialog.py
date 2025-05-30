@@ -529,7 +529,8 @@ class RealSpaceFFTVisualizerDialog(QDialog):
                             np.array(ads_params["a1_vec_nm"]),
                             np.array(ads_params["a2_vec_nm"]),
                             pen_color=color, symbol=symbol, symbol_size=7, symbol_color=color, label_text=f"A{i+1}",
-                            offset_factor=0.05 * (i + 1) # Małe przesunięcie dla każdego zestawu
+                            # offset_factor=0.05 * (i + 1) # Małe przesunięcie dla każdego zestawu
+                            offset_factor=0.0
                         )
         plot_item_rs.autoRange()
 
