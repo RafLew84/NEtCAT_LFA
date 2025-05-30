@@ -346,9 +346,10 @@ class RealSpaceFFTVisualizerDialog(QDialog):
             s_x,s_y = analysis.get('principal_stretches',[np.nan,np.nan])
             self.info_sub_scale_label.setText(f"({s_x:.3f}, {s_y:.3f})")
             self.info_sub_rmse_label.setText(f"{analysis.get('rmse', 'N/A'):.3f} px")
-        else: self.info_sub_rot_label.setText("-")
-        self.info_sub_scale_label.setText("-")
-        self.info_sub_rmse_label.setText("-")
+        else: 
+            self.info_sub_rot_label.setText("-")
+            self.info_sub_scale_label.setText("-")
+            self.info_sub_rmse_label.setText("-")
 
         self._populate_adsorbate_set_combo_and_checkboxes() # Zmieniono nazwę
         self._redraw_fft_overlays()
@@ -587,9 +588,10 @@ class RealSpaceFFTVisualizerDialog(QDialog):
             self.sub_real_a1_label.setText(f"{params.get('a1_nm', '-'):.3f} nm")
             self.sub_real_a2_label.setText(f"{params.get('a2_nm', '-'):.3f} nm")
             self.sub_real_alpha_label.setText(f"{params.get('alpha_deg', '-'):.2f} °")
-        else: self.sub_real_a1_label.setText("- nm")
-        self.sub_real_a2_label.setText("- nm")
-        self.sub_real_alpha_label.setText("- °")
+        else: 
+            self.sub_real_a1_label.setText("- nm")
+            self.sub_real_a2_label.setText("- nm")
+            self.sub_real_alpha_label.setText("- °")
 
         # Adsorbat (dla wybranego zestawu w ComboBoxie tego dialogu)
         current_ads_set_idx_vis = self.ads_set_combo_vis.currentData()
@@ -599,9 +601,10 @@ class RealSpaceFFTVisualizerDialog(QDialog):
             self.ads_real_a1_label.setText(f"{params.get('a1_nm', '-'):.3f} nm")
             self.ads_real_a2_label.setText(f"{params.get('a2_nm', '-'):.3f} nm")
             self.ads_real_alpha_label.setText(f"{params.get('alpha_deg', '-'):.2f} °")
-        else: self.ads_real_a1_label.setText("- nm")
-        self.ads_real_a2_label.setText("- nm")
-        self.ads_real_alpha_label.setText("- °")
+        else: 
+            self.ads_real_a1_label.setText("- nm")
+            self.ads_real_a2_label.setText("- nm")
+            self.ads_real_alpha_label.setText("- °")
         
         # Zresetuj kąt Sub-Ads, bo zależy od wybranego zestawu i obliczeń substratu
         self.angle_sub_ads_label.setText("- °")
