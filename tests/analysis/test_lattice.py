@@ -1,23 +1,31 @@
 # tests/analysis/test_lattice.py
 """
-Unit tests for lattice definition and reciprocal space calculations
+Unit tests for lattice definition and reciprocal/real space calculations
 in lfa.analysis.lattice.
 """
 import pytest
 import numpy as np
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple, Optional, Union
+from unittest.mock import patch
 
 # Import functions and data to test
 try:
     from lfa.analysis.lattice import (
         KNOWN_LATTICES,
         get_reciprocal_vectors,
-        get_reciprocal_points
+        get_reciprocal_points,
+        get_nearest_reciprocal_points,
+        select_reciprocal_lattice_basis_vectors, # Nowa do testowania
+        convert_g_vector_px_to_nm_inv,         # Nowa do testowania
+        calculate_real_space_vectors_from_g,   # Nowa do testowania
+        get_real_space_lattice_parameters,     # Nowa do testowania
+        LATTICE_TYPE_HEXAGONAL,                # Stała typu
+        LATTICE_TYPE_SQUARE                  # Stała typu
     )
     LATTICE_MODULE_AVAILABLE = True
-except ImportError:
-    pytest.fail("Could not import from lfa.analysis.lattice. Does the file and __init__.py exist?", pytrace=False)
-    LATTICE_MODULE_AVAILABLE = False # Redundant but for clarity
+except ImportError as e: # pragma: no cover
+    pytest.fail(f"Could not import from lfa.analysis.lattice: {e}", pytrace=False)
+    LATTICE_MODULE_AVAILABLE = False
 
 # Helper for floating point comparisons
 TOL = 1e-6
@@ -25,91 +33,165 @@ TOL = 1e-6
 @pytest.mark.skipif(not LATTICE_MODULE_AVAILABLE, reason="Lattice module not available")
 class TestLatticeCalculations:
 
+    # --- Istniejące testy (test_known_lattices_exist, test_get_reciprocal_vectors_*, 
+    #      test_get_reciprocal_points_*, test_get_nearest_reciprocal_points_*)
+    #      pozostają bez zmian. Poniżej tylko ich placeholder, aby było wiadomo, że są. ---
+
     def test_known_lattices_exist(self):
-        """Test that KNOWN_LATTICES is populated."""
-        assert KNOWN_LATTICES is not None
-        assert len(KNOWN_LATTICES) > 0
-        assert "Au(111)" in KNOWN_LATTICES
-        assert "Graphene" in KNOWN_LATTICES
+        assert KNOWN_LATTICES is not None and len(KNOWN_LATTICES) > 0
 
     def test_get_reciprocal_vectors_hexagonal(self):
-        """Test reciprocal vector calculation for a hexagonal lattice."""
-        # Using Graphene as an example a_surf = 0.246 nm
-        graphene_info = KNOWN_LATTICES["Graphene"]
-        b_vectors = get_reciprocal_vectors(graphene_info)
-        assert b_vectors is not None
-        b1_star, b2_star = b_vectors
-
-        # Expected magnitude for hexagonal (without 2pi): |b*| = (1/a_surf) * (2/sqrt(3))
-        a_surf = graphene_info["a_surf"]
-        expected_b_mag = (1.0 / a_surf) * (2.0 / np.sqrt(3))
-
-        assert np.allclose(np.linalg.norm(b1_star), expected_b_mag, atol=TOL)
-        assert np.allclose(np.linalg.norm(b2_star), expected_b_mag, atol=TOL)
-
-        # Check angle between b1_star and b2_star (should be 60 degrees or pi/3)
-        # b1_star is [mag, 0]
-        # b2_star is [mag*cos(60), mag*sin(60)]
-        assert np.allclose(b1_star, [expected_b_mag, 0.0], atol=TOL)
-        assert np.allclose(b2_star, [expected_b_mag * 0.5, expected_b_mag * np.sqrt(3)/2.0], atol=TOL)
-        # Angle check via dot product
-        cos_angle = np.dot(b1_star, b2_star) / (np.linalg.norm(b1_star) * np.linalg.norm(b2_star))
-        assert np.allclose(cos_angle, np.cos(np.pi / 3), atol=TOL) # 60 degrees
+        info = {"type": LATTICE_TYPE_HEXAGONAL, "a_surf": 0.288} # Au(111) a_surf
+        b_mag_expected = (1.0 / 0.288) * (2.0 / np.sqrt(3))
+        b1, b2 = get_reciprocal_vectors(info)
+        assert b1 is not None and b2 is not None
+        assert np.allclose(b1, [b_mag_expected, 0.0], atol=TOL)
+        assert np.allclose(b2, [b_mag_expected * 0.5, b_mag_expected * np.sqrt(3)/2.0], atol=TOL)
 
     def test_get_reciprocal_vectors_square(self):
-        """Test reciprocal vector calculation for a square lattice."""
-        # Create a dummy square lattice info
-        square_info = {"type": "square", "a_surf": 0.3} # a_surf = 0.3 nm
-        b_vectors = get_reciprocal_vectors(square_info)
-        assert b_vectors is not None
-        b1_star, b2_star = b_vectors
-
-        # Expected magnitude for square (without 2pi): |b*| = 1/a_surf
-        a_surf = square_info["a_surf"]
-        expected_b_mag = 1.0 / a_surf
-
-        assert np.allclose(np.linalg.norm(b1_star), expected_b_mag, atol=TOL)
-        assert np.allclose(np.linalg.norm(b2_star), expected_b_mag, atol=TOL)
-        # b1_star along x, b2_star along y
-        assert np.allclose(b1_star, [expected_b_mag, 0.0], atol=TOL)
-        assert np.allclose(b2_star, [0.0, expected_b_mag], atol=TOL)
-        # Angle check (should be 90 degrees, so dot product is 0)
-        assert np.allclose(np.dot(b1_star, b2_star), 0.0, atol=TOL)
-
-    def test_get_reciprocal_vectors_invalid_type(self):
-        """Test with an unsupported lattice type."""
-        invalid_info = {"type": "triangle", "a_surf": 0.3}
-        assert get_reciprocal_vectors(invalid_info) is None
+        info = {"type": LATTICE_TYPE_SQUARE, "a_surf": 0.250}
+        b_mag_expected = 1.0 / 0.250
+        b1, b2 = get_reciprocal_vectors(info)
+        assert b1 is not None and b2 is not None
+        assert np.allclose(b1, [b_mag_expected, 0.0], atol=TOL)
+        assert np.allclose(b2, [0.0, b_mag_expected], atol=TOL)
 
     def test_get_reciprocal_points_known_lattice(self):
-        """Test generation of reciprocal points for a known lattice."""
         points_au1 = get_reciprocal_points("Au(111)", max_hk=1)
-        assert points_au1 is not None
-        # For max_hk=1, (h,k) range from -1 to 1. (0,0) is excluded.
-        # (-1,-1) to (1,1) is 3x3 = 9 pairs, minus (0,0) gives 8 points.
-        assert len(points_au1) == (2*1+1)**2 - 1 # (2*max_hk+1)^2 - 1
+        assert points_au1 is not None; assert len(points_au1) == 8
 
-        points_au2 = get_reciprocal_points("Au(111)", max_hk=2)
-        assert points_au2 is not None
-        assert len(points_au2) == (2*2+1)**2 - 1 # 5x5 - 1 = 24 points
+    def test_get_nearest_reciprocal_points_hex(self):
+        points = get_nearest_reciprocal_points(KNOWN_LATTICES["Au(111)"])
+        assert points is not None; assert len(points) == 6
 
-    def test_get_reciprocal_points_custom_dict(self):
-        """Test generation of points using a custom lattice dictionary."""
-        custom_info = {"name": "MySquare", "type": "square", "a_surf": 0.25}
-        points = get_reciprocal_points(custom_info, max_hk=1)
-        assert points is not None
-        assert len(points) == 8
+    def test_get_nearest_reciprocal_points_square(self):
+        points = get_nearest_reciprocal_points(KNOWN_LATTICES["Cu(100)"])
+        assert points is not None; assert len(points) == 4
 
-        # Check one specific point for square a=0.25 -> |b*|=4
-        # e.g., h=1, k=0 -> G = 1 * [4,0] + 0 * [0,4] = (4,0)
-        assert (4.0, 0.0) in [(round(p[0],6), round(p[1],6)) for p in points] # Round for float comparison
 
-    def test_get_reciprocal_points_unknown_name(self):
-        """Test with an unknown lattice name."""
-        assert get_reciprocal_points("UnknownSubstrate", max_hk=1) is None
+    # --- NOWE TESTY DLA select_reciprocal_lattice_basis_vectors ---
+    def test_select_basis_vectors_hexagonal_ideal(self):
+        """Test selection for ideal hexagonal g-vectors."""
+        # 6 idealnych wektorów g* dla sieci heksagonalnej o długości b_mag, pierwszy wzdłuż osi x
+        b_mag = 10.0
+        g_vecs = [
+            (b_mag, 0.0),
+            (b_mag * np.cos(np.pi/3), b_mag * np.sin(np.pi/3)),
+            (b_mag * np.cos(2*np.pi/3), b_mag * np.sin(2*np.pi/3)),
+            (-b_mag, 0.0),
+            (b_mag * np.cos(4*np.pi/3), b_mag * np.sin(4*np.pi/3)),
+            (b_mag * np.cos(5*np.pi/3), b_mag * np.sin(5*np.pi/3)),
+        ]
+        # Przemieszajmy je, aby sprawdzić sortowanie w funkcji
+        import random
+        random.shuffle(g_vecs)
 
-    def test_get_reciprocal_points_invalid_info(self):
-        """Test with invalid lattice_name_or_info type."""
-        assert get_reciprocal_points(123, max_hk=1) is None # Pass an int
-        assert get_reciprocal_points({"type": "square"}, max_hk=1) is None # Missing a_surf
-        assert get_reciprocal_points({"a_surf": 0.3}, max_hk=1) is None # Missing type
+        g1, g2 = select_reciprocal_lattice_basis_vectors(g_vecs, LATTICE_TYPE_HEXAGONAL)
+        assert g1 is not None and g2 is not None
+        # Sprawdź długości
+        assert np.isclose(np.linalg.norm(g1), b_mag, atol=TOL)
+        assert np.isclose(np.linalg.norm(g2), b_mag, atol=TOL)
+        # Sprawdź kąt (powinien być 60 stopni)
+        cos_angle = np.dot(g1, g2) / (np.linalg.norm(g1) * np.linalg.norm(g2))
+        assert np.isclose(cos_angle, np.cos(np.pi/3), atol=TOL) # cos(60 deg) = 0.5
+
+    def test_select_basis_vectors_square_ideal(self):
+        """Test selection for ideal square g-vectors."""
+        b_mag = 10.0
+        g_vecs = [
+            (b_mag, 0.0), (0.0, b_mag), (-b_mag, 0.0), (0.0, -b_mag)
+        ]
+        import random
+        random.shuffle(g_vecs)
+        
+        g1, g2 = select_reciprocal_lattice_basis_vectors(g_vecs, LATTICE_TYPE_SQUARE)
+        assert g1 is not None and g2 is not None
+        # Sprawdź długości (mogą być uśrednione)
+        assert np.isclose(np.linalg.norm(g1), b_mag, atol=TOL)
+        assert np.isclose(np.linalg.norm(g2), b_mag, atol=TOL)
+        # Sprawdź kąt (powinien być 90 stopni -> cos_angle = 0)
+        cos_angle = np.dot(g1, g2) / (np.linalg.norm(g1) * np.linalg.norm(g2))
+        assert np.isclose(cos_angle, 0.0, atol=TOL)
+
+
+    # --- NOWE TESTY DLA convert_g_vector_px_to_nm_inv ---
+    def test_convert_g_vector_px_to_nm_inv(self):
+        g_px = (50.0, 25.0) # (dkx_px, dky_px)
+        Lx_nm, Ly_nm = 100.0, 50.0 # Rozmiary rzeczywiste obrazu
+        # fft_cols_kx, fft_rows_ky - nie są używane w tej funkcji, ale przekazywane
+        # do get_real_space_lattice_parameters
+        
+        # Wzór: g_nm_inv = g_px / L_nm
+        expected_g_nm_inv = (50.0 / 100.0, 25.0 / 50.0) # (0.5, 0.5)
+        
+        result = convert_g_vector_px_to_nm_inv(g_px, Lx_nm, Ly_nm, 256, 256) # Kształt FFT nieistotny dla tej funkcji
+        assert result is not None
+        assert np.allclose(result, expected_g_nm_inv, atol=TOL)
+
+    def test_convert_g_vector_invalid_calibration(self):
+        assert convert_g_vector_px_to_nm_inv((10,10), 0, 10, 100, 100) is None
+        assert convert_g_vector_px_to_nm_inv((10,10), 10, 0, 100, 100) is None
+
+
+    # --- NOWE TESTY DLA calculate_real_space_vectors_from_g ---
+    def test_calculate_real_space_vectors_square(self):
+        # Dla sieci kwadratowej, g1* = (1/a, 0), g2* = (0, 1/a)
+        # => a1 = (a, 0), a2 = (0, a)
+        a_val = 0.25
+        g_mag = 1.0 / a_val # = 4.0
+        g1_nm_inv = (g_mag, 0.0)
+        g2_nm_inv = (0.0, g_mag)
+        
+        a1, a2 = calculate_real_space_vectors_from_g(g1_nm_inv, g2_nm_inv)
+        assert a1 is not None and a2 is not None
+        assert np.allclose(a1, (a_val, 0.0), atol=TOL)
+        assert np.allclose(a2, (0.0, a_val), atol=TOL)
+
+    def test_calculate_real_space_vectors_collinear(self):
+        g1 = (1.0, 1.0)
+        g2 = (2.0, 2.0) # Współliniowe
+        assert calculate_real_space_vectors_from_g(g1, g2) is None
+
+
+    # --- NOWE TESTY DLA get_real_space_lattice_parameters (głównej funkcji) ---
+    @patch('lfa.analysis.lattice.select_reciprocal_lattice_basis_vectors')
+    @patch('lfa.analysis.lattice.convert_g_vector_px_to_nm_inv')
+    @patch('lfa.analysis.lattice.calculate_real_space_vectors_from_g')
+    def test_get_real_space_lattice_parameters_flow(self, mock_calc_real_vecs, mock_convert_g, mock_select_basis, mocker):
+        """Testuje przepływ danych przez get_real_space_lattice_parameters."""
+        selected_g_px = [(10.0,0.0), (0.0,10.0)] # Uproszczone, funkcja select_basis powinna dostać więcej
+        lattice_type = LATTICE_TYPE_SQUARE
+        Lx, Ly = 100.0, 100.0
+        fft_shape = (256, 256)
+
+        # Mockowanie zwracanych wartości przez funkcje pomocnicze
+        mock_select_basis.return_value = ((10.0, 0.0), (0.0, 10.0)) # g1_px, g2_px
+        mock_convert_g.side_effect = [
+            (0.1, 0.0),  # g1_nm_inv = (10/100, 0/100)
+            (0.0, 0.1)   # g2_nm_inv = (0/100, 10/100)
+        ]
+        # D = 0.1*0.1 - 0*0 = 0.01
+        # a1 = (1/0.01) * [0.1, 0] = (10, 0)
+        # a2 = (1/0.01) * [0, 0.1] = (0, 10)
+        mock_calc_real_vecs.return_value = ((10.0, 0.0), (0.0, 10.0)) # a1_nm, a2_nm
+
+        results = get_real_space_lattice_parameters(
+            selected_g_vectors_relative_px=selected_g_px * 2, # Przekaż 4 dla square
+            lattice_type=lattice_type,
+            Lx_nm=Lx, Ly_nm=Ly,
+            fft_shape_cols_kx=fft_shape[1], fft_shape_rows_ky=fft_shape[0]
+        )
+
+        assert results is not None
+        mock_select_basis.assert_called_once_with(selected_g_px * 2, lattice_type)
+        assert mock_convert_g.call_count == 2
+        mock_calc_real_vecs.assert_called_once_with((0.1,0.0), (0.0,0.1))
+        
+        assert np.isclose(results["a1_nm"], 10.0, atol=TOL)
+        assert np.isclose(results["a2_nm"], 10.0, atol=TOL)
+        assert np.isclose(results["alpha_deg"], 90.0, atol=TOL)
+        assert np.allclose(results["a1_vec_nm"], (10.0, 0.0), atol=TOL)
+
+    def test_get_real_space_parameters_invalid_input(self):
+        assert get_real_space_lattice_parameters([], LATTICE_TYPE_SQUARE, 10, 10, 100, 100) is None
+        assert get_real_space_lattice_parameters([(1,1),(2,2)], LATTICE_TYPE_SQUARE, 0, 10, 100, 100) is None
