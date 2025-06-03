@@ -71,6 +71,14 @@ except ImportError: # pragma: no cover
     AdsorbateSpotSelectionDialog = None
     SPOT_SELECTION_DIALOGS_AVAILABLE = False
 
+try:
+    from .dialogs.spots_distance_dialog import SpotDistanceDialog
+    SPOT_DISTANCE_DIALOG_AVAILABLE = True
+except ImportError: # pragma: no cover
+    SpotDistanceDialog = None
+    SPOT_DISTANCE_DIALOG_AVAILABLE = False
+    logging.warning("Could not import SpotDistanceDialog.")
+
 logger = logging.getLogger(__name__)
 
 
@@ -357,6 +365,18 @@ class MainWindow(QMainWindow):
                 if self.app_controller.substrate_real_space_results or \
                    (self.app_controller.current_adsorbate_set_index in self.app_controller.adsorbate_real_space_results):
                     can_visualize_real_space = True
+        
+        can_calculate_spot_distances = False
+        if self.app_controller and SPOT_DISTANCE_DIALOG_AVAILABLE:
+            current_hist_node = self.history_manager.get_current_node()
+            if current_hist_node and current_hist_node.data_type == "FFT" and \
+               self.app_controller.substrate_F_m2i is not None and \
+               self.app_controller.substrate_t_m2i is not None and \
+               self.app_controller.current_fft_data_shape is not None: # Potrzebna transformacja i kalibracja
+                can_calculate_spot_distances = True
+        
+        if hasattr(self, 'calculate_spot_distances_action'):
+            self.calculate_spot_distances_action.setEnabled(can_calculate_spot_distances)
 
         # --- Logika dla Akcji Menu ---
         # Preprocessing: dostępne, jeśli jest jakikolwiek aktywny węzeł (STM lub FFT)
@@ -498,6 +518,47 @@ class MainWindow(QMainWindow):
         # Po zamknięciu modalnego dialogu, można wyczyścić referencję, jeśli nie chcemy go reużywać
         self.real_space_visualizer_dialog_instance = None 
         logger.info("RealSpaceFFTVisualizerDialog closed.")
+
+    @pyqtSlot()
+    def open_spot_distance_dialog(self):
+        logger.info("MainWindow: Opening Spot Distance Calculation dialog...")
+        if not SPOT_DISTANCE_DIALOG_AVAILABLE: # pragma: no cover
+            QMessageBox.critical(self, "Dialog Error", "SpotDistanceDialog is not available.")
+            return
+
+        current_node_info = self.app_controller.get_current_node_info_for_dialogs()
+        if not (current_node_info and current_node_info[1] == "FFT"):
+            QMessageBox.warning(self, "Incorrect Data Type", "Spot distances can only be calculated on an FFT image.")
+            return
+        
+        # Sprawdź, czy transformacja substratu jest dostępna
+        if not (self.app_controller.substrate_F_m2i is not None and self.app_controller.substrate_t_m2i is not None):
+            QMessageBox.warning(self, "Data Missing", "Substrate transformation (F, t) must be calculated first.")
+            return
+
+        node_id_for_dialog, _, fft_image_data_copy = current_node_info
+
+        dialog = SpotDistanceDialog(
+            fft_image_data=fft_image_data_copy,
+            history_manager=self.history_manager,
+            current_fft_node_id=node_id_for_dialog,
+            default_refinement_method=self.app_controller.spot_refinement_method,
+            default_refinement_roi_size=self.app_controller.refinement_roi_size,
+            substrate_F_m2i=self.app_controller.substrate_F_m2i,
+            substrate_t_m2i=self.app_controller.substrate_t_m2i,
+            substrate_transform_analysis=self.app_controller.substrate_transform_analysis_m2i,
+            parent=self
+        )
+        # Ten dialog głównie wyświetla informacje, więc .exec()
+        dialog.exec() 
+        # Ewentualnie, jeśli dialog miałby zwracać jakieś dane do AppController:
+        # if dialog.exec() == QDialog.DialogCode.Accepted:
+        #     results = dialog.get_dialog_results() # Jeśli dialog coś zwraca
+        #     # self.app_controller.process_spot_distance_results(results) # Przykładowo
+        #     logger.info("Spot Distance dialog accepted.")
+        # else:
+        #     logger.info("Spot Distance dialog cancelled.")
+        logger.info("Spot Distance dialog closed.")
 
     @pyqtSlot(int, str)
     def _handle_expected_adsorbate_type_changed_from_panel(self, set_index: int, selected_type: str):
