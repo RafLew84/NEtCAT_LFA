@@ -79,6 +79,14 @@ except ImportError: # pragma: no cover
 #     SPOT_DISTANCE_DIALOG_AVAILABLE = False
 #     logging.warning("Could not import SpotDistanceDialog.")
 
+try:
+    from .dialogs.domain_walls_analysis_dialog import DomainWallsAnalysisDialog
+    DOMAIN_WALL_DIALOG_AVAILABLE = True
+except ImportError: # pragma: no cover
+    DomainWallsAnalysisDialog = None
+    DOMAIN_WALL_DIALOG_AVAILABLE = False
+    logging.warning("Could not import DomainWallsAnalysisDialog.")
+
 logger = logging.getLogger(__name__)
 
 
@@ -365,6 +373,17 @@ class MainWindow(QMainWindow):
                 if self.app_controller.substrate_real_space_results or \
                    (self.app_controller.current_adsorbate_set_index in self.app_controller.adsorbate_real_space_results):
                     can_visualize_real_space = True
+
+        can_analyze_domain_walls = False
+        if self.app_controller and DOMAIN_WALL_DIALOG_AVAILABLE:
+            current_hist_node = self.history_manager.get_current_node()
+            # Warunek: musi być obraz FFT i obliczona transformacja substratu
+            if current_hist_node and current_hist_node.data_type == "FFT" and \
+               self.app_controller.substrate_F_m2i is not None:
+                can_analyze_domain_walls = True
+
+        if hasattr(self, 'domain_wall_analysis_action'):
+            self.domain_wall_analysis_action.setEnabled(can_analyze_domain_walls)
         
         # can_calculate_spot_distances = False
         # if self.app_controller and SPOT_DISTANCE_DIALOG_AVAILABLE:
@@ -518,6 +537,37 @@ class MainWindow(QMainWindow):
         # Po zamknięciu modalnego dialogu, można wyczyścić referencję, jeśli nie chcemy go reużywać
         self.real_space_visualizer_dialog_instance = None 
         logger.info("RealSpaceFFTVisualizerDialog closed.")
+
+    @pyqtSlot()
+    def open_domain_wall_analysis_dialog(self):
+        """Otwiera dialog do analizy odległości ścian domenowych."""
+        logger.info("MainWindow: Opening Domain Wall Analysis dialog...")
+
+        if not DOMAIN_WALL_DIALOG_AVAILABLE: # pragma: no cover
+            QMessageBox.critical(self, "Dialog Error", "DomainWallsAnalysisDialog is not available."); return
+
+        current_node_info = self.app_controller.get_current_node_info_for_dialogs()
+        if not (current_node_info and current_node_info[1] == "FFT"):
+            QMessageBox.warning(self, "Incorrect Data", "Domain wall analysis requires an active FFT image."); return
+        
+        if not (self.app_controller.substrate_F_m2i is not None and self.app_controller.substrate_t_m2i is not None):
+            QMessageBox.warning(self, "Data Missing", "Substrate transformation (F, t) must be calculated first before analyzing domain walls."); return
+
+        node_id, _, fft_image_data_copy = current_node_info
+
+        dialog = DomainWallsAnalysisDialog(
+            fft_image_data=fft_image_data_copy,
+            history_manager=self.history_manager,
+            current_fft_node_id=node_id,
+            default_refinement_method=self.app_controller.spot_refinement_method,
+            default_refinement_roi_size=self.app_controller.refinement_roi_size,
+            substrate_F_m2i=self.app_controller.substrate_F_m2i,
+            substrate_t_m2i=self.app_controller.substrate_t_m2i,
+            substrate_transform_analysis=self.app_controller.substrate_transform_analysis_m2i,
+            parent=self
+        )
+        dialog.exec()
+        logger.info("Domain Wall Analysis dialog closed.")
 
     # @pyqtSlot()
     # def open_spot_distance_dialog(self):
