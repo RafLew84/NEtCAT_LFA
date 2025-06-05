@@ -559,7 +559,6 @@ class MainWindow(QMainWindow):
             fft_image_data=fft_image_data_copy,
             history_manager=self.history_manager,
             current_fft_node_id=node_id,
-            default_refinement_method=self.app_controller.spot_refinement_method,
             default_refinement_roi_size=self.app_controller.refinement_roi_size,
             substrate_F_m2i=self.app_controller.substrate_F_m2i,
             substrate_t_m2i=self.app_controller.substrate_t_m2i,
