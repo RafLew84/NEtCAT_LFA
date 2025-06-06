@@ -389,7 +389,42 @@ class DomainWallsAnalysisDialog(QDialog):
             self.roi_preview_2d_image_item.clear()
             self.gaussian_preview_2d_image_item.clear()
 
-    def  _display_substrate_transform_info(self): pass
+    def _display_substrate_transform_info(self):
+        """
+        Wypełnia etykiety w UI informacjami o transformacji substratu,
+        które zostały przekazane do dialogu podczas jego tworzenia.
+        """
+        if self.sub_transform_analysis:
+            # Jeśli dane analizy transformacji są dostępne
+            self.dist_sub_transform_info_label_status.setText("Status: Available")
+            
+            # Pobierz i sformatuj kąt rotacji
+            rot_angle = self.sub_transform_analysis.get('rotation_angle_deg', 'N/A')
+            rot_text = f"{rot_angle:.2f}°" if isinstance(rot_angle, (int, float)) else "N/A"
+            self.dist_sub_transform_info_label_rot.setText(rot_text)
+
+            # Pobierz i sformatuj współczynniki rozciągania
+            stretches = self.sub_transform_analysis.get('principal_stretches', [np.nan, np.nan])
+            if stretches is not None and len(stretches) == 2:
+                scale_text = f"({stretches[0]:.3f}, {stretches[1]:.3f})"
+            else:
+                scale_text = "N/A"
+            self.dist_sub_transform_info_label_scale.setText(scale_text)
+
+            # Pobierz i sformatuj RMSE
+            rmse = self.sub_transform_analysis.get('rmse', 'N/A')
+            rmse_text = f"{rmse:.3f} px" if isinstance(rmse, (int, float)) else "N/A"
+            self.dist_sub_transform_info_label_rmse.setText(rmse_text)
+            
+            logger.info("Displayed available substrate transformation info.")
+        else:
+            # Jeśli dane analizy transformacji nie zostały przekazane
+            self.dist_sub_transform_info_label_status.setText("Status: Not Calculated / Not Available")
+            self.dist_sub_transform_info_label_rot.setText("-")
+            self.dist_sub_transform_info_label_scale.setText("-")
+            self.dist_sub_transform_info_label_rmse.setText("-")
+            logger.warning("Substrate transformation info not passed to dialog.")
+
     def _update_all_ui_elements(self): pass # Placeholder
     def _clear_last_preview_gauss_fit(self): pass
 
