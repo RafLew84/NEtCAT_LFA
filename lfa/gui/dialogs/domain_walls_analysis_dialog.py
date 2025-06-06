@@ -198,12 +198,15 @@ class DomainWallsAnalysisDialog(QDialog):
         self.gauss_2d_container = QWidget(); gauss_2d_v_layout = QVBoxLayout(self.gauss_2d_container); gauss_2d_h_layout = QHBoxLayout(); gauss_2d_h_layout.addWidget(QLabel("Gaussian Fit 2D Preview:")); self.enable_gauss_2d_preview_checkbox = QCheckBox("Enable"); self.enable_gauss_2d_preview_checkbox.setChecked(True); gauss_2d_h_layout.addWidget(self.enable_gauss_2d_preview_checkbox); gauss_2d_h_layout.addStretch(); gauss_2d_v_layout.addLayout(gauss_2d_h_layout); self.gaussian_preview_2d_widget = GraphicsLayoutWidget(); self.gaussian_preview_2d_widget.setMinimumHeight(150); self.gaussian_preview_2d_widget.setMaximumHeight(200); self.gaussian_preview_2d_plot = self.gaussian_preview_2d_widget.addViewBox(lockAspect=True, invertY=True); self.gaussian_preview_2d_image_item = ImageItem(); self.gaussian_preview_2d_plot.addItem(self.gaussian_preview_2d_image_item); gauss_2d_v_layout.addWidget(self.gaussian_preview_2d_widget, 1); preview_grid_layout.addWidget(self.gauss_2d_container, 0, 1)
         right_panel_layout.addWidget(preview_group)
 
-        spots_dist_group = QGroupBox("Selected Spots (Raw & Corrected)")
-        spots_dist_layout = QVBoxLayout(spots_dist_group)
-        self.spots_list_widget = QListWidget(); self.spots_list_widget.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-        spots_dist_layout.addWidget(self.spots_list_widget)
-        spot_buttons_layout = QHBoxLayout(); self.remove_spot_button = QPushButton("Remove Selected Spot"); self.clear_all_spots_button = QPushButton("Clear All Spots"); spot_buttons_layout.addWidget(self.remove_spot_button); spot_buttons_layout.addWidget(self.clear_all_spots_button); spots_dist_layout.addLayout(spot_buttons_layout)
-        right_panel_layout.addWidget(spots_dist_group)
+        selected_spots_group = QGroupBox("Selected Peaks Information")
+        selected_spots_layout = QFormLayout(selected_spots_group)
+        self.main_peak_info_label = QLabel("Not Selected"); self.main_peak_info_label.setWordWrap(True)
+        self.satellite_peak_info_label = QLabel("Not Selected"); self.satellite_peak_info_label.setWordWrap(True)
+        self.clear_all_peaks_button = QPushButton("Clear Both Peaks") # Jeden przycisk do czyszczenia
+        selected_spots_layout.addRow("Main Peak:", self.main_peak_info_label)
+        selected_spots_layout.addRow("Satellite Peak:", self.satellite_peak_info_label)
+        selected_spots_layout.addRow(self.clear_all_peaks_button)
+        right_panel_layout.addWidget(selected_spots_group)
         
         results_group = QGroupBox("Calculated Results"); results_layout = QFormLayout(results_group)
         self.calculate_distance_button = QPushButton("Calculate Distance")
@@ -426,6 +429,17 @@ class DomainWallsAnalysisDialog(QDialog):
             logger.warning("Substrate transformation info not passed to dialog.")
 
     def _update_all_ui_elements(self): pass # Placeholder
-    def _clear_last_preview_gauss_fit(self): pass
+
+    def _clear_last_preview_gauss_fit(self):
+        """
+        Resets the stored results from the last live Gaussian preview fit.
+
+        This is called when the ROI changes or the selection mode is altered,
+        invalidating the previous preview calculation.
+        """
+        self.last_preview_gauss_fit_popt = None
+        self.last_preview_gauss_fit_center_abs = None
+        self.last_preview_gauss_roi_state = None
+        logger.debug("Cleared last preview Gaussian fit results.")
 
     
