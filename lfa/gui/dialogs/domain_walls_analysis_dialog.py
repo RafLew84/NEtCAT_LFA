@@ -121,20 +121,24 @@ class DomainWallsAnalysisDialog(QDialog):
         left_controls_layout = QVBoxLayout(left_controls_widget)
         left_controls_widget.setMinimumWidth(300); left_controls_widget.setMaximumWidth(380)
 
-        # Grupa: Spot Selection
-        spot_selection_group = QGroupBox("Spot Selection (Max 2 spots)")
-        spot_selection_layout = QFormLayout(spot_selection_group)
-        spot_selection_layout.addRow(QLabel("Refinement Method: 2D Gaussian Fit"))
+        refinement_group = QGroupBox("Spot Selection") # Zmieniono nazwę grupy
+        refinement_layout = QFormLayout(refinement_group)
+        refinement_layout.addRow(QLabel("Refinement Method: 2D Gaussian Fit"))
         self.refinement_roi_size_spinbox = QSpinBox()
         self.refinement_roi_size_spinbox.setMinimum(3); self.refinement_roi_size_spinbox.setMaximum(31); self.refinement_roi_size_spinbox.setSingleStep(2)
-        spot_selection_layout.addRow("Refinement Area Size (px):", self.refinement_roi_size_spinbox)
-        self.add_spot_button = QPushButton("Refine & Add Selected Spot")
-        self.add_spot_button.setEnabled(False)
-        spot_selection_layout.addRow(self.add_spot_button)
-        left_controls_layout.addWidget(spot_selection_group)
-
-        # Grupa: Substrate Transformation Info
-        sub_transform_group = QGroupBox("Substrate Transformation (Reference)")
+        refinement_layout.addRow("Refinement Area Size (px):", self.refinement_roi_size_spinbox)
+        
+        # Nowe, oddzielne przyciski
+        self.add_main_spot_button = QPushButton("Add/Update Main Spot from ROI")
+        self.add_main_spot_button.setEnabled(False)
+        self.add_satellite_spot_button = QPushButton("Add Satellite Spot from ROI")
+        self.add_satellite_spot_button.setEnabled(False)
+        
+        refinement_layout.addRow(self.add_main_spot_button)
+        refinement_layout.addRow(self.add_satellite_spot_button)
+        left_controls_layout.addWidget(refinement_group)
+        
+        sub_transform_group = QGroupBox("Substrate Transformation Info (Applied)")
         sub_transform_layout = QFormLayout(sub_transform_group)
         self.dist_sub_transform_info_label_status = QLabel("Status: -")
         self.dist_sub_transform_info_label_rot = QLabel("Sub. Rotation: -")
@@ -209,3 +213,16 @@ class DomainWallsAnalysisDialog(QDialog):
     def _display_substrate_transform_info(self):
         """Metoda do wyświetlania informacji o transformacji. Zostanie zaimplementowana w kolejnym kroku."""
         pass # TODO
+
+    def _update_spot_lists(self): pass
+    def _redraw_all_markers_on_fft(self): pass
+    def _update_buttons_state(self): pass
+    def _auto_calculate_results(self): pass
+    @pyqtSlot()
+    def _on_add_main_spot_clicked(self): logger.debug("'Add Main Spot' clicked - TBD"); pass
+    @pyqtSlot()
+    def _on_add_satellite_peak_clicked(self): logger.debug("'Add Satellite Spot' clicked - TBD"); pass
+    @pyqtSlot()
+    def _clear_main_peak(self): logger.debug("'Clear Main Peak' clicked - TBD"); pass
+    @pyqtSlot()
+    def _clear_all_satellites(self): logger.debug("'Clear Satellites' clicked - TBD"); pass
