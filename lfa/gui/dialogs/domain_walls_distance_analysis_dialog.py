@@ -59,7 +59,7 @@ logger = logging.getLogger(__name__)
 # W tym dialogu używamy tylko Gaussa, ale zostawmy stałe dla spójności
 REFINEMENT_GAUSSIAN_FIT = "2D Gaussian Fit"
 
-class DomainWallsAnalysisDialog(QDialog):
+class DomainWallsDistanceAnalysisDialog(QDialog):
     def __init__(self,
                  fft_image_data: Optional[np.ndarray],
                  history_manager: HistoryManager,

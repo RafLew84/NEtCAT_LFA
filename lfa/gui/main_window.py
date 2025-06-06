@@ -80,10 +80,10 @@ except ImportError: # pragma: no cover
 #     logging.warning("Could not import SpotDistanceDialog.")
 
 try:
-    from .dialogs.domain_walls_analysis_dialog import DomainWallsAnalysisDialog
+    from .dialogs.domain_walls_distance_analysis_dialog import DomainWallsDistanceAnalysisDialog
     DOMAIN_WALL_DIALOG_AVAILABLE = True
 except ImportError: # pragma: no cover
-    DomainWallsAnalysisDialog = None
+    DomainWallsDistanceAnalysisDialog = None
     DOMAIN_WALL_DIALOG_AVAILABLE = False
     logging.warning("Could not import DomainWallsAnalysisDialog.")
 
@@ -555,7 +555,7 @@ class MainWindow(QMainWindow):
 
         node_id, _, fft_image_data_copy = current_node_info
 
-        dialog = DomainWallsAnalysisDialog(
+        dialog = DomainWallsDistanceAnalysisDialog(
             fft_image_data=fft_image_data_copy,
             history_manager=self.history_manager,
             current_fft_node_id=node_id,
