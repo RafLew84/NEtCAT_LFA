@@ -124,6 +124,16 @@ class MenuActionManager:
         analysis_menu.addAction(sel_ads_action)
         self.main_window.select_adsorbate_spots_action = sel_ads_action # Ustaw atrybut
 
+        analysis_menu.addSeparator() # Dodaj separator dla przejrzystości
+        domain_wall_action = self._create_action(
+            text="Analyze Domain Walls...",
+            status_tip="Analyze domain wall structures from spot splittings",
+            triggered_slot=self.main_window.open_domain_wall_analysis_dialog, # Nowy slot
+            enabled=False # Początkowo wyłączone
+        )
+        analysis_menu.addAction(domain_wall_action)
+        setattr(self.main_window, "domain_wall_analysis_action", domain_wall_action) # Zapisz referencję do akcji
+
 
         analysis_menu.addSeparator()
         vis_action = self._create_action(

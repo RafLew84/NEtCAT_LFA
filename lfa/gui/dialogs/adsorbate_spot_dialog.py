@@ -9,8 +9,8 @@ from PyQt6.QtWidgets import (
     QFormLayout, QRadioButton, QSpinBox, QCheckBox, QMessageBox,
     QGridLayout, QSplitter # QSplitter jest używany
 )
-from PyQt6.QtCore import Qt, pyqtSlot, QPointF
 from PyQt6.QtGui import QPen, QVector3D
+from PyQt6.QtCore import Qt, pyqtSlot 
 
 try:
     import pyqtgraph as pg
