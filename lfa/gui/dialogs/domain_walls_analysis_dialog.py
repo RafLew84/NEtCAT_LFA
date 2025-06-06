@@ -23,9 +23,31 @@ except ImportError: # pragma: no cover
 # Importy z projektu (tylko dla type hinting w konstruktorze)
 try:
     from ...logic.app_controller import AppController
-    from ...logic.history_manager import HistoryManager
 except ImportError: # pragma: no cover
-    AppController = None; HistoryManager = None
+    AppController = None
+
+try:
+    from ...analysis.peak_fitting import find_max_pixel_in_roi, fit_2d_gaussian_in_roi, _gaussian_2d, SCIPY_AVAILABLE
+    from ...analysis.lattice import KNOWN_LATTICES, get_reciprocal_points
+    from ...core.history import HistoryNode
+    from ...logic.history_manager import HistoryManager
+    PEAK_FITTING_MODULE_AVAILABLE = True
+except ImportError: # pragma: no cover
+    PEAK_FITTING_MODULE_AVAILABLE = False
+    SCIPY_AVAILABLE = False
+    KNOWN_LATTICES = {}
+    logging.error("AdsorbateSpotSelectionDialog: Could not import peak_fitting or lattice modules.")
+    def find_max_pixel_in_roi(data, center, radius): return center
+    def fit_2d_gaussian_in_roi(data, center, radius): return None
+    def _gaussian_2d(*args, **kwargs): raise ImportError("Gaussian 2D function is not available")
+
+try:
+    from scipy.optimize import curve_fit as scipy_curve_fit
+    SCIPY_OPTIMIZE_AVAILABLE = True
+except ImportError: # pragma: no cover
+    logging.error("AdsorbateSpotSelectionDialog: SciPy (for curve_fit) not found.")
+    SCIPY_OPTIMIZE_AVAILABLE = False
+    def scipy_curve_fit(*args, **kwargs): raise ImportError("scipy.optimize.curve_fit is not available")
 
 logger = logging.getLogger(__name__)
 
@@ -130,9 +152,9 @@ class DomainWallsAnalysisDialog(QDialog):
         
         # Nowe, oddzielne przyciski
         self.add_main_spot_button = QPushButton("Add/Update Main Spot from ROI")
-        self.add_main_spot_button.setEnabled(False)
+        self.add_main_spot_button.setEnabled(True)
         self.add_satellite_spot_button = QPushButton("Add Satellite Spot from ROI")
-        self.add_satellite_spot_button.setEnabled(False)
+        self.add_satellite_spot_button.setEnabled(True)
         
         refinement_layout.addRow(self.add_main_spot_button)
         refinement_layout.addRow(self.add_satellite_spot_button)
@@ -203,26 +225,172 @@ class DomainWallsAnalysisDialog(QDialog):
 
 
     def _connect_signals(self):
-        """Metoda do podłączenia sygnałów. Zostanie zaimplementowana w kolejnym kroku."""
-        pass # TODO
+        """Podłącza sygnały z UI do slotów."""
+        self.button_box.clicked.connect(self.accept)
 
-    def _update_all_ui_elements(self):
-        """Metoda do aktualizacji całego UI. Zostanie zaimplementowana w kolejnym kroku."""
-        pass # TODO
+        if self.fft_view_box and self.fft_view_box.scene():
+            self.fft_view_box.scene().sigMouseClicked.connect(self._handle_fft_image_click)
+        
+        self.selection_roi.sigRegionChanged.connect(self._handle_roi_region_changing)
+        self.refinement_roi_size_spinbox.valueChanged.connect(self._on_refinement_roi_size_changed)
 
-    def _display_substrate_transform_info(self):
-        """Metoda do wyświetlania informacji o transformacji. Zostanie zaimplementowana w kolejnym kroku."""
-        pass # TODO
+        # Użyj poprawnej nazwy przycisku z _init_ui
+        self.add_main_spot_button.clicked.connect(self._on_add_main_spot_clicked)
+        self.add_satellite_spot_button.clicked.connect(self._on_add_satellite_peak_clicked)
 
-    def _update_spot_lists(self): pass
-    def _redraw_all_markers_on_fft(self): pass
-    def _update_buttons_state(self): pass
-    def _auto_calculate_results(self): pass
-    @pyqtSlot()
-    def _on_add_main_spot_clicked(self): logger.debug("'Add Main Spot' clicked - TBD"); pass
-    @pyqtSlot()
-    def _on_add_satellite_peak_clicked(self): logger.debug("'Add Satellite Spot' clicked - TBD"); pass
-    @pyqtSlot()
-    def _clear_main_peak(self): logger.debug("'Clear Main Peak' clicked - TBD"); pass
-    @pyqtSlot()
-    def _clear_all_satellites(self): logger.debug("'Clear Satellites' clicked - TBD"); pass
+        # Checkboxy podglądów
+        self.enable_2d_roi_preview_checkbox.stateChanged.connect(self._update_roi_previews)
+        self.enable_gauss_2d_preview_checkbox.stateChanged.connect(self._update_roi_previews)
+        
+        # Przycisk obliczeń (zostanie zaimplementowany później)
+        # self.calculate_distance_button.clicked.connect(self._on_calculate_distance_clicked)
+
+        logger.debug("SpotDistanceDialog signals connected.")
+
+    def _on_add_main_spot_clicked(self, event):
+        pass
+
+    def _on_add_satellite_peak_clicked(self, event):
+        pass
+
+    @pyqtSlot(object)
+    def _handle_fft_image_click(self, event):
+        """Obsługuje kliknięcie na głównym obrazie FFT w tym dialogu."""
+        if not (self.fft_data is not None and self.fft_image_item and self.selection_roi):
+            return
+
+        if event.button() == Qt.MouseButton.LeftButton:
+            pos_viewbox = self.fft_view_box.mapSceneToView(event.scenePos())
+            mapped_pos = self.fft_image_item.mapToData(pos_viewbox)
+
+            if mapped_pos is not None:
+                kx, ky = mapped_pos.x(), mapped_pos.y()
+                logger.debug(f"SpotDistanceDialog FFT click: data (kx, ky) = ({kx:.1f}, {ky:.1f})")
+
+                # Zawsze umieszczaj ROI po kliknięciu, niezależnie od trybu uściślania
+                roi_size = self.refinement_roi_size_spinbox.value()
+                roi_x = kx - roi_size // 2
+                roi_y = ky - roi_size // 2
+                
+                max_h, max_w = self.fft_data.shape
+                roi_x = np.clip(roi_x, 0, max_w - roi_size)
+                roi_y = np.clip(roi_y, 0, max_h - roi_size)
+
+                self.selection_roi.setPos((roi_x, roi_y), update=False)
+                self.selection_roi.setSize((roi_size, roi_size), update=False)
+                self.selection_roi.setVisible(True)
+                
+                # Uaktywnij przyciski po umieszczeniu ROI
+                self._update_buttons_state()
+                self._update_roi_previews()
+                event.accept()
+        else:
+            event.ignore()
+
+    @pyqtSlot(object)
+    def _handle_roi_region_changing(self, roi_item: Optional[pg.ROI] = None):
+        """Slot wywoływany przy zmianie ROI, aktualizuje podglądy na żywo."""
+        if roi_item is None: roi_item = self.selection_roi
+        if not isinstance(roi_item, RectROI) or not roi_item.isVisible(): return
+
+        # Zaktualizuj spinbox, jeśli użytkownik ręcznie zmienił rozmiar ROI
+        current_roi_w = int(round(roi_item.size().x()))
+        if current_roi_w != self.refinement_roi_size_spinbox.value() and \
+           self.refinement_roi_size_spinbox.minimum() <= current_roi_w <= self.refinement_roi_size_spinbox.maximum() and \
+           current_roi_w % 2 != 0:
+            self.refinement_roi_size_spinbox.blockSignals(True)
+            self.refinement_roi_size_spinbox.setValue(current_roi_w)
+            self.refinement_roi_size_spinbox.blockSignals(False)
+        
+        self._clear_last_preview_gauss_fit()
+        self._update_roi_previews()
+
+    @pyqtSlot(int)
+    def _on_refinement_roi_size_changed(self, value: int):
+        """Slot wywoływany przy zmianie wartości w spinboxie rozmiaru ROI."""
+        self.refinement_roi_size = value
+        self._clear_last_preview_gauss_fit()
+        if self.selection_roi.isVisible():
+            current_pos = self.selection_roi.pos()
+            old_size = self.selection_roi.size()
+            center_x = current_pos.x() + old_size.x() / 2
+            center_y = current_pos.y() + old_size.y() / 2
+            new_pos_x = center_x - value / 2
+            new_pos_y = center_y - value / 2
+            self.selection_roi.setPos((new_pos_x, new_pos_y), update=False)
+            self.selection_roi.setSize((value, value), update=False)
+            self._handle_roi_region_changing()
+
+    def _update_roi_previews(self):
+        """Aktualizuje podglądy 2D ROI i dopasowania Gaussa."""
+        if not self.selection_roi.isVisible() or self.fft_data is None:
+            if hasattr(self, 'roi_preview_2d_image_item'): self.roi_preview_2d_image_item.clear()
+            if hasattr(self, 'gaussian_preview_2d_image_item'): self.gaussian_preview_2d_image_item.clear()
+            self._clear_last_preview_gauss_fit()
+            return
+
+        roi_state = self.selection_roi.getState()
+        x0r, y0r = int(round(roi_state['pos'].x())), int(round(roi_state['pos'].y()))
+        wr, hr = int(round(roi_state['size'].x())), int(round(roi_state['size'].y()))
+        
+        mky, mkx = self.fft_data.shape
+        y0c=np.clip(y0r,0,mky); y1c=np.clip(y0r+hr,0,mky)
+        x0c=np.clip(x0r,0,mkx); x1c=np.clip(x0r+wr,0,mkx)
+        
+        if y1c <= y0c or x1c <= x0c:
+            self.roi_preview_2d_image_item.clear()
+            self.gaussian_preview_2d_image_item.clear()
+            return
+            
+        roi_patch = self.fft_data[y0c:y1c, x0c:x1c]
+
+        if roi_patch.size > 0:
+            # Podgląd 2D ROI
+            if self.enable_2d_roi_preview_checkbox.isChecked():
+                self.roi_preview_2d_image_item.setImage(roi_patch.T)
+                self.roi_preview_2d_plot.autoRange()
+            else:
+                self.roi_preview_2d_image_item.clear()
+
+            # Podgląd Dopasowania Gaussa 2D
+            if self.gauss_2d_container.isVisible():
+                fitted_gauss_2d = None
+                if self.enable_gauss_2d_preview_checkbox.isChecked():
+                    if PEAK_FITTING_MODULE_AVAILABLE and SCIPY_OPTIMIZE_AVAILABLE and callable(_gaussian_2d) and callable(scipy_curve_fit):
+                        ph, pw = roi_patch.shape
+                        py_g, px_g = np.mgrid[0:ph,0:pw]
+                        pxy_flat_g = (py_g.flatten(), px_g.flatten())
+                        pdata_flat_g = roi_patch.flatten()
+                        try:
+                            p0g = [roi_patch.max()-roi_patch.min(), ph/2., pw/2., pw/4., ph/4., 0., roi_patch.min()]
+                            popt_g, _ = scipy_curve_fit(_gaussian_2d, pxy_flat_g, pdata_flat_g, p0=p0g, maxfev=2000)
+                            
+                            # Zapisz wyniki podglądu do późniejszego użycia
+                            self.last_preview_gauss_fit_popt = popt_g
+                            afk_g, afky_g = x0r + popt_g[2], y0r + popt_g[1]
+                            self.last_preview_gauss_fit_center_abs = (afk_g, afky_g)
+                            self.last_preview_gauss_roi_state = roi_state.copy()
+                            
+                            fitted_gauss_flat = _gaussian_2d(pxy_flat_g, *popt_g)
+                            fitted_gauss_2d = fitted_gauss_flat.reshape(ph, pw)
+                        except Exception as e:
+                            logger.warning(f"DistDlg Preview GaussFit Fail: {e}")
+                            self._clear_last_preview_gauss_fit()
+                            fitted_gauss_2d = roi_patch # Pokaż oryginał w razie błędu
+                    
+                    if fitted_gauss_2d is not None:
+                        self.gaussian_preview_2d_image_item.setImage(fitted_gauss_2d.T)
+                    else:
+                        self.gaussian_preview_2d_image_item.setImage(roi_patch.T) # Fallback
+                    self.gaussian_preview_2d_plot.autoRange()
+                else: # Checkbox odznaczony
+                    self.gaussian_preview_2d_image_item.clear()
+        else: # roi_patch.size == 0
+            self.roi_preview_2d_image_item.clear()
+            self.gaussian_preview_2d_image_item.clear()
+
+    def  _display_substrate_transform_info(self): pass
+    def _update_all_ui_elements(self): pass # Placeholder
+    def _clear_last_preview_gauss_fit(self): pass
+
+    
