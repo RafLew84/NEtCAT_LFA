@@ -124,25 +124,6 @@ class MenuActionManager:
         analysis_menu.addAction(sel_ads_action)
         self.main_window.select_adsorbate_spots_action = sel_ads_action # Ustaw atrybut
 
-        # analysis_menu.addSeparator() # Separator przed nową grupą opcji
-        # calc_dist_action = self._create_action(
-        #     text="Calculate Spot &Distances (Real Space)...",
-        #     status_tip="Open dialog to select spots and calculate their real space distances from center",
-        #     triggered_slot=self.main_window.open_spot_distance_dialog, # Nowy slot w MainWindow
-        #     enabled=False # Początkowo wyłączone
-        # )
-        # analysis_menu.addAction(calc_dist_action)
-        # setattr(self.main_window, "calculate_spot_distances_action", calc_dist_action) # Ustaw atrybut
-
-        analysis_menu.addSeparator()
-        domain_wall_action = self._create_action(
-            text="Analyze Domain Wall Distances...",
-            status_tip="Open dialog to select spots and analyze domain wall periodicity",
-            triggered_slot=self.main_window.open_domain_wall_analysis_dialog, # Nowy slot
-            enabled=False # Początkowo wyłączone
-        )
-        analysis_menu.addAction(domain_wall_action)
-        setattr(self.main_window, "domain_wall_analysis_action", domain_wall_action) # Ustaw atrybut
 
         analysis_menu.addSeparator()
         vis_action = self._create_action(
