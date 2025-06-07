@@ -12,6 +12,8 @@ from PyQt6.QtWidgets import (
 
 from PyQt6.QtCore import Qt, pyqtSlot, QTimer 
 
+from ...analysis.drift_correction import apply_affine_transform
+
 try:
     import pyqtgraph as pg
     from pyqtgraph import GraphicsLayoutWidget, ImageItem, ViewBox, RectROI, ScatterPlotItem
@@ -27,7 +29,7 @@ except ImportError: # pragma: no cover
     AppController = None
 
 try:
-    from ...analysis.peak_fitting import find_max_pixel_in_roi, fit_2d_gaussian_in_roi, _gaussian_2d, SCIPY_AVAILABLE
+    from ...analysis.peak_fitting import find_max_pixel_in_roi, fit_2d_gaussian_in_roi_with_all_data, _gaussian_2d, SCIPY_AVAILABLE
     from ...analysis.lattice import KNOWN_LATTICES, get_reciprocal_points
     from ...core.history import HistoryNode
     from ...logic.history_manager import HistoryManager
@@ -38,7 +40,7 @@ except ImportError: # pragma: no cover
     KNOWN_LATTICES = {}
     logging.error("AdsorbateSpotSelectionDialog: Could not import peak_fitting or lattice modules.")
     def find_max_pixel_in_roi(data, center, radius): return center
-    def fit_2d_gaussian_in_roi(data, center, radius): return None
+    # def fit_2d_gaussian_in_roi(data, center, radius): return None
     def _gaussian_2d(*args, **kwargs): raise ImportError("Gaussian 2D function is not available")
 
 try:
@@ -85,8 +87,6 @@ class DomainWallsAnalysisDialog(QDialog):
 
         # Pobierz węzeł FFT i sprawdź jego parametry
         fft_node = self.history_manager.get_node_by_id(self.current_fft_node_id)
-        print("=======================================================")
-        print(fft_node.parameters['scaling_mode'])
         is_power_scale = False
         if fft_node and fft_node.parameters:
             if fft_node.parameters.get("scaling_mode") == "power":
@@ -118,11 +118,19 @@ class DomainWallsAnalysisDialog(QDialog):
         # Inicjalizacja atrybutów dla danych i UI
         self._selection_mode: Optional[str] = None
         self.main_peak_raw_refined_px: Optional[Tuple[float, float]] = None
-        self.satellite_peaks_raw_refined_px: List[Tuple[float, float]] = []
+        self.satellite_peak_raw_refined_px: Optional[Tuple[float, float]] = []
         self.main_peak_raw_marker: Optional[ScatterPlotItem] = None
-        self.satellite_raw_markers: Optional[ScatterPlotItem] = None
+        self.satellite_raw_marker: Optional[ScatterPlotItem] = None
         self.main_peak_corrected_marker: Optional[ScatterPlotItem] = None
-        self.satellite_corrected_markers: Optional[ScatterPlotItem] = None
+        self.satellite_corrected_marker: Optional[ScatterPlotItem] = None
+        self.main_peak_corrected_ideal_px: Optional[Tuple[float, float]] = None
+        self.satellite_peak_corrected_ideal_px: Optional[Tuple[float, float]] = None
+        self.main_peak_amplitude: Optional[float] = None
+        self.satellite_peak_amplitude: Optional[float] = None
+        self.main_peak_intensity: Optional[float] = None
+        self.satellite_peak_intensity: Optional[float] = None
+        self.main_peak_max_value: Optional[float] = None
+        self.satellite_peak_max_value: Optional[float] = None
 
         self._init_ui()
         self._connect_signals()
@@ -215,9 +223,13 @@ class DomainWallsAnalysisDialog(QDialog):
         self.distance_fft_label = QLabel("-")
         self.distance_real_space_label = QLabel("-")
         self.intensity_ratio_label = QLabel("-")
+        self.amplitude_ratio_label = QLabel("-")
+        self.max_value_label = QLabel("-")
         results_layout.addRow("Distance in k-space (Δg*):", self.distance_fft_label)
         results_layout.addRow("Real Space Periodicity (P):", self.distance_real_space_label)
         results_layout.addRow("Intensity Ratio (Sat/Main):", self.intensity_ratio_label) # <<< NOWY ELEMENT
+        results_layout.addRow("Amplitude Ratio (Sat/Main):", self.amplitude_ratio_label)
+        results_layout.addRow("Max Value Ratio (Set/Main):", self.max_value_label)
         right_panel_layout.addWidget(results_group)
 
         self.status_label = QLabel("Click on FFT to select a spot."); right_panel_layout.addWidget(self.status_label)
@@ -249,9 +261,6 @@ class DomainWallsAnalysisDialog(QDialog):
         # self.calculate_distance_button.clicked.connect(self._on_calculate_distance_clicked)
 
         logger.debug("SpotDistanceDialog signals connected.")
-
-    def _on_add_main_spot_clicked(self, event):
-        pass
 
     def _on_add_satellite_peak_clicked(self, event):
         pass
@@ -428,7 +437,121 @@ class DomainWallsAnalysisDialog(QDialog):
             self.dist_sub_transform_info_label_rmse.setText("-")
             logger.warning("Substrate transformation info not passed to dialog.")
 
-    def _update_all_ui_elements(self): pass # Placeholder
+    def _update_all_ui_elements(self):
+        self._update_spot_info_display()
+        self._redraw_all_markers_on_fft()
+        self._update_buttons_state()
+        self._auto_calculate_results()
+    
+    def _auto_calculate_results(self): pass
+
+    def _update_spot_info_display(self):
+        """
+        Aktualizuje pola tekstowe, wyświetlając informacje o wybranych pikach.
+        """
+        # Aktualizacja wyświetlacza piku głównego
+        if self.main_peak_raw_refined_px and self.main_peak_corrected_ideal_px and self.main_peak_intensity is not None:
+            raw = self.main_peak_raw_refined_px
+            corr = self.main_peak_corrected_ideal_px
+            intensity = self.main_peak_intensity
+            amplitude = self.main_peak_amplitude
+            max_value = self.main_peak_max_value
+            self.main_peak_info_label.setText(f"Corrected: ({corr[0]:.1f}, {corr[1]:.1f}) px | I: {intensity:.2e} \n A: {amplitude:.2e} | Max: {max_value:.2e}")
+        else:
+            self.main_peak_info_label.setText("Not Selected")
+
+        # if self.main_peak_data:
+        #     # Używamy skorygowanych współrzędnych i obliczonych wartości
+        #     corr = self.main_peak_data.get('corrected')
+        #     intensity = self.main_peak_data.get('intensity')
+        #     amplitude = self.main_peak_data.get('amplitude')
+            
+        #     corr_text = f"Corr: ({corr[0]:.1f}, {corr[1]:.1f}) px" if corr else "Corr: Error"
+        #     intensity_text = f"I: {intensity:.2e}" if intensity is not None else "I: -"
+        #     amplitude_text = f"A: {amplitude:.2e}" if amplitude is not None else "A: -"
+            
+        #     self.main_peak_info_label.setText(f"{corr_text} | {intensity_text} | {amplitude_text}")
+        # else:
+        #     self.main_peak_info_label.setText("Not Selected")
+        
+        # # Aktualizacja wyświetlacza piku satelitarnego
+        # if self.satellite_peak_data:
+        #     corr = self.satellite_peak_data.get('corrected')
+        #     intensity = self.satellite_peak_data.get('intensity')
+        #     amplitude = self.satellite_peak_data.get('amplitude')
+
+        #     corr_text = f"Corr: ({corr[0]:.1f}, {corr[1]:.1f}) px" if corr else "Corr: Error"
+        #     intensity_text = f"I: {intensity:.2e}" if intensity is not None else "I: -"
+        #     amplitude_text = f"A: {amplitude:.2e}" if amplitude is not None else "A: -"
+            
+        #     self.satellite_peak_info_label.setText(f"{corr_text} | {intensity_text} | {amplitude_text}")
+        # else:
+        #     self.satellite_peak_info_label.setText("Not Selected")
+
+    def _redraw_all_markers_on_fft(self):
+        """
+        Rysuje markery dla piku głównego i satelitarnego (surowe/uściślone
+        oraz ich skorygowane pozycje) na obrazie FFT.
+        """
+        # Usuń wszystkie stare markery
+        if self.main_peak_raw_marker: 
+            self.fft_view_box.removeItem(self.main_peak_raw_marker)
+            self.main_peak_raw_marker=None
+        if self.main_peak_corrected_marker: 
+            self.fft_view_box.removeItem(self.main_peak_corrected_marker)
+            self.main_peak_corrected_marker=None
+        # if self.satellite_raw_marker: self.fft_view_box.removeItem(self.satellite_raw_marker); self.satellite_raw_marker=None
+        # if self.satellite_corrected_marker: self.fft_view_box.removeItem(self.satellite_corrected_marker); self.satellite_corrected_marker=None
+
+        # --- Rysuj surowe (uściślone) piki ---
+        # Pik główny (np. duży żółty okrąg)
+        if self.main_peak_raw_refined_px:
+            self.main_peak_raw_marker = pg.ScatterPlotItem(
+                spots=[{'pos': self.main_peak_raw_refined_px, 'symbol': 'o', 'size': 14, 'pen': pg.mkPen('y', width=2), 'brush': pg.mkBrush(255, 255, 0, 120)}]
+            )
+            self.fft_view_box.addItem(self.main_peak_raw_marker)
+        
+        # Pik satelitarny (np. mniejszy pomarańczowy okrąg)
+        # if self.satellite_peak_data and self.satellite_peak_data.get('raw'):
+        #     self.satellite_raw_marker = pg.ScatterPlotItem(
+        #         spots=[{'pos': self.satellite_peak_data['raw'], 'symbol': 'o', 'size': 10, 'pen': pg.mkPen('orange', width=1.5), 'brush': pg.mkBrush(255, 165, 0, 100)}]
+        #     )
+        #     self.fft_view_box.addItem(self.satellite_raw_marker)
+
+        # --- Rysuj skorygowane piki (przetransformowane z powrotem do przestrzeni obrazu FFT) ---
+        spots_to_transform = []
+        if self.main_peak_corrected_ideal_px:
+            spots_to_transform.append(self.main_peak_corrected_ideal_px)
+        # if self.satellite_peak_data and self.satellite_peak_data.get('corrected'):
+        #     spots_to_transform.append(self.satellite_peak_data['corrected'])
+
+        if spots_to_transform and self.sub_F_m2i is not None and apply_affine_transform:
+            try:
+                F_inv = np.linalg.inv(self.sub_F_m2i)
+                t_m2i = self.sub_t_m2i or np.zeros(2)
+                t_prime_for_display = (-t_m2i @ F_inv.T).flatten()
+                
+                transformed_back = apply_affine_transform(np.array(spots_to_transform), F_inv, t_prime_for_display)
+                
+                if transformed_back is not None:
+                    # Skorygowany pik główny (np. duży cyjanowy kwadrat)
+                    if self.main_peak_corrected_ideal_px:
+                        self.main_peak_corrected_marker = pg.ScatterPlotItem(
+                            spots=[{'pos': tuple(transformed_back[0]), 'symbol': 's', 'size': 14, 'pen': pg.mkPen('c', width=2)}]
+                        )
+                        self.fft_view_box.addItem(self.main_peak_corrected_marker)
+                    
+                    # # Skorygowany pik satelitarny (np. mniejszy cyjanowy kwadrat)
+                    # if self.satellite_peak_data and self.satellite_peak_data.get('corrected'):
+                    #     # Indeks będzie 1, jeśli jest pik główny, w przeciwnym razie 0
+                    #     start_index = 1 if self.main_peak_data and self.main_peak_data.get('corrected') else 0
+                    #     if len(transformed_back) > start_index:
+                    #         self.satellite_corrected_marker = pg.ScatterPlotItem(
+                    #             spots=[{'pos': tuple(transformed_back[start_index]), 'symbol': 's', 'size': 10, 'pen': pg.mkPen('cyan', width=1.5)}]
+                    #         )
+                    #         self.fft_view_box.addItem(self.satellite_corrected_marker)
+            except Exception as e:
+                logger.error(f"Error drawing corrected markers: {e}")
 
     def _clear_last_preview_gauss_fit(self):
         """
@@ -441,5 +564,64 @@ class DomainWallsAnalysisDialog(QDialog):
         self.last_preview_gauss_fit_center_abs = None
         self.last_preview_gauss_roi_state = None
         logger.debug("Cleared last preview Gaussian fit results.")
+    
+    def _refine_and_process_spot(self) -> Optional[Tuple[Tuple[float, float], Tuple[float, float], float]]:
+        if not self.selection_roi.isVisible() or self.fft_data is None: return None
+        
+        roi_state=self.selection_roi.getState(); x0r,y0r=int(round(roi_state['pos'].x())),int(round(roi_state['pos'].y())); wr,hr=int(round(roi_state['size'].x())),int(round(roi_state['size'].y())); ckx_roi,cky_roi=x0r+wr//2,y0r+hr//2
+        if not (PEAK_FITTING_MODULE_AVAILABLE and fit_2d_gaussian_in_roi_with_all_data and callable(fit_2d_gaussian_in_roi_with_all_data)): return None
+        pr=self.refinement_roi_size_spinbox.value()//2; mh,mw=self.fft_data.shape; eff_cky,eff_ckx=np.clip(cky_roi,pr,mh-1-pr),np.clip(ckx_roi,pr,mw-1-pr)
+        fit_res=fit_2d_gaussian_in_roi_with_all_data(self.fft_data, (eff_cky,eff_ckx), pr)
+        if not fit_res: logger.warning("Gaussian fit failed."); return None
+        popt_fit,(fky_abs,fkx_abs),roi_patch_used = fit_res; refined_kx_fft,refined_ky_fft=float(fkx_abs),float(fky_abs);
+        
+        raw_refined_spot = (refined_kx_fft, refined_ky_fft)
+        
+        intensity = 0.0
+        amplitude,_,_,sigma_y,sigma_x,_,_ = popt_fit
+        intensity = 2*np.pi*abs(amplitude)*abs(sigma_x)*abs(sigma_y)
+        max_value = np.max(roi_patch_used) if roi_patch_used.size > 0 else 0.0
+        
+        corrected_spot = None
+        if self.sub_F_m2i is not None and self.sub_t_m2i is not None and apply_affine_transform:
+            try:
+                corrected_array = apply_affine_transform(np.array([raw_refined_spot]), self.sub_F_m2i, self.sub_t_m2i)
+                if corrected_array is not None:
+                    corrected_spot = tuple(corrected_array[0])
+            except Exception as e:
+                logger.error(f"Error correcting spot {raw_refined_spot}: {e}")
+        
+        if corrected_spot is None: logger.warning(f"Could not correct spot {raw_refined_spot}."); return None
+        print(f"raw_refined_spot: {raw_refined_spot}")
+        print(f"corrected_spot: {corrected_spot}")
+        print(f"intensity: {intensity}")
+        print(f"amplitude: {amplitude}")
+        return raw_refined_spot, corrected_spot, intensity, amplitude, max_value
+
+    @pyqtSlot()
+    def _on_add_main_spot_clicked(self):
+        if not self.selection_roi.isVisible(): QMessageBox.warning(self,"No ROI","Please place ROI on the main peak first."); return
+        results = self._refine_and_process_spot()
+        if results:
+            raw,corr,intensity,amplitude, max_value = results
+            self.main_peak_raw_refined_px=raw
+            self.main_peak_corrected_ideal_px=corr
+            self.main_peak_intensity=intensity
+            self.main_peak_amplitude=amplitude
+            self.main_peak_max_value=max_value
+            logger.info(f"Main peak selected/updated: Raw={raw}, Corrected={corr}, Intensity={intensity:.2e}, Amplitude={amplitude:.2e}")
+            self._update_all_ui_elements()
+        self.selection_roi.setVisible(False); self._update_buttons_state()
+
+    def _update_buttons_state(self):
+        roi_is_visible = self.selection_roi.isVisible()
+        main_peak_exists = self.main_peak_raw_refined_px is not None
+        
+        self.add_main_spot_button.setEnabled(roi_is_visible)
+        self.add_satellite_spot_button.setEnabled(roi_is_visible and main_peak_exists)
+        
+        # self.clear_main_peak_button.setEnabled(main_peak_exists)
+        # self.clear_satellites_button.setEnabled(bool(self.satellite_peaks_raw_refined_px))
+
 
     
