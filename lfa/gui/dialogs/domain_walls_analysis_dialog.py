@@ -132,6 +132,8 @@ class DomainWallsAnalysisDialog(QDialog):
         self.satellite_peak_intensity: Optional[float] = None
         self.main_peak_max_value: Optional[float] = None
         self.satellite_peak_max_value: Optional[float] = None
+        self.basic_main_periodicity_nm: Optional[float] = None
+        self.basic_satellite_periodicity_nm: Optional[float] = None
 
         self._init_ui()
         self._connect_signals()
@@ -341,12 +343,13 @@ class DomainWallsAnalysisDialog(QDialog):
         if not self.selection_roi.isVisible(): QMessageBox.warning(self,"No ROI","Please place ROI on the main peak first."); return
         results = self._refine_and_process_spot()
         if results:
-            raw,corr,intensity,amplitude, max_value = results
+            raw,corr,intensity,amplitude, max_value, d_spacing_nm = results
             self.satellite_peak_raw_refined_px=raw
             self.satellite_peak_corrected_ideal_px=corr
             self.satellite_peak_intensity=intensity
             self.satellite_peak_amplitude=amplitude
             self.satellite_peak_max_value=max_value
+            self.basic_satellite_periodicity_nm=d_spacing_nm
             # self.main_peak_raw_refined_px=raw
             # self.main_peak_corrected_ideal_px=corr
             # self.main_peak_intensity=intensity
@@ -547,7 +550,8 @@ class DomainWallsAnalysisDialog(QDialog):
             intensity = self.main_peak_intensity
             amplitude = self.main_peak_amplitude
             max_value = self.main_peak_max_value
-            self.main_peak_info_label.setText(f"Corrected: ({corr[0]:.1f}, {corr[1]:.1f}) px | I: {intensity:.2e} \n A: {amplitude:.2e} | Max: {max_value:.2e}")
+            d_spacing_nm = self.basic_main_periodicity_nm
+            self.main_peak_info_label.setText(f"Corrected: ({corr[0]:.1f}, {corr[1]:.1f}) px | I: {intensity:.2e} \n A: {amplitude:.2e} | Max: {max_value:.2e} \n d_spacing: {d_spacing_nm:.2f} nm")
         else:
             self.main_peak_info_label.setText("Not Selected")
         
@@ -558,7 +562,8 @@ class DomainWallsAnalysisDialog(QDialog):
             intensity = self.satellite_peak_intensity
             amplitude = self.satellite_peak_amplitude
             max_value = self.satellite_peak_max_value
-            self.satellite_peak_info_label.setText(f"Corrected: ({corr[0]:.1f}, {corr[1]:.1f}) px | I: {intensity:.2e} \n A: {amplitude:.2e} | Max: {max_value:.2e}")
+            d_spacing_nm = self.basic_satellite_periodicity_nm
+            self.satellite_peak_info_label.setText(f"Corrected: ({corr[0]:.1f}, {corr[1]:.1f}) px | I: {intensity:.2e} \n A: {amplitude:.2e} | Max: {max_value:.2e} \n d_spacing: {d_spacing_nm:.2f} nm")
         else:
             self.satellite_peak_info_label.setText("Not Selected")
 
@@ -700,24 +705,50 @@ class DomainWallsAnalysisDialog(QDialog):
             except Exception as e:
                 logger.error(f"Error correcting spot {raw_refined_spot}: {e}")
         
+        d_spacing_nm = None
+        if corrected_spot:
+            try:
+                fft_rows_ky, fft_cols_kx = self.fft_data.shape
+                center_kx_ideal, center_ky_ideal = fft_cols_kx / 2.0, fft_rows_ky / 2.0
+                
+                # Wektor od centrum idealnego FFT do skorygowanego piku
+                g_vector_ideal_px = (corrected_spot[0] - center_kx_ideal, corrected_spot[1] - center_ky_ideal)
+                
+                # Pobranie kalibracji
+                root_node = self.history_manager.get_root_node_for_node(self.current_fft_node_id)
+                if not (root_node and root_node.parameters): raise ValueError("Calibration data not found.")
+                Lx_nm=root_node.parameters.get("size_nm_x"); Ly_nm=root_node.parameters.get("size_nm_y")
+                if not (Lx_nm and Ly_nm): raise ValueError("Invalid Lx/Ly in calibration data.")
+                
+                # Konwersja i obliczenie
+                g_vector_nm_inv = convert_g_vector_px_to_nm_inv(g_vector_ideal_px, Lx_nm, Ly_nm, fft_cols_kx, fft_rows_ky)
+                if g_vector_nm_inv is None: raise ValueError("k-space conversion failed.")
+                g_mag_nm_inv = np.linalg.norm(g_vector_nm_inv)
+                d_spacing_nm = 1.0 / g_mag_nm_inv if g_mag_nm_inv > 1e-9 else float('inf')
+            except Exception as e:
+                logger.error(f"Could not calculate d-spacing for spot {corrected_spot}: {e}")
+
+        
         if corrected_spot is None: logger.warning(f"Could not correct spot {raw_refined_spot}."); return None
         print(f"raw_refined_spot: {raw_refined_spot}")
         print(f"corrected_spot: {corrected_spot}")
         print(f"intensity: {intensity}")
         print(f"amplitude: {amplitude}")
-        return raw_refined_spot, corrected_spot, intensity, amplitude, max_value
+        print(f"d_spacing_nm: {d_spacing_nm}")
+        return raw_refined_spot, corrected_spot, intensity, amplitude, max_value, d_spacing_nm
 
     @pyqtSlot()
     def _on_add_main_spot_clicked(self):
         if not self.selection_roi.isVisible(): QMessageBox.warning(self,"No ROI","Please place ROI on the main peak first."); return
         results = self._refine_and_process_spot()
         if results:
-            raw,corr,intensity,amplitude, max_value = results
+            raw,corr,intensity,amplitude, max_value, d_spacing_nm = results
             self.main_peak_raw_refined_px=raw
             self.main_peak_corrected_ideal_px=corr
             self.main_peak_intensity=intensity
             self.main_peak_amplitude=amplitude
             self.main_peak_max_value=max_value
+            self.basic_main_periodicity_nm=d_spacing_nm
             logger.info(f"Main peak selected/updated: Raw={raw}, Corrected={corr}, Intensity={intensity:.2e}, Amplitude={amplitude:.2e}")
             self._update_all_ui_elements()
         self.selection_roi.setVisible(False); self._update_buttons_state()
