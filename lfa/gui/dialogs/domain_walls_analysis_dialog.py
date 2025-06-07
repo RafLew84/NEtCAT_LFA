@@ -263,7 +263,23 @@ class DomainWallsAnalysisDialog(QDialog):
         logger.debug("SpotDistanceDialog signals connected.")
 
     def _on_add_satellite_peak_clicked(self, event):
-        pass
+        if not self.selection_roi.isVisible(): QMessageBox.warning(self,"No ROI","Please place ROI on the main peak first."); return
+        results = self._refine_and_process_spot()
+        if results:
+            raw,corr,intensity,amplitude, max_value = results
+            self.satellite_peak_raw_refined_px=raw
+            self.satellite_peak_corrected_ideal_px=corr
+            self.satellite_peak_intensity=intensity
+            self.satellite_peak_amplitude=amplitude
+            self.satellite_peak_max_value=max_value
+            # self.main_peak_raw_refined_px=raw
+            # self.main_peak_corrected_ideal_px=corr
+            # self.main_peak_intensity=intensity
+            # self.main_peak_amplitude=amplitude
+            # self.main_peak_max_value=max_value
+            logger.info(f"Satelite peak selected/updated: Raw={raw}, Corrected={corr}, Intensity={intensity:.2e}, Amplitude={amplitude:.2e}")
+            self._update_all_ui_elements()
+        self.selection_roi.setVisible(False); self._update_buttons_state()
 
     @pyqtSlot(object)
     def _handle_fft_image_click(self, event):
@@ -459,6 +475,17 @@ class DomainWallsAnalysisDialog(QDialog):
             self.main_peak_info_label.setText(f"Corrected: ({corr[0]:.1f}, {corr[1]:.1f}) px | I: {intensity:.2e} \n A: {amplitude:.2e} | Max: {max_value:.2e}")
         else:
             self.main_peak_info_label.setText("Not Selected")
+        
+        # Aktualizacja wyświetlacza piku satelitarnego
+        if self.satellite_peak_raw_refined_px and self.satellite_peak_corrected_ideal_px and self.satellite_peak_intensity is not None:
+            raw = self.satellite_peak_raw_refined_px
+            corr = self.satellite_peak_corrected_ideal_px
+            intensity = self.satellite_peak_intensity
+            amplitude = self.satellite_peak_amplitude
+            max_value = self.satellite_peak_max_value
+            self.satellite_peak_info_label.setText(f"Corrected: ({corr[0]:.1f}, {corr[1]:.1f}) px | I: {intensity:.2e} \n A: {amplitude:.2e} | Max: {max_value:.2e}")
+        else:
+            self.satellite_peak_info_label.setText("Not Selected")
 
         # if self.main_peak_data:
         #     # Używamy skorygowanych współrzędnych i obliczonych wartości
@@ -500,8 +527,12 @@ class DomainWallsAnalysisDialog(QDialog):
         if self.main_peak_corrected_marker: 
             self.fft_view_box.removeItem(self.main_peak_corrected_marker)
             self.main_peak_corrected_marker=None
-        # if self.satellite_raw_marker: self.fft_view_box.removeItem(self.satellite_raw_marker); self.satellite_raw_marker=None
-        # if self.satellite_corrected_marker: self.fft_view_box.removeItem(self.satellite_corrected_marker); self.satellite_corrected_marker=None
+        if self.satellite_raw_marker: 
+            self.fft_view_box.removeItem(self.satellite_raw_marker)
+            self.satellite_raw_marker=None
+        if self.satellite_corrected_marker: 
+            self.fft_view_box.removeItem(self.satellite_corrected_marker)
+            self.satellite_corrected_marker=None
 
         # --- Rysuj surowe (uściślone) piki ---
         # Pik główny (np. duży żółty okrąg)
@@ -512,46 +543,44 @@ class DomainWallsAnalysisDialog(QDialog):
             self.fft_view_box.addItem(self.main_peak_raw_marker)
         
         # Pik satelitarny (np. mniejszy pomarańczowy okrąg)
-        # if self.satellite_peak_data and self.satellite_peak_data.get('raw'):
-        #     self.satellite_raw_marker = pg.ScatterPlotItem(
-        #         spots=[{'pos': self.satellite_peak_data['raw'], 'symbol': 'o', 'size': 10, 'pen': pg.mkPen('orange', width=1.5), 'brush': pg.mkBrush(255, 165, 0, 100)}]
-        #     )
-        #     self.fft_view_box.addItem(self.satellite_raw_marker)
+        if self.satellite_peak_raw_refined_px:
+            self.satellite_raw_marker = pg.ScatterPlotItem(
+                spots=[{'pos': self.satellite_peak_raw_refined_px, 'symbol': 'o', 'size': 10, 'pen': pg.mkPen('orange', width=1.5), 'brush': pg.mkBrush(255, 165, 0, 100)}]
+            )
+            self.fft_view_box.addItem(self.satellite_raw_marker)
 
         # --- Rysuj skorygowane piki (przetransformowane z powrotem do przestrzeni obrazu FFT) ---
-        spots_to_transform = []
-        if self.main_peak_corrected_ideal_px:
-            spots_to_transform.append(self.main_peak_corrected_ideal_px)
-        # if self.satellite_peak_data and self.satellite_peak_data.get('corrected'):
-        #     spots_to_transform.append(self.satellite_peak_data['corrected'])
+        # spots_to_transform = []
+        # if self.main_peak_corrected_ideal_px:
+        #     spots_to_transform.append(self.main_peak_corrected_ideal_px)
+        # if self.satellite_peak_corrected_ideal_px:
+        #     spots_to_transform.append(self.satellite_peak_corrected_ideal_px)
 
-        if spots_to_transform and self.sub_F_m2i is not None and apply_affine_transform:
-            try:
-                F_inv = np.linalg.inv(self.sub_F_m2i)
-                t_m2i = self.sub_t_m2i or np.zeros(2)
-                t_prime_for_display = (-t_m2i @ F_inv.T).flatten()
+        # if self.sub_F_m2i is not None and apply_affine_transform:
+        #     try:
+                # F_inv = np.linalg.inv(self.sub_F_m2i)
+                # t_m2i = self.sub_t_m2i or np.zeros(2)
+                # t_prime_for_display = (-t_m2i @ F_inv.T).flatten()
                 
-                transformed_back = apply_affine_transform(np.array(spots_to_transform), F_inv, t_prime_for_display)
+                # transformed_main_back = apply_affine_transform(np.array(self.main_peak_corrected_ideal_px), F_inv, t_prime_for_display)
+                # transformed_sat_back = apply_affine_transform(np.array(self.satellite_peak_corrected_ideal_px), F_inv, t_prime_for_display)
                 
-                if transformed_back is not None:
+                # if transformed_main_back is not None:
                     # Skorygowany pik główny (np. duży cyjanowy kwadrat)
-                    if self.main_peak_corrected_ideal_px:
-                        self.main_peak_corrected_marker = pg.ScatterPlotItem(
-                            spots=[{'pos': tuple(transformed_back[0]), 'symbol': 's', 'size': 14, 'pen': pg.mkPen('c', width=2)}]
-                        )
-                        self.fft_view_box.addItem(self.main_peak_corrected_marker)
-                    
-                    # # Skorygowany pik satelitarny (np. mniejszy cyjanowy kwadrat)
-                    # if self.satellite_peak_data and self.satellite_peak_data.get('corrected'):
-                    #     # Indeks będzie 1, jeśli jest pik główny, w przeciwnym razie 0
-                    #     start_index = 1 if self.main_peak_data and self.main_peak_data.get('corrected') else 0
-                    #     if len(transformed_back) > start_index:
-                    #         self.satellite_corrected_marker = pg.ScatterPlotItem(
-                    #             spots=[{'pos': tuple(transformed_back[start_index]), 'symbol': 's', 'size': 10, 'pen': pg.mkPen('cyan', width=1.5)}]
-                    #         )
-                    #         self.fft_view_box.addItem(self.satellite_corrected_marker)
-            except Exception as e:
-                logger.error(f"Error drawing corrected markers: {e}")
+        if self.main_peak_corrected_ideal_px:
+            self.main_peak_corrected_marker = pg.ScatterPlotItem(
+                spots=[{'pos': tuple(self.main_peak_corrected_ideal_px), 'symbol': 'x', 'size': 14, 'pen': pg.mkPen('c', width=2)}]
+            )
+            self.fft_view_box.addItem(self.main_peak_corrected_marker)
+                
+                # # Skorygowany pik satelitarny (np. mniejszy cyjanowy kwadrat)
+        if self.satellite_peak_corrected_ideal_px:
+                self.satellite_corrected_marker = pg.ScatterPlotItem(
+                    spots=[{'pos': tuple(self.satellite_peak_corrected_ideal_px), 'symbol': 'x', 'size': 10, 'pen': pg.mkPen('cyan', width=1.5)}]
+                )
+                self.fft_view_box.addItem(self.satellite_corrected_marker)
+            # except Exception as e:
+            #     logger.error(f"Error drawing corrected markers: {e}")
 
     def _clear_last_preview_gauss_fit(self):
         """
