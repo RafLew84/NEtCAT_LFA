@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, pyqtSlot, QTimer 
 
 from ...analysis.drift_correction import apply_affine_transform
+from ...analysis.lattice import convert_g_vector_px_to_nm_inv
 
 try:
     import pyqtgraph as pg
@@ -210,14 +211,14 @@ class DomainWallsAnalysisDialog(QDialog):
         selected_spots_layout = QFormLayout(selected_spots_group)
         self.main_peak_info_label = QLabel("Not Selected"); self.main_peak_info_label.setWordWrap(True)
         self.satellite_peak_info_label = QLabel("Not Selected"); self.satellite_peak_info_label.setWordWrap(True)
-        self.clear_all_peaks_button = QPushButton("Clear Both Peaks") # Jeden przycisk do czyszczenia
+        # self.clear_all_peaks_button = QPushButton("Clear Both Peaks") # Jeden przycisk do czyszczenia
         selected_spots_layout.addRow("Main Peak:", self.main_peak_info_label)
         selected_spots_layout.addRow("Satellite Peak:", self.satellite_peak_info_label)
-        selected_spots_layout.addRow(self.clear_all_peaks_button)
+        # selected_spots_layout.addRow(self.clear_all_peaks_button)
         right_panel_layout.addWidget(selected_spots_group)
         
         results_group = QGroupBox("Calculated Results"); results_layout = QFormLayout(results_group)
-        self.calculate_distance_button = QPushButton("Calculate Distance")
+        self.calculate_distance_button = QPushButton("Calculate Domain Wall Parameters")
         self.calculate_distance_button.setEnabled(False)
         results_layout.addRow(self.calculate_distance_button)
         self.distance_fft_label = QLabel("-")
@@ -258,9 +259,83 @@ class DomainWallsAnalysisDialog(QDialog):
         self.enable_gauss_2d_preview_checkbox.stateChanged.connect(self._update_roi_previews)
         
         # Przycisk obliczeń (zostanie zaimplementowany później)
-        # self.calculate_distance_button.clicked.connect(self._on_calculate_distance_clicked)
+        self.calculate_distance_button.clicked.connect(self._on_calculate_distance_clicked)
 
         logger.debug("SpotDistanceDialog signals connected.")
+    
+    @pyqtSlot()
+    def _on_calculate_distance_clicked(self):
+        """
+        Oblicza i wyświetla odległość, periodyczność i stosunki intensywności/amplitud
+        pomiędzy skorygowanym pikiem głównym a skorygowanym pikiem satelitarnym.
+        """
+        logger.debug("Calculate Distance button clicked.")
+        
+        # 1. Walidacja, czy wszystkie potrzebne dane istnieją
+        if not (self.main_peak_corrected_ideal_px and self.satellite_peak_corrected_ideal_px and
+                self.main_peak_intensity is not None and self.satellite_peak_intensity is not None and
+                self.main_peak_amplitude is not None and self.satellite_peak_amplitude is not None and
+                self.main_peak_max_value is not None and self.satellite_peak_max_value is not None):
+            QMessageBox.warning(self, "Incomplete Data", "Both Main and Satellite peaks must be selected and successfully processed to perform calculation.")
+            return
+
+        main_corr_px = self.main_peak_corrected_ideal_px
+        sat_corr_px = self.satellite_peak_corrected_ideal_px
+
+        # Sprawdzenie, czy dane kalibracyjne są dostępne
+        if self.fft_data is None or self.history_manager is None:
+            QMessageBox.critical(self, "Error", "Internal error: FFT data or History Manager not available."); return
+        root_node = self.history_manager.get_root_node_for_node(self.current_fft_node_id)
+        if not (root_node and root_node.parameters):
+            QMessageBox.critical(self, "Error", "Could not retrieve calibration data (Lx, Ly) from original image."); return
+        Lx_nm = root_node.parameters.get("size_nm_x"); Ly_nm = root_node.parameters.get("size_nm_y")
+        if not (Lx_nm and Ly_nm and Lx_nm > 0 and Ly_nm > 0):
+             QMessageBox.critical(self, "Error", "Invalid calibration data (Lx, Ly)."); return
+        
+        try:
+            # 2. Obliczenie odległości w przestrzeni odwrotnej
+            fft_rows_ky, fft_cols_kx = self.fft_data.shape
+            
+            # Wektor różnicy w pikselach w idealnym systemie
+            delta_g_vec_ideal_px = (sat_corr_px[0] - main_corr_px[0], sat_corr_px[1] - main_corr_px[1])
+            dist_fft_px = np.linalg.norm(delta_g_vec_ideal_px)
+            print(f"main_corr_px: {main_corr_px}")
+            print(f"sat_corr_px: {sat_corr_px}")
+            print(f"dist_fft_px: {dist_fft_px}")
+
+            # Konwersja wektora różnicy na nm⁻¹
+            if convert_g_vector_px_to_nm_inv is None: raise ImportError("convert_g_vector_px_to_nm_inv is missing")
+            delta_g_vec_nm_inv = convert_g_vector_px_to_nm_inv(delta_g_vec_ideal_px, Lx_nm, Ly_nm, fft_cols_kx, fft_rows_ky)
+            
+            if delta_g_vec_nm_inv is None: raise ValueError("k-space conversion failed.")
+            dist_nm_inv = np.linalg.norm(delta_g_vec_nm_inv)
+            
+            # 3. Obliczenie periodyczności w przestrzeni rzeczywistej
+            periodicity_nm = 1.0 / dist_nm_inv if dist_nm_inv > 1e-9 else float('inf')
+
+            # 4. Obliczenie stosunków
+            intensity_ratio = self.satellite_peak_intensity / self.main_peak_intensity if self.main_peak_intensity > 1e-9 else float('inf')
+            amplitude_ratio = self.satellite_peak_amplitude / self.main_peak_amplitude if self.main_peak_amplitude > 1e-9 else float('inf')
+            max_value_ratio = self.satellite_peak_max_value / self.main_peak_max_value if self.main_peak_max_value > 1e-9 else float('inf')
+
+            # 5. Aktualizacja UI
+            self.distance_fft_label.setText(f"{dist_fft_px:.2f} px | {dist_nm_inv:.4f} nm⁻¹")
+            self.distance_real_space_label.setText(f"{periodicity_nm:.3f} nm")
+            self.intensity_ratio_label.setText(f"{intensity_ratio:.3f}")
+            self.amplitude_ratio_label.setText(f"{amplitude_ratio:.3f}")
+            self.max_value_label.setText(f"{max_value_ratio:.3f}")
+
+            self.status_label.setText("Calculation successful.")
+            logger.info(f"Calculated results: Δg*={dist_nm_inv:.4f} nm⁻¹, P={periodicity_nm:.3f} nm, I_ratio={intensity_ratio:.3f}")
+
+        except Exception as e:
+            logger.error(f"Error during distance calculation: {e}")
+            QMessageBox.critical(self, "Calculation Error", f"Could not calculate results: {e}")
+            self.distance_fft_label.setText("Error")
+            self.distance_real_space_label.setText("Error")
+            self.intensity_ratio_label.setText("Error")
+            self.amplitude_ratio_label.setText("Error")
+            self.max_value_label.setText("Error")
 
     def _on_add_satellite_peak_clicked(self, event):
         if not self.selection_roi.isVisible(): QMessageBox.warning(self,"No ROI","Please place ROI on the main peak first."); return
@@ -581,6 +656,11 @@ class DomainWallsAnalysisDialog(QDialog):
                 self.fft_view_box.addItem(self.satellite_corrected_marker)
             # except Exception as e:
             #     logger.error(f"Error drawing corrected markers: {e}")
+        
+        if self.main_peak_corrected_ideal_px and self.satellite_peak_corrected_ideal_px:
+            self.calculate_distance_button.setEnabled(True)
+        else:
+            self.calculate_distance_button.setEnabled(False)
 
     def _clear_last_preview_gauss_fit(self):
         """
