@@ -171,3 +171,81 @@ def fit_2d_gaussian_in_roi(
     except Exception as e:
         logger.exception(f"Error during 2D Gaussian fitting: {e}")
         return None
+    
+def fit_2d_gaussian_in_roi_with_all_data(
+    fft_magnitude_data: np.ndarray,
+    center_yx: Tuple[int, int],
+    roi_radius: int
+) -> Optional[Tuple[np.ndarray, Tuple[float, float], np.ndarray]]: # <<< ZMIANA 1: Poprawiono typ zwracany
+    """
+    Fits a 2D Gaussian to a square ROI in the FFT magnitude data.
+
+    Args:
+        fft_magnitude_data (np.ndarray): The 2D FFT magnitude data.
+        center_yx (Tuple[int, int]): The (row_idx, col_idx) of the user click (ky, kx).
+        roi_radius (int): Radius of the square ROI.
+
+    Returns:
+        Optional[Tuple[np.ndarray, Tuple[float, float], np.ndarray]]: 
+            A tuple containing:
+            - popt (np.ndarray): Optimal parameters for the Gaussian function.
+            - (refined_y_float, refined_x_float): Refined center coordinates.
+            - roi_patch (np.ndarray): The actual data patch used for fitting.
+            Returns None if the fit fails.
+    """
+    if not SCIPY_AVAILABLE:
+        logger.error("fit_2d_gaussian_in_roi: SciPy is not available for curve_fit.")
+        return None
+    if fft_magnitude_data is None or fft_magnitude_data.ndim != 2:
+        logger.warning("fit_2d_gaussian_in_roi: Invalid input image data.")
+        return None
+
+    center_y, center_x = center_yx
+    img_rows, img_cols = fft_magnitude_data.shape
+
+    y_start = max(0, center_y - roi_radius)
+    y_end = min(img_rows, center_y + roi_radius + 1)
+    x_start = max(0, center_x - roi_radius)
+    x_end = min(img_cols, center_x + roi_radius + 1)
+
+    if y_start >= y_end or x_start >= x_end:
+        logger.warning("fit_2d_gaussian_in_roi: Invalid ROI for fitting (zero size).")
+        return None
+
+    roi_patch = fft_magnitude_data[y_start:y_end, x_start:x_end]
+    if roi_patch.size == 0:
+        logger.warning("fit_2d_gaussian_in_roi: Extracted ROI patch for fitting is empty.")
+        return None
+
+    y_roi_coords = np.arange(roi_patch.shape[0])
+    x_roi_coords = np.arange(roi_patch.shape[1])
+    X_roi, Y_roi = np.meshgrid(x_roi_coords, y_roi_coords)
+    xy_roi_flat = (Y_roi.flatten(), X_roi.flatten())
+    data_roi_flat = roi_patch.flatten()
+
+    initial_y0_patch = roi_patch.shape[0] / 2.0
+    initial_x0_patch = roi_patch.shape[1] / 2.0
+    initial_amplitude = np.max(roi_patch) - np.min(roi_patch)
+    initial_offset = np.min(roi_patch)
+
+    p0 = [initial_amplitude, initial_y0_patch, initial_x0_patch, float(roi_radius), float(roi_radius), 0.0, initial_offset]
+
+    try:
+        logger.debug(f"Fitting 2D Gaussian to ROI of size {roi_patch.shape} centered near ({center_y},{center_x}).")
+        popt, pcov = curve_fit(_gaussian_2d, xy_roi_flat, data_roi_flat, p0=p0)
+        
+        y0_fit_patch, x0_fit_patch = popt[1], popt[2]
+
+        refined_y_float = y_start + y0_fit_patch
+        refined_x_float = x_start + x0_fit_patch
+
+        logger.info(f"2D Gaussian fit successful: Center_abs=({refined_y_float:.2f}, {refined_x_float:.2f})")
+        
+        return popt, (refined_y_float, refined_x_float), roi_patch
+
+    except RuntimeError:
+        logger.warning("2D Gaussian fit: Optimal parameters not found. Using click position.")
+        return None
+    except Exception as e:
+        logger.exception(f"Error during 2D Gaussian fitting: {e}")
+        return None
