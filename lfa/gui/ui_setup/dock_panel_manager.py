@@ -3,8 +3,6 @@ import logging
 from PyQt6.QtWidgets import QMainWindow, QDockWidget, QWidget, QListWidget
 from PyQt6.QtCore import Qt
 
-# Importy typów widgetów, które będą zawartością doków
-# Dostosuj ścieżki, jeśli te widgety są w innych lokalizacjach
 try:
     from ..widgets.metadata_widget import MetadataWidget
     from ..panels.fft_analysis_panel import FFTAnalysisPanel
@@ -20,8 +18,8 @@ class DockPanelManager:
     def __init__(self,
                  main_window: QMainWindow,
                  history_list_widget: QListWidget,
-                 metadata_widget: MetadataWidget | None, # Może być None, jeśli import zawiedzie
-                 fft_analysis_panel_widget: FFTAnalysisPanel | None # Może być None
+                 metadata_widget: MetadataWidget | None, 
+                 fft_analysis_panel_widget: FFTAnalysisPanel | None
                  ):
         """
         Manages the creation and setup of dockable panels for the main window.
@@ -37,7 +35,6 @@ class DockPanelManager:
         self.metadata_widget = metadata_widget
         self.fft_analysis_panel_widget = fft_analysis_panel_widget
 
-        # Przechowywanie referencji do utworzonych doków
         self.history_dock: QDockWidget | None = None
         self.metadata_dock: QDockWidget | None = None
         self.fft_analysis_dock: QDockWidget | None = None
@@ -106,11 +103,10 @@ class DockPanelManager:
             widget_content=self.fft_analysis_panel_widget,
             initial_area=Qt.DockWidgetArea.RightDockWidgetArea,
             allowed_areas=(Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea),
-            visible_by_default=False # Ukryty na starcie
+            visible_by_default=False
         )
         if self.fft_analysis_dock:
             logger.debug("FFT Analysis dock panel created.")
-            # Przypisanie doku do atrybutu MainWindow, aby _update_action_states mogło kontrolować widoczność
             self.main_window.fft_analysis_dock = self.fft_analysis_dock
 
 

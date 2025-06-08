@@ -1,6 +1,7 @@
 # lfa/analysis/fft_engine.py
 """
 Fast Fourier Transform (FFT) analysis engine for LFA.
+Provides functions for calculating 2D FFT with optional windowing and zero-padding.
 """
 import logging
 import numpy as np
@@ -18,7 +19,6 @@ AVAILABLE_WINDOWS = {
     'hann': windows.hann if windows else None,
     'hamming': windows.hamming if windows else None,
     'blackman': windows.blackman if windows else None,
-    # 'bartlett', 'kaiser' (wymaga parametru beta) etc.
 }
 
 def calculate_fft(image_data: np.ndarray, apply_window: bool = True,
@@ -48,7 +48,7 @@ def calculate_fft(image_data: np.ndarray, apply_window: bool = True,
     rows, cols = image_data.shape
     processed_data = image_data.astype(np.float32, copy=True) # Work on a float32 copy
 
-    # --- Zero-Padding ---
+    # Zero-padding section
     if pad_to_shape is not None and pad_to_shape != (rows, cols):
         target_rows, target_cols = pad_to_shape
         if target_rows < rows or target_cols < cols:
@@ -62,9 +62,8 @@ def calculate_fft(image_data: np.ndarray, apply_window: bool = True,
             processed_data = padded_data
             rows, cols = target_rows, target_cols # Update shape for windowing
             logger.debug(f"Data padded. New shape: {processed_data.shape}")
-    # --- End Zero-Padding ---
 
-    # --- Windowing ---
+    # Windowing section
     if apply_window:
         window_func = AVAILABLE_WINDOWS.get(window_type.lower())
         if window_func is None:
@@ -91,9 +90,8 @@ def calculate_fft(image_data: np.ndarray, apply_window: bool = True,
                 return None
     else:
          logger.debug("FFT: Skipping window function.")
-    # --- End Windowing ---
 
-    # --- FFT Calculation ---
+    # FFT calculation section
     try:
         logger.debug("Calculating 2D FFT...")
         fft_result = np.fft.fft2(processed_data)
@@ -108,4 +106,3 @@ def calculate_fft(image_data: np.ndarray, apply_window: bool = True,
     except Exception as e:
         logger.exception(f"Error during FFT calculation: {e}")
         return None
-    # --- End FFT Calculation ---

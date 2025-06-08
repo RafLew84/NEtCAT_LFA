@@ -11,9 +11,9 @@ from typing import Optional, List, Tuple, Dict, Any
 
 from PyQt6.QtCore import QObject, pyqtSignal
 
-from ..core.data_models import STMImage # Potrzebne do type hinting i tworzenia obiektu
-from ..io.factory import load_stm_file  # Funkcja do ładowania pliku
-from ..core.history import HistoryNode   # Do tworzenia węzła historii
+from ..core.data_models import STMImage 
+from ..io.factory import load_stm_file  
+from ..core.history import HistoryNode  
 from ..gui.dialogs.substrate_spot_dialog import PREDEFINED_SUBSTRATE_NONE, PREDEFINED_SUBSTRATE_CUSTOM
 
 logger = logging.getLogger(__name__)
@@ -29,7 +29,7 @@ ADSORBATE_LATTICE_TYPE_UNKNOWN = "Unknown"
 ADSORBATE_LATTICE_TYPE_HEXAGONAL = "Hexagonal"
 ADSORBATE_LATTICE_TYPE_SQUARE = "Square"
 
-MAX_SUBSTRATE_SPOTS = 8 # Maksymalna liczba pików substratu
+MAX_SUBSTRATE_SPOTS = 8
 
 try:
     from ..analysis.lattice import (
@@ -37,7 +37,7 @@ try:
         calculate_real_space_vectors_from_g, 
         convert_g_vector_px_to_nm_inv, 
         select_adsorbate_reciprocal_basis_vectors_px,
-        LATTICE_TYPE_HEXAGONAL, LATTICE_TYPE_SQUARE, # Stałe, jeśli potrzebne do logiki
+        LATTICE_TYPE_HEXAGONAL, LATTICE_TYPE_SQUARE, 
     )
     LATTICE_ANALYSIS_FUNCTIONS_AVAILABLE = True
 except ImportError: # pragma: no cover
@@ -54,12 +54,9 @@ class AppController(QObject):
     file_loaded_successfully = pyqtSignal(str)
     file_loading_failed = pyqtSignal(str)   
 
-    # Sygnał emitowany po zmianie list pików (substratu lub któregokolwiek zestawu adsorbatu)
     spot_lists_updated = pyqtSignal()
     adsorbate_set_updated = pyqtSignal(int)
-    # Sygnał emitowany po zmianie trybu wyboru pików (Substrate/Adsorbate) lub metody uściślania
     spot_selection_parameters_changed = pyqtSignal()
-    # Sygnał emitowany po zmianie bieżącego zestawu adsorbatu (np. dodanie nowego, zmiana indeksu)
     adsorbate_sets_structure_changed = pyqtSignal()
     substrate_transform_results_updated = pyqtSignal()
 
@@ -80,51 +77,39 @@ class AppController(QObject):
         """
         super().__init__(parent)
         
-        # Referencja do HistoryManager - kluczowa dla wielu operacji
-        # Zakładamy, że HistoryManager jest już skonfigurowany z QListWidget
-        self.history_manager = history_manager # Typowanie można dodać: HistoryManager
+        self.history_manager = history_manager 
 
-        # --- Atrybuty Przeniesione z MainWindow (Zarządzanie Stanem Aplikacji) ---
         self.original_file_path: Optional[str] = None
 
-        # Dane dotyczące wyboru pików
         self.substrate_spots: List[Tuple[float, float]] = []
-        self.adsorbate_spot_sets: List[List[Tuple[float, float]]] = [[]] # Zawsze zaczynamy z jednym pustym zestawem
+        self.adsorbate_spot_sets: List[List[Tuple[float, float]]] = [[]] 
         self.corrected_adsorbate_spot_sets: List[List[Tuple[float, float]]] = [[]]
         self.current_adsorbate_set_index: int = 0
 
-        # Tryby i parametry wyboru/uściślania pików
-        self.spot_selection_mode: str = "Substrate"  # Domyślnie "Substrate" lub "Adsorbate"
-        self.spot_refinement_method: str = "Direct Click" # Domyślnie, inne opcje: "Max Pixel", "2D Gaussian Fit"
-        self.refinement_roi_size: int = 5 # Domyślny rozmiar (np. średnica) obszaru ROI do uściślania
+        self.spot_selection_mode: str = "Substrate"  
+        self.spot_refinement_method: str = "Direct Click"
+        self.refinement_roi_size: int = 5 
         self.reference_ideal_substrate_spots_px: List[Tuple[float, float]] = []
 
-        # Ustawienia dotyczące idealnej sieci i substratu
-        self.custom_lattice_info: Optional[Dict[str, Any]] = None # Dla definicji własnej sieci
-        self.last_selected_substrate: str = "None" # Ostatnio wybrany substrat z ComboBoxa (lub nazwa custom)
+        self.custom_lattice_info: Optional[Dict[str, Any]] = None 
+        self.last_selected_substrate: str = "None"
         
-        # Dodatkowe stany, które mogą być zarządzane centralnie
-        self.show_ideal_lattice: bool = True # Czy pokazywać idealną sieć na FFT
-        # self.show_substrate_spots_markers: bool = True # Widoczność markerów substratu
-        # self.show_adsorbate_spots_markers: bool = True # Widoczność markerów adsorbatu
+        self.show_ideal_lattice: bool = True 
 
-        self.current_substrate_a_surf: Optional[float] = None # Przechowuje a_surf dla bieżącego substratu
-        self.current_substrate_type: Optional[str] = None   # Przechowuje typ 'hexagonal'/'square'
+        self.current_substrate_a_surf: Optional[float] = None 
+        self.current_substrate_type: Optional[str] = None  
         self.current_substrate_name: str = PREDEFINED_SUBSTRATE_NONE
 
-        # Atrybuty dla oryginalnych kliknięć użytkownika dla substratu
         self.user_selected_substrate_spots: List[Tuple[float, float]] = [] 
 
-        # Atrybuty dla definicji sieci substratu i wyników transformacji
         self.substrate_lattice_type: Optional[str] = None
         self.substrate_a_surf: Optional[float] = None
-        self.substrate_definition_name: str = PREDEFINED_SUBSTRATE_NONE # Importuj stałe jeśli trzeba
+        self.substrate_definition_name: str = PREDEFINED_SUBSTRATE_NONE 
 
-        self.substrate_F_m2i: Optional[np.ndarray] = None # F: Measured -> Ideal
-        self.substrate_t_m2i: Optional[np.ndarray] = None # t: Measured -> Ideal
+        self.substrate_F_m2i: Optional[np.ndarray] = None 
+        self.substrate_t_m2i: Optional[np.ndarray] = None 
         self.substrate_transform_analysis_m2i: Optional[Dict[str, Any]] = None
         
-        # Piki do wyświetlenia w MainWindow: idealne piki przetransformowane tak, by pasowały do zmierzonych
         self.displayable_fitted_substrate_spots_on_fft: List[Tuple[float, float]] = []
 
         self.show_fitted_substrate_spots: bool = True
@@ -136,25 +121,17 @@ class AppController(QObject):
 
         logger.info("AppController initialized.")
 
-    # def set_show_fitted_substrate_spots(self, visible: bool):
-    #     if self.show_fitted_substrate_spots != visible:
-    #         self.show_fitted_substrate_spots = visible
-    #         logger.debug(f"AppController: Show fitted substrate spots set to {visible}")
-    #         # Emituj sygnał, który spowoduje odświeżenie widoku w MainWindow
-    #         # Może to być istniejący substrate_transform_results_updated lub nowy, np. view_parameters_changed
-    #         self.substrate_transform_results_updated.emit() # Ten sygnał już powoduje display_image_data()
-
-    def get_current_image_data_for_processing(self) -> Optional[Any]: # Any to tymczasowo np.ndarray
-        """Pobiera dane obrazu z bieżącego węzła historii do przetwarzania."""
+    def get_current_image_data_for_processing(self) -> Optional[Any]:
+        """Gets the image data from the current history node for processing."""
         current_node = self.history_manager.get_current_node()
         if current_node and current_node.image_data is not None:
-            return current_node.image_data.copy() # Zwróć kopię, aby uniknąć modyfikacji oryginału
+            return current_node.image_data.copy()
         logger.warning("AppController: No current image data available for processing.")
         return None
 
-    def get_current_node_info_for_dialogs(self) -> Optional[Tuple[str, str, Any]]: # Any to np.ndarray
+    def get_current_node_info_for_dialogs(self) -> Optional[Tuple[str, str, Any]]:
         """
-        Zwraca informacje o bieżącym węźle potrzebne do otwarcia dialogów.
+        Returns information about the current node needed to open dialogs.
         Returns: Tuple (node_id, node_data_type, image_data_copy) or None.
         """
         current_node = self.history_manager.get_current_node()
@@ -172,23 +149,22 @@ class AppController(QObject):
             stm_image_obj: Optional[STMImage] = load_stm_file(file_path)
 
             if stm_image_obj and stm_image_obj.data is not None:
-                self.original_file_path = file_path # Ustaw ścieżkę w kontrolerze
+                self.original_file_path = file_path
 
                 self.clear_all_spot_data()
                 self.reference_ideal_substrate_spots_px.clear()
-                self.current_substrate_a_surf = None # Reset przy ładowaniu nowego pliku
+                self.current_substrate_a_surf = None
                 self.current_substrate_type = None
                 self.current_substrate_name = PREDEFINED_SUBSTRATE_NONE
-                self.substrate_definition_changed.emit() # Poinformuj UI o resecie
+                self.substrate_definition_changed.emit()
                 self.adsorbate_expected_lattice_types = {0: ADSORBATE_LATTICE_TYPE_UNKNOWN}
 
-                self.history_manager.clear_history() # Wyczyść poprzednią historię
+                self.history_manager.clear_history()
                 self.corrected_adsorbate_spot_sets = [[]]
                 if hasattr(self, 'adsorbate_set_updated'): self.adsorbate_set_updated.emit(0)
                 if hasattr(self, 'adsorbate_real_space_params_updated'): self.adsorbate_real_space_params_updated.emit(0, {})
                 if hasattr(self, 'adsorbate_expected_type_updated'): self.adsorbate_expected_type_updated.emit(0, ADSORBATE_LATTICE_TYPE_UNKNOWN)
-                # Przygotuj parametry dla węzła "Original"
-                # Te parametry są istotne dla MetadataWidget i potencjalnie dla innych operacji
+
                 root_params = {
                     "filename": os.path.basename(file_path),
                     "pixels_x": stm_image_obj.pixels_x,
@@ -198,21 +174,19 @@ class AppController(QObject):
                     "bias_v": stm_image_obj.bias_v,
                     "setpoint_a": stm_image_obj.setpoint_a,
                     "scan_angle_deg": stm_image_obj.scan_angle_deg,
-                    # Można dodać więcej standardowych pól z STMImage, jeśli są potrzebne
                 }
 
                 root_node = HistoryNode(
-                    operation_name="Original", # Nazwa operacji dla korzenia
-                    image_data=stm_image_obj.data.copy(), # Zawsze pracuj na kopiach danych
-                    parameters=root_params, # Przechowaj kluczowe metadane jako parametry
-                    data_type="STM" # Typ danych
+                    operation_name="Original",
+                    image_data=stm_image_obj.data.copy(),
+                    parameters=root_params,
+                    data_type="STM"
                 )
                 
                 self.history_manager.add_node(root_node)
-                self.history_manager.set_current_node_by_id(root_node.node_id) # Ustaw jako bieżący
-                                                                                # To wyemituje HistoryManager.current_node_changed
+                self.history_manager.set_current_node_by_id(root_node.node_id)
 
-                self.clear_all_spot_data() # Resetuje też user_selected_substrate_spots
+                self.clear_all_spot_data()
                 self.substrate_lattice_type = None
                 self.substrate_a_surf = None
                 self.substrate_definition_name = PREDEFINED_SUBSTRATE_NONE
@@ -223,15 +197,14 @@ class AppController(QObject):
                 self.current_fft_data_shape = None
                 self.displayable_fitted_substrate_spots_on_fft.clear()
                 self.adsorbate_real_space_results.clear()
-                self.substrate_definition_changed.emit() # Aby zresetować UI
-                self.substrate_transform_results_updated.emit() # Aby zresetować UI transformacji
+                self.substrate_definition_changed.emit()
+                self.substrate_transform_results_updated.emit()
                 self.substrate_real_space_params_updated.emit({})
                 logger.info(f"AppController: File '{os.path.basename(file_path)}' loaded successfully.")
                 self.file_loaded_successfully.emit(os.path.basename(file_path))
             else:
-                # Jeśli load_stm_file zwróci None lub stm_image_obj.data jest None
                 logger.error(f"AppController: Failed to load valid data from file: {file_path}")
-                self.history_manager.clear_history() # Wyczyść historię w razie niepowodzenia
+                self.history_manager.clear_history()
                 self.original_file_path = None
                 self.file_loading_failed.emit(f"Could not load valid data from file: {file_path}")
         
@@ -239,17 +212,15 @@ class AppController(QObject):
             logger.error(f"AppController: File not found: {file_path}")
             self.file_loading_failed.emit(f"File not found: {file_path}")
         except ValueError as ve: # pragma: no cover
-            # Np. błędy parsowania nagłówka zgłaszane przez czytniki
             logger.error(f"AppController: Value error while loading file {file_path}: {ve}")
             self.file_loading_failed.emit(f"Format error in file {file_path}: {ve}")
         except Exception as e: # pragma: no cover
-            # Inne nieoczekiwane błędy
             logger.exception(f"AppController: An unexpected error occurred while loading file {file_path}: {e}")
             self.file_loading_failed.emit(f"Unexpected error loading file: {e}")
 
     def update_substrate_analysis_results(self, results: Dict[str, Any]):
         """
-        Aktualizuje stan substratu na podstawie wyników z SubstrateSpotSelectionDialog.
+        Updates the substrate state based on the results from SubstrateSpotSelectionDialog.
         """
         new_user_spots = results.get("spots", [])
         new_lattice_type = results.get("lattice_type")
@@ -279,7 +250,6 @@ class AppController(QObject):
         self.substrate_transform_analysis_m2i = new_analysis_m2i
         self.displayable_fitted_substrate_spots_on_fft = list(new_displayable_fitted_spots)
 
-        # Aktualizacja globalnych definicji, jeśli trzeba (np. dla last_selected_substrate)
         if new_def_name == PREDEFINED_SUBSTRATE_CUSTOM:
             self.custom_lattice_info = {"type": new_lattice_type, "a_surf": new_a_surf, "name": "Custom (Dialog)"}
             self.last_selected_substrate = PREDEFINED_SUBSTRATE_CUSTOM
@@ -302,10 +272,10 @@ class AppController(QObject):
         self.substrate_real_space_params_updated.emit({})
 
         if spots_changed:
-            self.spot_lists_updated.emit() # Informuje o zmianie oryginalnych kliknięć (może niepotrzebne jeśli nie są już rysowane)
+            self.spot_lists_updated.emit()
         if def_changed:
             self.substrate_definition_changed.emit()
-        if transform_changed or spots_changed or def_changed: # Jeśli cokolwiek się zmieniło, co wpływa na transformację lub jej wyświetlanie
+        if transform_changed or spots_changed or def_changed:
             self.substrate_transform_results_updated.emit()
 
     def calculate_and_store_substrate_real_params(self):
@@ -321,9 +291,6 @@ class AppController(QObject):
 
         logger.info("AppController: Attempting to calculate substrate real space parameters from fitted spots.")
 
-        # 1. Walidacja danych wejściowych
-        # Potrzebujemy typu sieci i a_surf, które były użyte do wygenerowania idealnej siatki,
-        # która następnie została dopasowana.
         if not (self.substrate_lattice_type and self.substrate_a_surf and self.substrate_a_surf > 0):
             logger.warning("Substrate definition (type/a_surf) used for fitting not set. Cannot calculate real space params.")
             self.substrate_real_space_params_updated.emit({"error": "Substrate definition for fit missing."})
@@ -339,7 +306,6 @@ class AppController(QObject):
             self.substrate_real_space_params_updated.emit({"error": "FFT shape missing."})
             return
 
-        # 2. Pobierz Lx_nm, Ly_nm
         current_node = self.history_manager.get_current_node()
         if not current_node:
             logger.warning("No current history node available for Lx/Ly."); self.substrate_real_space_params_updated.emit({"error": "No active node."}); return
@@ -354,13 +320,10 @@ class AppController(QObject):
         if not (Lx_nm and Ly_nm and Lx_nm > 0 and Ly_nm > 0):
             logger.warning("Invalid Lx/Ly from Original node."); self.substrate_real_space_params_updated.emit({"error": "Invalid Lx/Ly."}); return
 
-        # 3. Przygotuj wektory g* względem centrum FFT
-        # self.displayable_fitted_substrate_spots_on_fft to absolutne pozycje pikselowe na FFT.
         fft_rows_ky, fft_cols_kx = self.current_fft_data_shape
         center_kx_px = fft_cols_kx / 2.0
         center_ky_px = fft_rows_ky / 2.0
 
-        # Te "fitted_g_vectors" reprezentują wektory sieci odwrotnej ZDEFORMOWANEJ siatki substratu
         fitted_g_vectors_relative_px = [
             (kx_abs - center_kx_px, ky_abs - center_ky_px)
             for kx_abs, ky_abs in self.displayable_fitted_substrate_spots_on_fft
@@ -375,20 +338,17 @@ class AppController(QObject):
                            f"for {self.substrate_lattice_type} (expected {expected_spot_count}). Cannot calculate real space params.")
             self.substrate_real_space_params_updated.emit({"error": f"Need {expected_spot_count} fitted spots."})
             return
-        if expected_spot_count == 0 and len(fitted_g_vectors_relative_px) < 2 : # Jeśli typ nieznany, potrzebujemy co najmniej 2 wektorów
+        if expected_spot_count == 0 and len(fitted_g_vectors_relative_px) < 2 :
              logger.warning(f"Not enough fitted spots to define basis for unknown lattice type.")
              self.substrate_real_space_params_updated.emit({"error": "Need >=2 fitted spots."})
              return
 
 
-        # 4. Wywołaj funkcję z lattice.py
-        # Przekazujemy `fitted_g_vectors_relative_px` jako podstawę do obliczeń
-        # oraz `self.substrate_lattice_type` (który był użyty do wygenerowania idealnej siatki, do której dopasowywaliśmy)
         print(f"displayable_fitted_substrate_spots_on_fft: {self.displayable_fitted_substrate_spots_on_fft}")
         print(f"fitted_g_vectors_relative_px: {fitted_g_vectors_relative_px}")
         results = get_real_space_lattice_parameters(
             selected_g_vectors_relative_px=fitted_g_vectors_relative_px,
-            lattice_type=self.substrate_lattice_type, # Typ sieci, do której dopasowano
+            lattice_type=self.substrate_lattice_type,
             Lx_nm=Lx_nm,
             Ly_nm=Ly_nm,
             fft_shape_cols_kx=fft_cols_kx,
@@ -417,22 +377,17 @@ class AppController(QObject):
 
         logger.info(f"AppController: Attempting to calculate real space params for adsorbate set {set_index}.")
 
-        # 1. Walidacja danych wejściowych
         if not (0 <= set_index < len(self.corrected_adsorbate_spot_sets)): # pragma: no cover
             logger.warning(f"Invalid set_index {set_index} for adsorbate real space params.")
             self.adsorbate_real_space_params_updated.emit(set_index, {"error": "Invalid set index."})
             return
         
-        corrected_spots_ideal_px_abs = self.corrected_adsorbate_spot_sets[set_index] # To są absolutne pozycje w idealnym FFT
+        corrected_spots_ideal_px_abs = self.corrected_adsorbate_spot_sets[set_index]
         
-        # Pobierz spodziewany typ sieci dla tego zestawu
         expected_ads_type = self.adsorbate_expected_lattice_types.get(set_index, ADSORBATE_LATTICE_TYPE_UNKNOWN)
         
         num_corrected_spots = len(corrected_spots_ideal_px_abs)
 
-        # Minimalna liczba spotów do zdefiniowania 2 wektorów to 2 (jeśli są to już wektory od centrum)
-        # lub 3 (jeśli jeden to centrum, a dwa pozostałe definiują wektory).
-        # Funkcja select_adsorbate_reciprocal_basis_vectors_px sama obsłuży walidację liczby spotów.
         if num_corrected_spots < 2:
             logger.warning(f"Not enough corrected adsorbate spots (need >=2, got {num_corrected_spots}) for set {set_index}.")
             self.adsorbate_real_space_params_updated.emit(set_index, {"error": f"Need >= 2 corrected spots, got {num_corrected_spots}."})
@@ -457,14 +412,11 @@ class AppController(QObject):
         center_kx_ideal_px = fft_cols_kx / 2.0
         center_ky_ideal_px = fft_rows_ky / 2.0
         
-        # 2. Przygotuj wektory g* adsorbatu względem centrum idealnego systemu FFT
-        # corrected_spots_ideal_px_abs to absolutne pozycje (kx, ky) w idealnym systemie FFT
         g_vectors_adsorbate_relative_px = [
             (spot_abs_kx - center_kx_ideal_px, spot_abs_ky - center_ky_ideal_px)
             for spot_abs_kx, spot_abs_ky in corrected_spots_ideal_px_abs
         ]
 
-        # 3. Wywołaj nową funkcję do wyboru wektorów bazowych g* dla adsorbatu
         basis_g_ads_px = select_adsorbate_reciprocal_basis_vectors_px(
             corrected_g_vectors_relative_px=g_vectors_adsorbate_relative_px,
             expected_lattice_type=expected_ads_type
@@ -476,20 +428,17 @@ class AppController(QObject):
             return
         g1_ads_px, g2_ads_px = basis_g_ads_px
             
-        # 4. Konwersja na nm^-1
         g1_ads_nm_inv = convert_g_vector_px_to_nm_inv(g1_ads_px, Lx_nm, Ly_nm, fft_cols_kx, fft_rows_ky)
         g2_ads_nm_inv = convert_g_vector_px_to_nm_inv(g2_ads_px, Lx_nm, Ly_nm, fft_cols_kx, fft_rows_ky)
 
         if g1_ads_nm_inv is None or g2_ads_nm_inv is None: # pragma: no cover
             self.adsorbate_real_space_params_updated.emit(set_index, {"error": "g-vector conversion to nm^-1 failed."}); return
 
-        # 5. Obliczenie wektorów sieci rzeczywistej a1, a2 (w nm)
         real_space_vecs_ads = calculate_real_space_vectors_from_g(g1_ads_nm_inv, g2_ads_nm_inv)
         if real_space_vecs_ads is None: # pragma: no cover
             self.adsorbate_real_space_params_updated.emit(set_index, {"error": "Real space vector calculation failed (g-vectors likely collinear)."}); return
         a1_ads_vec_nm, a2_ads_vec_nm = real_space_vecs_ads
 
-        # 6. Parametry
         a1_ads_mag_nm = np.linalg.norm(a1_ads_vec_nm)
         a2_ads_mag_nm = np.linalg.norm(a2_ads_vec_nm)
         
@@ -504,11 +453,11 @@ class AppController(QObject):
         results = {
             "a1_nm": a1_ads_mag_nm, "a2_nm": a2_ads_mag_nm, "alpha_deg": alpha_ads_deg,
             "a1_vec_nm": a1_ads_vec_nm, "a2_vec_nm": a2_ads_vec_nm,
-            "g1_vec_px_ideal_sys": g1_ads_px, # Wektory bazowe g* w pikselach (względem centrum idealnego FFT)
+            "g1_vec_px_ideal_sys": g1_ads_px,
             "g2_vec_px_ideal_sys": g2_ads_px,
             "g1_vec_nm_inv": g1_ads_nm_inv, 
             "g2_vec_nm_inv": g2_ads_nm_inv,
-            "source_corrected_spots_ideal_px": corrected_spots_ideal_px_abs # Piki, z których liczono
+            "source_corrected_spots_ideal_px": corrected_spots_ideal_px_abs
         }
         logger.info(f"Adsorbate set {set_index} real space params: a1={a1_ads_mag_nm:.3f}nm, a2={a2_ads_mag_nm:.3f}nm, alpha={alpha_ads_deg:.2f}deg")
         self.adsorbate_real_space_results[set_index] = results
@@ -520,30 +469,20 @@ class AppController(QObject):
                                  op_name: str,
                                  params: Dict[str, Any],
                                  processed_data: np.ndarray,
-                                 data_type: str, # "STM" lub "FFT"
+                                 data_type: str,
                                  source_roi_slice: Optional[Tuple[slice, slice]] = None):
         """
-        Tworzy nowy węzeł historii dla wykonanej operacji i dodaje go do menedżera.
-
-        Args:
-            parent_node_id (str): ID węzła rodzica.
-            op_name (str): Nazwa wykonanej operacji (np. "Gaussian Blur", "FFT").
-            params (Dict[str, Any]): Słownik parametrów użytych do operacji.
-            processed_data (np.ndarray): Wynikowe dane obrazu (np.ndarray).
-            data_type (str): Typ danych w `processed_data` ("STM" lub "FFT").
-            source_roi_slice (Optional[Tuple[slice, slice]]): Jeśli operacja była na ROI,
-                                                              przekaż wycinek ROI.
+        Creates a new history node for the performed operation and adds it to the manager.
         """
         if processed_data is None:
             logger.warning(f"AppController: No processed data provided for operation '{op_name}'. Node not added.")
             return
 
-        # Sprawdzenie, czy dane faktycznie się zmieniły (opcjonalne, ale może być przydatne)
         parent_node = self.history_manager.get_node_by_id(parent_node_id)
 
         if parent_node and parent_node.image_data is not None:
             if np.array_equal(processed_data, parent_node.image_data) and \
-               params == parent_node.parameters.get(op_name, {}): # Proste porównanie parametrów
+               params == parent_node.parameters.get(op_name, {}):
                 logger.info(f"AppController: Data for '{op_name}' has not changed. Node not added.")
                 return
 
@@ -551,7 +490,7 @@ class AppController(QObject):
             parent_id=parent_node_id,
             operation_name=op_name,
             parameters=params,
-            image_data=processed_data, # Zakładamy, że to już jest kopia, jeśli trzeba
+            image_data=processed_data,
             data_type=data_type,
             source_roi_slice=source_roi_slice
         )
@@ -559,7 +498,6 @@ class AppController(QObject):
         self.history_manager.add_node(new_node)
         self.history_manager.set_current_node_by_id(new_node.node_id)
         logger.info(f"AppController: Added '{op_name}' node (ID: {new_node.node_id}) to history.")
-        # Sygnał current_node_changed z HistoryManager powinien wystarczyć do aktualizacji UI.
 
     def apply_gaussian_blur(self, parent_node_id: str, parent_data_type: str,
                             processed_data: np.ndarray, params: Dict[str, Any],
@@ -574,28 +512,32 @@ class AppController(QObject):
     def apply_plane_leveling(self, parent_node_id: str, parent_data_type: str,
                              processed_data: np.ndarray, params: Dict[str, Any],
                              source_roi_slice: Optional[Tuple[slice, slice]] = None):
-        # Params mogą zawierać 'mode' i 'points'
+        """Applies plane leveling to the processed data."""
         self.add_operation_to_history(parent_node_id, "Plane Leveling", params, processed_data, parent_data_type, source_roi_slice)
 
     def apply_median_filter(self, parent_node_id: str, parent_data_type: str,
                             processed_data: np.ndarray, params: Dict[str, Any],
                             source_roi_slice: Optional[Tuple[slice, slice]] = None):
+        """Applies median filter to the processed data."""
         self.add_operation_to_history(parent_node_id, "Median Filter", params, processed_data, parent_data_type, source_roi_slice)
 
     def apply_nlmeans_denoising(self, parent_node_id: str, parent_data_type: str,
                                 processed_data: np.ndarray, params: Dict[str, Any],
                                 source_roi_slice: Optional[Tuple[slice, slice]] = None):
+        """Applies NL-Means denoising to the processed data."""
         self.add_operation_to_history(parent_node_id, "NL-Means", params, processed_data, parent_data_type, source_roi_slice)
 
     def apply_bm3d_denoising(self, parent_node_id: str, parent_data_type: str,
                              processed_data: np.ndarray, params: Dict[str, Any],
                              source_roi_slice: Optional[Tuple[slice, slice]] = None):
+        """Applies BM3D denoising to the processed data."""
         self.add_operation_to_history(parent_node_id, "BM3D", params, processed_data, parent_data_type, source_roi_slice)
 
-    def calculate_fft_operation(self, parent_node_id: str, # parent_data_type będzie zawsze "STM" dla FFT
-                                processed_fft_data: np.ndarray, # To są już przeskalowane dane magnitudy
-                                params: Dict[str, Any], # Zawiera window, scaling_mode, apply_roi_only
+    def calculate_fft_operation(self, parent_node_id: str,
+                                processed_fft_data: np.ndarray,
+                                params: Dict[str, Any],
                                 source_roi_slice: Optional[Tuple[slice, slice]] = None):
+        """Calculates the FFT of the current image data and stores it in the history."""
         if processed_fft_data is not None:
             self.current_fft_data_shape = processed_fft_data.shape
             logger.info(f"AppController: Stored current FFT data shape: {self.current_fft_data_shape}")
@@ -604,14 +546,13 @@ class AppController(QObject):
             logger.warning("AppController: FFT data is None, cannot store shape.")
             
         self.add_operation_to_history(parent_node_id, "FFT", params, processed_fft_data, "FFT", source_roi_slice)
-        # Po nowym FFT, poprzednie obliczenia parametrów rzeczywistych mogą być nieaktualne
         self.substrate_real_space_results = None
         self.substrate_real_space_params_updated.emit({})
         self.adsorbate_real_space_results.clear()
         if hasattr(self, 'adsorbate_real_space_params_updated'): self.adsorbate_real_space_params_updated.emit(self.current_adsorbate_set_index, {})
 
     def set_spot_selection_mode(self, mode: str):
-        """Ustawia tryb wyboru pików (Substrate/Adsorbate)."""
+        """Sets the spot selection mode (Substrate/Adsorbate)."""
         if mode in [SPOT_SELECTION_SUBSTRATE, SPOT_SELECTION_ADSORBATE]:
             if self.spot_selection_mode != mode:
                 self.spot_selection_mode = mode
@@ -621,7 +562,7 @@ class AppController(QObject):
             logger.warning(f"Attempted to set invalid spot selection mode: {mode}")
 
     def set_spot_refinement_method(self, method: str):
-        """Ustawia metodę uściślania pików."""
+        """Sets the spot refinement method."""
         if method in [REFINEMENT_DIRECT_CLICK, REFINEMENT_MAX_PIXEL, REFINEMENT_GAUSSIAN_FIT]:
             if self.spot_refinement_method != method:
                 self.spot_refinement_method = method
@@ -631,7 +572,7 @@ class AppController(QObject):
             logger.warning(f"Attempted to set invalid spot refinement method: {method}")
 
     def set_refinement_roi_size(self, size: int):
-        """Ustawia rozmiar ROI do uściślania pików."""
+        """Sets the ROI size for spot refinement."""
         if isinstance(size, int) and 3 <= size <= 21 and size % 2 != 0: # Przykładowa walidacja
             if self.refinement_roi_size != size:
                 self.refinement_roi_size = size
@@ -640,41 +581,8 @@ class AppController(QObject):
         else:
             logger.warning(f"Attempted to set invalid refinement ROI size: {size}")
 
-    # def add_spot(self, point_kx_ky: Tuple[float, float]):
-    #     """Dodaje pik do odpowiedniej listy (substrat lub bieżący zestaw adsorbatu)."""
-    #     logger.debug(f"Attempting to add spot {point_kx_ky} in mode {self.spot_selection_mode}")
-    #     added = False
-    #     if self.spot_selection_mode == SPOT_SELECTION_SUBSTRATE:
-    #         if len(self.substrate_spots) < MAX_SUBSTRATE_SPOTS:
-    #             if point_kx_ky not in self.substrate_spots:
-    #                 self.substrate_spots.append(point_kx_ky)
-    #                 logger.info(f"Added substrate spot: {point_kx_ky}. Count: {len(self.substrate_spots)}")
-    #                 added = True
-    #             else: logger.debug(f"Point {point_kx_ky} already in substrate spots.") # pragma: no cover
-    #         else: logger.warning(f"Max substrate spots ({MAX_SUBSTRATE_SPOTS}) reached.") # pragma: no cover
-        
-    #     elif self.spot_selection_mode == SPOT_SELECTION_ADSORBATE:
-    #         if 0 <= self.current_adsorbate_set_index < len(self.adsorbate_spot_sets):
-    #             current_set = self.adsorbate_spot_sets[self.current_adsorbate_set_index]
-    #             if point_kx_ky not in current_set:
-    #                 current_set.append(point_kx_ky)
-    #                 logger.info(f"Added adsorbate spot: {point_kx_ky} to set {self.current_adsorbate_set_index}. Set count: {len(current_set)}")
-    #                 added = True
-    #             else: logger.debug(f"Point {point_kx_ky} already in current adsorbate set.") # pragma: no cover
-    #         else: logger.error(f"Invalid current adsorbate set index: {self.current_adsorbate_set_index}") # pragma: no cover
-        
-    #     if added:
-    #         self.spot_lists_updated.emit()
-
-    # def clear_substrate_spots(self):
-    #     """Czyści listę pików substratu."""
-    #     if self.substrate_spots:
-    #         self.substrate_spots.clear()
-    #         logger.info("Substrate spots cleared.")
-    #         self.spot_lists_updated.emit()
-
     def clear_last_adsorbate_spot(self):
-        """Usuwa ostatni dodany pik z bieżącego zestawu adsorbatu."""
+        """Removes the last added spot from the current adsorbate set."""
         if self.spot_selection_mode == SPOT_SELECTION_ADSORBATE and \
            0 <= self.current_adsorbate_set_index < len(self.adsorbate_spot_sets):
             current_set = self.adsorbate_spot_sets[self.current_adsorbate_set_index]
@@ -686,7 +594,7 @@ class AppController(QObject):
         else: logger.debug("Not in adsorbate mode or invalid set index for clear_last_adsorbate_spot.") # pragma: no cover
 
     def reselect_current_adsorbate_set(self):
-        """Czyści wszystkie punkty z bieżącego zestawu adsorbatu."""
+        """Clears all spots from the current adsorbate set."""
         if self.spot_selection_mode == SPOT_SELECTION_ADSORBATE and \
             0 <= self.current_adsorbate_set_index < len(self.adsorbate_spot_sets):
             if self.adsorbate_spot_sets[self.current_adsorbate_set_index]:
@@ -696,7 +604,7 @@ class AppController(QObject):
         else: logger.debug("Not in adsorbate mode or invalid set index for reselect_current_adsorbate_set.") # pragma: no cover
 
     def set_expected_adsorbate_lattice_type(self, set_index: int, lattice_type: str):
-        """Ustawia spodziewany typ sieci dla danego zestawu adsorbatu."""
+        """Sets the expected lattice type for a given adsorbate set."""
         valid_types = [ADSORBATE_LATTICE_TYPE_UNKNOWN, ADSORBATE_LATTICE_TYPE_HEXAGONAL, ADSORBATE_LATTICE_TYPE_SQUARE]
         if not (0 <= set_index < len(self.adsorbate_spot_sets)) or lattice_type not in valid_types:
             logger.warning(f"AppController: Invalid set_index {set_index} or lattice_type '{lattice_type}' for adsorbate.")
@@ -705,24 +613,21 @@ class AppController(QObject):
         if self.adsorbate_expected_lattice_types.get(set_index) != lattice_type:
             self.adsorbate_expected_lattice_types[set_index] = lattice_type
             logger.info(f"AppController: Expected lattice type for adsorbate set {set_index} set to '{lattice_type}'.")
-            # Po zmianie typu, poprzednie obliczenia parametrów rzeczywistych dla tego zestawu są nieaktualne
             if set_index in self.adsorbate_real_space_results:
                 del self.adsorbate_real_space_results[set_index]
-                # Poinformuj UI o zresetowaniu parametrów dla tego zestawu
                 if hasattr(self, 'adsorbate_real_space_params_updated'): self.adsorbate_real_space_params_updated.emit(set_index, {}) 
             
             self.adsorbate_expected_type_updated.emit(set_index, lattice_type)
 
     def clear_all_adsorbate_sets(self):
-        """Czyści wszystkie zestawy pików adsorbatu i resetuje do jednego pustego zestawu."""
-        if self.adsorbate_spot_sets != [[]] or self.current_adsorbate_set_index != 0 : # Jeśli faktycznie jest co czyścić
+        """Clears all adsorbate sets and resets to one empty set."""
+        if self.adsorbate_spot_sets != [[]] or self.current_adsorbate_set_index != 0 :
             self.adsorbate_spot_sets = [[]]
             self.corrected_adsorbate_spot_sets = [[]]
             self.current_adsorbate_set_index = 0
             self.adsorbate_expected_lattice_types = {0: ADSORBATE_LATTICE_TYPE_UNKNOWN}
-        # ... (emisja sygnałów) ...
             logger.info("All adsorbate spot sets cleared. Reset to one empty set.")
-            self.adsorbate_sets_structure_changed.emit() # Dla ComboBoxa
+            self.adsorbate_sets_structure_changed.emit()
             if hasattr(self, 'adsorbate_expected_type_updated'): self.adsorbate_expected_type_updated.emit(0, ADSORBATE_LATTICE_TYPE_UNKNOWN)
             self.adsorbate_set_updated.emit(0)
         else:
@@ -733,13 +638,12 @@ class AppController(QObject):
                                      raw_spots: List[Tuple[float, float]], 
                                      corrected_spots_ideal_system: List[Tuple[float, float]]):
         """
-        Aktualizuje surowe i skorygowane piki dla danego zestawu adsorbatu.
+        Updates the raw and corrected spots for a given adsorbate set.
         """
         if not (0 <= set_index < len(self.adsorbate_spot_sets)):
             logger.error(f"AppController: Invalid set_index {set_index} for updating adsorbate spots.")
             return
 
-        # Upewnij się, że lista skorygowanych ma odpowiedni rozmiar
         while len(self.corrected_adsorbate_spot_sets) <= set_index:
             self.corrected_adsorbate_spot_sets.append([])
 
@@ -755,8 +659,7 @@ class AppController(QObject):
             logger.info(f"AppController: Updated corrected adsorbate spots (ideal sys) for set {set_index}. Count: {len(corrected_spots_ideal_system)}")
 
         if raw_changed or corrected_changed:
-            self.adsorbate_set_updated.emit(set_index) # Emituj z indeksem zmienionego zestawu
-            # spot_lists_updated może być nadal używany do ogólnych aktualizacji, np. tekstowego podglądu
+            self.adsorbate_set_updated.emit(set_index)
             if raw_changed and hasattr(self, 'spot_lists_updated'):
                  self.spot_lists_updated.emit()
     
@@ -767,7 +670,7 @@ class AppController(QObject):
 
 
     def add_new_adsorbate_set(self):
-        """Dodaje nowy, pusty zestaw pików adsorbatu i ustawia go jako bieżący."""
+        """Adds a new, empty adsorbate spot set and sets it as current."""
         self.adsorbate_spot_sets.append([])
         self.corrected_adsorbate_spot_sets.append([])
         self.current_adsorbate_set_index = len(self.adsorbate_spot_sets) - 1
@@ -775,21 +678,22 @@ class AppController(QObject):
         logger.info(f"Added new adsorbate set. Index: {self.current_adsorbate_set_index}")
         last_selected_type_in_panel = ADSORBATE_LATTICE_TYPE_UNKNOWN
         self.adsorbate_expected_lattice_types[new_set_index] = last_selected_type_in_panel
-        self.spot_lists_updated.emit() # Aktualizacja ogólna (np. dla _update_action_states)
-        self.adsorbate_sets_structure_changed.emit() # Sygnał dla GUI o zmianie liczby zestawów
+        self.spot_lists_updated.emit()
+        self.adsorbate_sets_structure_changed.emit()
         if hasattr(self, 'adsorbate_expected_type_updated'): self.adsorbate_expected_type_updated.emit(new_set_index, last_selected_type_in_panel)
 
     def set_current_adsorbate_set_by_index(self, index: int):
-        """Ustawia bieżący zestaw adsorbatu na podstawie indeksu."""
+        """Sets the current adsorbate set based on the index."""
         if 0 <= index < len(self.adsorbate_spot_sets):
             if self.current_adsorbate_set_index != index:
                 self.current_adsorbate_set_index = index
                 logger.info(f"Current adsorbate set changed to index: {index}")
-                self.spot_selection_parameters_changed.emit() # Zmiana parametrów wyboru
+                self.spot_selection_parameters_changed.emit()
         else:
             logger.warning(f"Attempted to set invalid adsorbate set index: {index}") # pragma: no cover
 
     def clear_all_spot_data(self):
+        """Clears all spot data."""
         changed = False
         if self.substrate_spots:
             self.substrate_spots.clear()
@@ -802,7 +706,6 @@ class AppController(QObject):
         
         self.user_selected_substrate_spots.clear()
         self.adsorbate_real_space_results.clear()
-        # Resetuj też wyniki transformacji, jeśli są powiązane
         self.substrate_F_m2i = None
         self.substrate_t_m2i = None
         self.substrate_transform_analysis_m2i = None
@@ -821,16 +724,8 @@ class AppController(QObject):
         
         if changed:
             logger.debug("All spot data cleared by clear_all_spot_data.")
-            self.spot_lists_updated.emit() # Ogólna aktualizacja, jeśli coś się zmieniło
-            self.adsorbate_sets_structure_changed.emit() # Aby zresetować combo box
+            self.spot_lists_updated.emit()
+            self.adsorbate_sets_structure_changed.emit()
         else:
             logger.debug("No spot data to clear or already in default state.")
-            
-    # def clear_all_spot_data(self): # Metoda pomocnicza wywoływana np. przy ładowaniu nowego pliku
-    #     """Resetuje wszystkie dane dotyczące pików."""
-    #     self.substrate_spots.clear()
-    #     self.adsorbate_spot_sets = [[]]
-    #     self.current_adsorbate_set_index = 0
-    #     # Nie emitujemy tutaj sygnałów indywidualnie, bo load_file i tak spowoduje odświeżenie UI
-    #     logger.debug("All spot data cleared.")
 

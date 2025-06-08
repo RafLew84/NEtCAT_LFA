@@ -1,6 +1,5 @@
 # lfa/gui/preprocessing_dialogs.py
 import logging
-# Removed import abc
 import numpy as np
 from typing import Optional, Tuple, Dict, Any, List
 
@@ -19,7 +18,7 @@ except ImportError as e:
     logging.critical(f"Failed to import necessary Qt or pyqtgraph modules: {e}")
     raise
 
-# Import processing function
+# Import image processing functions
 try:
     from lfa.preprocessing.filtering import gaussian_blur, median_filter_lfa, gaussian_sharpen_unsharp_mask
 except ImportError:
@@ -49,14 +48,34 @@ logger = logging.getLogger(__name__)
 
 class GaussianBlurDialog(QDialog): # Inherits directly from QDialog
     """
-    Dialog window for applying Gaussian Blur.
-
-    Includes side-by-side views, ROI selection, ROI/Whole image mode toggle,
-    and live preview functionality, implemented as a standalone dialog.
+    A dialog window for applying Gaussian Blur to image data.
+    
+    This dialog provides a user interface for applying Gaussian blur with the following features:
+    - Side-by-side view of original and processed images
+    - Region of Interest (ROI) selection
+    - Option to apply blur to ROI only or entire image
+    - Live preview functionality
+    - Adjustable sigma parameter for blur intensity
+    
+    Attributes:
+        original_data (np.ndarray): The input image data
+        preview_data (np.ndarray): The current preview of processed data
+        _final_processed_data (Optional[np.ndarray]): The final processed data after dialog acceptance
+        _final_params (Dict[str, Any]): The final parameters used for processing
+        _final_is_roi_applied_only (bool): Whether the operation was applied to ROI only
     """
 
     def __init__(self, original_data: np.ndarray, parent=None):
-        """Initializes the dialog."""
+        """
+        Initialize the Gaussian Blur dialog.
+        
+        Args:
+            original_data (np.ndarray): The input image data to process
+            parent (Optional[QWidget]): Parent widget for the dialog
+            
+        Raises:
+            ValueError: If original_data is None
+        """
         super().__init__(parent)
         if original_data is None: raise ValueError("Original data cannot be None")
 
@@ -138,6 +157,13 @@ class GaussianBlurDialog(QDialog): # Inherits directly from QDialog
         logger.debug(f"Standalone {self.operation_name} dialog initialized.")
     
     def get_final_roi_slice(self) -> Optional[Tuple[slice, slice]]:
+        """
+        Get the final ROI slice if ROI mode was enabled.
+        
+        Returns:
+            Optional[Tuple[slice, slice]]: The ROI slice coordinates if ROI mode was enabled,
+                                         None otherwise
+        """
         if self._final_is_roi_applied_only:
             current_slice = self._get_roi_slice()
             logger.debug(f"get_final_roi_slice called, roi_only={self._final_is_roi_applied_only}, slice={current_slice}")
@@ -148,6 +174,12 @@ class GaussianBlurDialog(QDialog): # Inherits directly from QDialog
 
     # --- Implementation of "abstract" methods from previous base ---
     def _create_parameter_controls(self, layout: QVBoxLayout):
+        """
+        Create and add parameter controls specific to Gaussian Blur.
+        
+        Args:
+            layout (QVBoxLayout): The layout to add controls to
+        """
         """Adds controls specific to Gaussian Blur (sigma slider)."""
         sigma_controls_layout = QHBoxLayout()
         self.sigma_label = QLabel(f"Sigma: {0.0:.1f}")
@@ -158,6 +190,14 @@ class GaussianBlurDialog(QDialog): # Inherits directly from QDialog
         layout.addLayout(sigma_controls_layout)
 
     def _get_current_parameters(self) -> Dict[str, Any]:
+        """
+        Get the current parameter values and ROI mode state.
+        
+        Returns:
+            Dict[str, Any]: Dictionary containing:
+                - sigma: float - Current blur sigma value
+                - apply_roi_only: bool - Whether to apply only to ROI
+        """
         """Returns the current sigma value AND the state of the ROI checkbox."""
         sigma = self.sigma_slider.value() / 10.0
         return {
@@ -166,6 +206,16 @@ class GaussianBlurDialog(QDialog): # Inherits directly from QDialog
         }
 
     def _apply_operation(self, image: np.ndarray, params: Dict[str, Any]) -> Optional[np.ndarray]:
+        """
+        Apply Gaussian blur to the image with given parameters.
+        
+        Args:
+            image (np.ndarray): Input image to process
+            params (Dict[str, Any]): Processing parameters including sigma and ROI mode
+            
+        Returns:
+            Optional[np.ndarray]: Processed image, or None if processing failed
+        """
         """Applies gaussian_blur, potentially only to ROI based on params."""
         sigma = params.get('sigma', 0.0)
         apply_roi_only = params.get('apply_roi_only', False)
@@ -195,7 +245,10 @@ class GaussianBlurDialog(QDialog): # Inherits directly from QDialog
     # --- Slots and Methods copied/adapted from BasePreprocessingDialog ---
     @pyqtSlot()
     def _on_parameter_or_preview_changed(self):
-        """Slot for parameter, roi checkbox or live preview checkbox changes."""
+        """
+        Handle changes to parameters, ROI mode, or preview settings.
+        Updates the preview if live preview is enabled.
+        """
         # Update sigma label if slider exists (specific to Gaussian)
         if hasattr(self, 'sigma_slider'):
              sigma = self.sigma_slider.value() / 10.0
@@ -212,20 +265,33 @@ class GaussianBlurDialog(QDialog): # Inherits directly from QDialog
 
     @pyqtSlot()
     def _on_roi_changed(self):
-        """Updates ROI info label and preview if needed."""
+        """
+        Handle ROI changes by updating the info label and preview.
+        Only updates preview if both ROI mode and live preview are enabled.
+        """
         pos=self.roi.pos(); size=self.roi.size(); info_text = f"ROI: ({pos.x():.1f}, {pos.y():.1f}) Size: ({size.x():.1f}, {size.y():.1f})"; self.roi_info_label.setText(info_text)
         # Update preview only if both checkboxes are checked
         if self.apply_to_roi_only_checkbox.isChecked() and self.live_preview_checkbox.isChecked():
              self._update_preview()
 
     def _get_roi_slice(self) -> Optional[Tuple[slice, slice]]:
+        """
+        Get the current ROI slice coordinates.
+        
+        Returns:
+            Optional[Tuple[slice, slice]]: ROI slice coordinates if ROI is valid,
+                                         None if ROI is invalid or not visible
+        """
         if not self.roi.isVisible() or not self.roi.size().x() > 0 or not self.roi.size().y() > 0: return None
         pos=self.roi.pos(); size=self.roi.size(); h,w=self.original_data.shape; x0,y0=int(round(pos.x())),int(round(pos.y())); width,height=int(round(size.x())),int(round(size.y())); x1=min(x0+width,w); y1=min(y0+height,h); x0=max(0,x0); y0=max(0,y0)
         if x1>x0 and y1>y0: return slice(y0,y1), slice(x0,x1)
         else: logger.warning("Invalid ROI dimensions."); return None
 
     def _update_preview(self):
-        """Calculates and updates the preview image."""
+        """
+        Update the preview image based on current parameters and settings.
+        Handles both ROI and full-image processing modes.
+        """
         # This method is now simpler as all ROI/Whole logic is in _apply_operation
         if not self.live_preview_checkbox.isChecked():
             self.preview_data = self.original_data.copy(); self.update_preview_view()
@@ -247,7 +313,10 @@ class GaussianBlurDialog(QDialog): # Inherits directly from QDialog
         else: self.img_processed.clear(); logger.debug("Preview view cleared.")
 
     def accept(self):
-        """Calculate final result and close dialog."""
+        """
+        Calculate final result and close dialog.
+        Applies the processing with current parameters and stores the result.
+        """
         params = self._get_current_parameters()
         self._final_is_roi_applied_only = params.get('apply_roi_only', False)
         logger.info(f"Dialog accepted. Finalizing '{self.operation_name}'. Apply ROI Only: {self._final_is_roi_applied_only}, Params: {params}")
@@ -267,10 +336,38 @@ class GaussianBlurDialog(QDialog): # Inherits directly from QDialog
 
 class GaussianSharpeningDialog(QDialog):
     """
-    Standalone dialog window for applying Gaussian Sharpening (Unsharp Mask).
-    Includes ROI/Whole image mode toggle and live preview.
+    A dialog window for applying Gaussian Sharpening (Unsharp Mask) to image data.
+    
+    This dialog provides a user interface for applying image sharpening with the following features:
+    - Side-by-side view of original and processed images
+    - Region of Interest (ROI) selection
+    - Option to apply sharpening to ROI only or entire image
+    - Live preview functionality
+    - Adjustable radius (sigma) and amount parameters for sharpening control
+    
+    The sharpening is implemented using the Unsharp Mask technique:
+    Sharpened = original + amount * (original - blurred)
+    where blurred is obtained using a Gaussian filter with sigma=radius.
+    
+    Attributes:
+        original_data (np.ndarray): The input image data
+        preview_data (np.ndarray): The current preview of processed data
+        _final_processed_data (Optional[np.ndarray]): The final processed data after dialog acceptance
+        _final_params (Dict[str, Any]): The final parameters used for processing
+        _final_is_roi_applied_only (bool): Whether the operation was applied to ROI only
     """
+
     def __init__(self, original_data: np.ndarray, parent=None):
+        """
+        Initialize the Gaussian Sharpening dialog.
+        
+        Args:
+            original_data (np.ndarray): The input image data to process
+            parent (Optional[QWidget]): Parent widget for the dialog
+            
+        Raises:
+            ValueError: If original_data is None
+        """
         super().__init__(parent)
         if original_data is None: raise ValueError("Original data cannot be None")
 
@@ -341,6 +438,13 @@ class GaussianSharpeningDialog(QDialog):
         logger.debug(f"Standalone {self.operation_name} dialog initialized.")
 
     def get_final_roi_slice(self) -> Optional[Tuple[slice, slice]]:
+        """
+        Get the final ROI slice if ROI mode was enabled.
+        
+        Returns:
+            Optional[Tuple[slice, slice]]: The ROI slice coordinates if ROI mode was enabled,
+                                         None otherwise
+        """
         if self._final_is_roi_applied_only:
             current_slice = self._get_roi_slice()
             logger.debug(f"get_final_roi_slice called, roi_only={self._final_is_roi_applied_only}, slice={current_slice}")
@@ -351,7 +455,16 @@ class GaussianSharpeningDialog(QDialog):
 
     # --- UI and Logic ---
     def _create_parameter_controls(self, layout: QVBoxLayout):
-        """Adds controls specific to Gaussian Sharpening."""
+        """
+        Create and add parameter controls specific to Gaussian Sharpening.
+        
+        Adds two main controls:
+        - Radius (Sigma): Controls the scale of features being sharpened (0.0 - 10.0)
+        - Amount: Controls the strength of the sharpening effect (0.0 - 5.0)
+        
+        Args:
+            layout (QVBoxLayout): The layout to add controls to
+        """
         # Radius (Sigma) Control
         radius_layout = QHBoxLayout()
         self.radius_label = QLabel(f"Radius (Sigma): {1.0:.1f}") # Default radius = 1.0
@@ -385,9 +498,12 @@ class GaussianSharpeningDialog(QDialog):
         self.amount_slider.valueChanged.connect(self._on_specific_parameter_changed)
 
 
-    @pyqtSlot() # Can connect multiple signals here
+    @pyqtSlot()
     def _on_specific_parameter_changed(self):
-        """Updates labels and triggers preview update."""
+        """
+        Handle changes to sharpening-specific parameters.
+        Updates the parameter labels and triggers preview update.
+        """
         radius = self.radius_slider.value() / 10.0
         amount = self.amount_slider.value() / 10.0
         self.radius_label.setText(f"Radius (Sigma): {radius:.1f}")
@@ -397,7 +513,15 @@ class GaussianSharpeningDialog(QDialog):
 
 
     def _get_current_parameters(self) -> Dict[str, Any]:
-        """Gathers parameters for Gaussian Sharpening."""
+        """
+        Get the current parameter values and ROI mode state.
+        
+        Returns:
+            Dict[str, Any]: Dictionary containing:
+                - radius: float - Current sharpening radius (sigma) value (0.0 - 10.0)
+                - amount: float - Current sharpening amount value (0.0 - 5.0)
+                - apply_roi_only: bool - Whether to apply only to ROI
+        """
         radius = self.radius_slider.value() / 10.0
         amount = self.amount_slider.value() / 10.0
         return {
@@ -407,7 +531,21 @@ class GaussianSharpeningDialog(QDialog):
         }
 
     def _apply_operation(self, image: np.ndarray, params: Dict[str, Any]) -> Optional[np.ndarray]:
-        """Applies gaussian_sharpen_unsharp_mask based on parameters."""
+        """
+        Apply Gaussian sharpening to the image with given parameters.
+        
+        Args:
+            image (np.ndarray): Input image to process
+            params (Dict[str, Any]): Processing parameters including radius, amount and ROI mode
+            
+        Returns:
+            Optional[np.ndarray]: Processed image, or None if processing failed
+            
+        Note:
+            If ROI mode is enabled, the sharpening is only applied to the selected region.
+            Higher radius values affect larger features, while higher amount values increase
+            the sharpening intensity.
+        """
         radius = params.get('radius', 1.0)
         amount = params.get('amount', 1.0)
         apply_roi_only = params.get('apply_roi_only', False)
@@ -432,8 +570,6 @@ class GaussianSharpeningDialog(QDialog):
             logger.exception(f"Error applying gaussian_sharpen_unsharp_mask: {e}")
             return None
 
-
-    # --- Slots and Methods ---
     @pyqtSlot()
     def _on_parameter_or_preview_changed(self):
         is_roi_mode = self.apply_to_roi_only_checkbox.isChecked()
@@ -446,6 +582,17 @@ class GaussianSharpeningDialog(QDialog):
         if self.apply_to_roi_only_checkbox.isChecked() and self.live_preview_checkbox.isChecked(): self._update_preview()
 
     def _get_roi_slice(self) -> Optional[Tuple[slice, slice]]:
+        """
+        Get the current ROI slice coordinates.
+        
+        Returns:
+            Optional[Tuple[slice, slice]]: ROI slice coordinates if ROI is valid,
+                                         None if ROI is invalid or not visible
+                                         
+        Note:
+            The ROI coordinates are clamped to the image boundaries to ensure
+            they remain within valid image dimensions.
+        """
         if not self.roi.isVisible() or not self.roi.size().x()>0 or not self.roi.size().y()>0: 
             return None
         pos=self.roi.pos(); size=self.roi.size()
@@ -456,7 +603,8 @@ class GaussianSharpeningDialog(QDialog):
         x0=max(0,x0); y0=max(0,y0);
         if x1>x0 and y1>y0: 
             return slice(y0,y1), slice(x0,x1)
-        else: logger.warning("Invalid ROI dims.")
+        else: 
+            logger.warning("Invalid ROI dims.")
         return None
 
     def _update_preview(self):
@@ -640,7 +788,6 @@ class NLMeansDialog(QDialog):
         self.patch_dist_spinbox.valueChanged.connect(self._on_parameter_or_preview_changed)
         self.fast_mode_checkbox.stateChanged.connect(self._on_parameter_or_preview_changed)
 
-
     def _get_current_parameters(self) -> Dict[str, Any]:
         """Gathers parameters for NL-Means Filter."""
         return {
@@ -685,8 +832,6 @@ class NLMeansDialog(QDialog):
             logger.exception(f"Error applying denoise_nlmeans_skimage: {e}")
             return None
 
-
-    # --- Slots  ---
     @pyqtSlot()
     def _on_parameter_or_preview_changed(self):
         is_roi_mode = self.apply_to_roi_only_checkbox.isChecked()
@@ -1094,7 +1239,6 @@ class BM3DDialog(QDialog):
         specific_param_layout.setContentsMargins(0,0,0,0)
         self._create_parameter_controls(specific_param_layout)
         controls_area_layout.addWidget(parameter_widget_container)
-
         controls_area_layout.addWidget(QFrame(frameShape=QFrame.Shape.HLine, frameShadow=QFrame.Shadow.Sunken))
 
         # --- ROI / Mode Controls ---
@@ -1513,4 +1657,5 @@ class MedianFilterDialog(QDialog):
     def get_processed_data(self) -> Optional[np.ndarray]: return self._final_processed_data.copy() if self._final_processed_data is not None else None
     def get_parameters(self) -> dict: return self._get_current_parameters()
     def was_roi_applied_only(self) -> bool: return self._final_is_roi_applied_only
+
 

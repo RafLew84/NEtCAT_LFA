@@ -2,9 +2,13 @@
 """
 Dialog window for calculating and previewing Fast Fourier Transform (FFT).
 
-Allows calculating FFT on the full input image or a selected ROI,
-with options for applying a window function. Provides a live preview.
-Inherits directly from QDialog.
+This module provides a dialog interface for performing FFT calculations on STM image data.
+Features include:
+- FFT calculation on full image or selected ROI
+- Window function application options
+- Live preview with various scaling modes
+- Interactive ROI selection
+- Support for different magnitude scaling methods (log, linear, power, sqrt)
 """
 import logging
 import numpy as np
@@ -40,9 +44,33 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 class FFTDialog(QDialog):
-    """Standalone dialog for FFT Calculation with scaling options."""
+    """
+    Standalone dialog for FFT Calculation with scaling options.
+    
+    This dialog provides a comprehensive interface for performing FFT calculations
+    on STM image data with the following features:
+    - Interactive ROI selection for partial FFT calculation
+    - Window function application options
+    - Multiple magnitude scaling modes (log, linear, power, sqrt)
+    - Live preview of FFT results
+    - Support for both full image and ROI-based calculations
+    
+    Attributes:
+        input_data (np.ndarray): The input STM image data
+        preview_display_data (Optional[np.ndarray]): Scaled magnitude for preview
+        _final_processed_data (Optional[np.ndarray]): Final scaled magnitude result
+        _final_params (Dict[str, Any]): Parameters used for final calculation
+        _final_source_roi_slice (Optional[Tuple[slice, slice]]): ROI slice if used
+    """
 
     def __init__(self, input_stm_data: np.ndarray, parent=None):
+        """
+        Initialize the FFT dialog.
+        
+        Args:
+            input_stm_data: 2D numpy array containing the STM image data
+            parent: Parent widget for the dialog
+        """
         super().__init__(parent)
         if input_stm_data is None or input_stm_data.ndim != 2:
             raise ValueError("FFTDialog requires valid 2D input_stm_data")
@@ -123,7 +151,15 @@ class FFTDialog(QDialog):
 
 
     def _create_parameter_controls(self, layout: QVBoxLayout):
-        """Adds controls specific to FFT calculation."""
+        """
+        Creates and adds controls specific to FFT calculation.
+        
+        This method sets up:
+        - ROI mode selection
+        - Window function controls
+        - Display scaling options
+        - Live preview toggle
+        """
         self.roi_mode_checkbox = QCheckBox("Calculate FFT only for ROI")
         self.roi_mode_checkbox.setChecked(False)
         layout.addWidget(self.roi_mode_checkbox)
@@ -164,14 +200,20 @@ class FFTDialog(QDialog):
 
     @pyqtSlot()
     def _on_parameter_changed(self):
-        """Handles changes in windowing or scaling settings."""
+        """
+        Handles changes in windowing or scaling settings.
+        Updates the preview if live preview is enabled.
+        """
         if hasattr(self, 'window_combo') and hasattr(self, 'window_checkbox'):
             self.window_combo.setEnabled(self.window_checkbox.isChecked())
         self._update_preview_slot() # Trigger preview update
 
     @pyqtSlot(int)
     def _on_mode_changed(self, state=None):
-        """Handles changes to the 'Calculate FFT only for ROI' checkbox."""
+        """
+        Handles changes to the 'Calculate FFT only for ROI' checkbox.
+        Updates ROI visibility and preview accordingly.
+        """
         is_roi_mode = self.roi_mode_checkbox.isChecked()
         self.roi.setVisible(is_roi_mode)
         self.roi_info_label.setVisible(is_roi_mode)
@@ -180,7 +222,9 @@ class FFTDialog(QDialog):
 
     @pyqtSlot()
     def _on_roi_changed(self):
-        """Updates ROI info label and preview if ROI mode and live preview are active."""
+        """
+        Updates ROI info label and preview if ROI mode and live preview are active.
+        """
         pos=self.roi.pos(); size=self.roi.size()
         info_text = f"ROI: ({pos.x():.1f}, {pos.y():.1f}) Size: ({size.x():.1f}, {size.y():.1f})"
         self.roi_info_label.setText(info_text)
@@ -190,12 +234,20 @@ class FFTDialog(QDialog):
 
     @pyqtSlot()
     def _update_preview_slot(self):
-         """Triggers preview update if live preview checkbox is checked."""
+         """
+         Triggers preview update if live preview checkbox is checked.
+         """
          if self.live_preview_checkbox.isChecked():
               self._update_preview()
 
     def _get_roi_slice(self) -> Optional[Tuple[slice, slice]]:
-        """Calculates integer numpy slices from the current ROI state."""
+        """
+        Calculates integer numpy slices from the current ROI state.
+        
+        Returns:
+            Optional[Tuple[slice, slice]]: Tuple of (y_slice, x_slice) if ROI is valid,
+                                         None otherwise
+        """
         if not self.roi.isVisible() or not self.roi.size().x()>0 or not self.roi.size().y()>0:
             return None
         pos=self.roi.pos()
@@ -218,7 +270,16 @@ class FFTDialog(QDialog):
             return None
 
     def _get_current_parameters(self) -> Dict[str, Any]:
-        """Gathers current parameters for FFT calculation, including scaling mode."""
+        """
+        Gathers current parameters for FFT calculation.
+        
+        Returns:
+            Dict[str, Any]: Dictionary containing:
+                - apply_window: Whether to apply window function
+                - window_type: Selected window type
+                - apply_roi_only: Whether to use ROI only
+                - scaling_mode: Selected scaling mode (log/linear/power/sqrt)
+        """
         apply_win = self.window_checkbox.isChecked()
         win_type = self.window_combo.currentText().lower() if apply_win else 'none'
         if win_type == 'none':
@@ -238,7 +299,16 @@ class FFTDialog(QDialog):
         }
 
     def _calculate_scaled_fft_magnitude(self, input_fft_data: np.ndarray, params: Dict[str, Any]) -> Optional[np.ndarray]:
-         """Helper to calculate COMPLEX FFT and return the SCALED MAGNITUDE."""
+         """
+         Calculates complex FFT and returns the scaled magnitude.
+         
+         Args:
+             input_fft_data: Input data for FFT calculation
+             params: Dictionary of FFT parameters
+             
+         Returns:
+             Optional[np.ndarray]: Scaled magnitude of FFT result, or None if calculation fails
+         """
          try:
              is_roi = params.get('apply_roi_only', False)
              target_shape = self.input_data.shape if is_roi else None
@@ -279,7 +349,10 @@ class FFTDialog(QDialog):
 
 
     def _update_preview(self):
-        """Calculates and updates the scaled FFT magnitude preview image."""
+        """
+        Calculates and updates the scaled FFT magnitude preview image.
+        Handles both full image and ROI-based calculations.
+        """
         if not self.live_preview_checkbox.isChecked():
             self.preview_display_data = None # Clear preview buffer
             self.update_fft_view() # Update display to show empty
@@ -312,13 +385,18 @@ class FFTDialog(QDialog):
 
 
     def update_input_view(self):
-        """Updates the Input image view."""
+        """
+        Updates the Input image view with the current input data.
+        """
         if self.input_data is not None and hasattr(self, 'img_input') and self.img_input:
              self.img_input.setImage(self.input_data.T) # Transpose for STM view
              self.plot_input.autoRange()
 
     def update_fft_view(self):
-        """Updates the FFT preview view using self.fft_image_view."""
+        """
+        Updates the FFT preview view using self.fft_image_view.
+        Handles both valid data display and clearing the view.
+        """
         if not hasattr(self, 'fft_image_view') or self.fft_image_view is None: return
         if self.preview_display_data is not None:
             logger.debug(f"Displaying FFT preview data shape: {self.preview_display_data.shape}")
@@ -334,21 +412,39 @@ class FFTDialog(QDialog):
 
 
     # --- Methods to retrieve results after dialog acceptance ---
-    def get_processed_data(self) -> Optional[np.ndarray]: # Renamed from get_fft_data
-        """Returns the final calculated scaled FFT magnitude data."""
+    def get_processed_data(self) -> Optional[np.ndarray]:
+        """
+        Returns the final calculated scaled FFT magnitude data.
+        
+        Returns:
+            Optional[np.ndarray]: Copy of the final processed data, or None if not available
+        """
         return self._final_processed_data.copy() if self._final_processed_data is not None else None
 
-    def get_fft_parameters(self) -> dict: # Keep specific name for clarity
-        """Returns the parameters used for the final FFT calculation."""
+    def get_fft_parameters(self) -> dict:
+        """
+        Returns the parameters used for the final FFT calculation.
+        
+        Returns:
+            dict: Copy of the parameters used for FFT calculation
+        """
         return self._final_params.copy()
 
     def get_source_roi_slice(self) -> Optional[Tuple[slice, slice]]:
-        """Returns the source ROI slice if FFT was calculated on ROI."""
+        """
+        Returns the source ROI slice if FFT was calculated on ROI.
+        
+        Returns:
+            Optional[Tuple[slice, slice]]: ROI slice used for calculation, or None if full image was used
+        """
         return self._final_source_roi_slice
 
     # --- Dialog Actions ---
     def accept(self):
-        """Calculate final SCALED FFT MAGNITUDE based on settings and close."""
+        """
+        Calculate final SCALED FFT MAGNITUDE based on settings and close.
+        Handles both full image and ROI-based calculations.
+        """
         params = self._get_current_parameters()
         is_roi = params.get('apply_roi_only', False)
         self._final_params = params # Store final parameters used
@@ -385,14 +481,21 @@ class FFTDialog(QDialog):
             super().reject() # Close with Rejected state
 
     def reject(self):
-        """Called when Cancel button is clicked or dialog is closed."""
+        """
+        Called when Cancel button is clicked or dialog is closed.
+        Cleans up any stored data.
+        """
         logger.info(f"{self.operation_name} dialog rejected (Cancel clicked).")
         self._final_processed_data = None
         self._final_source_roi_slice = None
         super().reject()
 
-    # Keep this method for consistency with MainWindow's expectation
     def was_roi_applied_only(self) -> bool:
-        """Returns True if the final result was calculated from an ROI."""
+        """
+        Returns True if the final result was calculated from an ROI.
+        
+        Returns:
+            bool: True if ROI was used for calculation, False otherwise
+        """
         # For FFT, this means _final_source_roi_slice is set
         return self._final_source_roi_slice is not None

@@ -1,6 +1,8 @@
 # lfa/core/data_models.py
 """
 Defines the core data structure for holding STM image data and metadata.
+This module provides the STMImage class which encapsulates both the image data
+and its associated metadata in a standardized format.
 """
 
 import numpy as np
@@ -11,6 +13,10 @@ from typing import Dict, Any
 class STMImage:
     """
     Represents STM image data and associated metadata.
+
+    This class provides a standardized way to store and access STM image data
+    along with its metadata, including physical dimensions, scan parameters,
+    and image type information.
 
     Attributes:
         file_name (str): Path to the original data file.
@@ -50,7 +56,14 @@ class STMImage:
     image_type: str = "Unknown" # e.g., "Topography", "Current"
 
     def __post_init__(self):
-        """Calculate pixel dimensions from data array shape if not provided."""
+        """
+        Calculate pixel dimensions from data array shape if not provided.
+        
+        This method is automatically called after initialization to ensure
+        pixel dimensions are properly set based on the data array shape.
+        It handles various cases where dimensions might be missing or
+        potentially transposed.
+        """
         if self.data is not None:
             if self.pixels_y == 0 and self.pixels_x == 0:
                  # Assume shape is (rows, columns) -> (y, x)
@@ -71,6 +84,11 @@ class STMImage:
     def get_pixel_size_nm(self) -> tuple[float | None, float | None]:
         """
         Calculates the pixel size in nanometers for x and y directions.
+
+        This method computes the physical size of each pixel by dividing
+        the total image size by the number of pixels in each direction.
+        Returns None for directions where the calculation is not possible
+        (e.g., if size or pixel count is zero or negative).
 
         Returns:
             tuple[float | None, float | None]: Pixel size in nm (x, y), or None if calculation is not possible.

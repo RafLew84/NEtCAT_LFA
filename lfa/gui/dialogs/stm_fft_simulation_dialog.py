@@ -8,7 +8,6 @@ logger = logging.getLogger(__name__)
 class StmFftSimulationDialog(QDialog):
     """
     Dialog for creating simulated STM/FFT data based on user-defined parameters.
-    (Szkielet - implementacja w kolejnych krokach)
     """
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -23,8 +22,7 @@ class StmFftSimulationDialog(QDialog):
 
     def _init_ui(self):
         """
-        Tworzy szkielet interfejsu użytkownika.
-        Na razie jest to tylko puste okno z informacją.
+        Creates the user interface skeleton.
         """
         layout = QVBoxLayout(self)
         label = QLabel("STM/FFT Simulation Dialog\n\n(UI and logic will be implemented here)")
@@ -36,6 +34,6 @@ class StmFftSimulationDialog(QDialog):
         self.button_box = button_box
 
     def _connect_signals(self):
-        """Podłącza sygnały z widgetów do slotów."""
+        """Connects widget signals to slots."""
         self.button_box.accepted.connect(self.accept)
         self.button_box.rejected.connect(self.reject)

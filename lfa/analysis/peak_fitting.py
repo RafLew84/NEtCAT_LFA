@@ -176,7 +176,7 @@ def fit_2d_gaussian_in_roi_with_all_data(
     fft_magnitude_data: np.ndarray,
     center_yx: Tuple[int, int],
     roi_radius: int
-) -> Optional[Tuple[np.ndarray, Tuple[float, float], np.ndarray]]: # <<< ZMIANA 1: Poprawiono typ zwracany
+) -> Optional[Tuple[np.ndarray, Tuple[float, float], np.ndarray]]:
     """
     Fits a 2D Gaussian to a square ROI in the FFT magnitude data.
 

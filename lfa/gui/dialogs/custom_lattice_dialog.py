@@ -1,6 +1,10 @@
 # lfa/gui/custom_lattice_dialog.py
 """
 Dialog for defining a custom substrate lattice.
+
+This module provides a dialog interface for users to define custom lattice parameters
+for substrate analysis. It supports hexagonal and square lattice types and allows
+users to specify the surface constant (a_surf) in nanometers.
 """
 import logging
 from typing import Optional, Dict, Any
@@ -18,8 +22,30 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 class CustomLatticeDialog(QDialog):
-    """Dialog for user to define custom lattice parameters."""
+    """
+    Dialog for user to define custom lattice parameters.
+    
+    This dialog allows users to:
+    - Define a custom name for the lattice
+    - Select the lattice type (hexagonal or square)
+    - Specify the surface constant (a_surf) in nanometers
+    
+    The dialog validates user input and returns a dictionary containing
+    the lattice definition when accepted.
+    
+    Attributes:
+        _lattice_definition (Optional[Dict[str, Any]]): The defined lattice parameters
+        name_edit (QLineEdit): Input field for lattice name
+        type_combo (QComboBox): Dropdown for selecting lattice type
+        a_surf_spinbox (QDoubleSpinBox): Input for surface constant
+    """
     def __init__(self, parent=None):
+        """
+        Initialize the custom lattice dialog.
+        
+        Args:
+            parent: Parent widget for the dialog
+        """
         super().__init__(parent)
         self.setWindowTitle("Define Custom Lattice")
         self.setMinimumWidth(350)
@@ -29,22 +55,26 @@ class CustomLatticeDialog(QDialog):
         layout = QVBoxLayout(self)
         form_layout = QFormLayout()
 
+        # Initialize lattice name input
         self.name_edit = QLineEdit("Custom Lattice")
         form_layout.addRow("Lattice Name:", self.name_edit)
 
+        # Initialize lattice type selection
         self.type_combo = QComboBox()
-        self.type_combo.addItems(["hexagonal", "square"]) # Supported types
+        self.type_combo.addItems(["hexagonal", "square"]) # Supported lattice types
         form_layout.addRow("Lattice Type:", self.type_combo)
 
+        # Initialize surface constant input
         self.a_surf_spinbox = QDoubleSpinBox()
-        self.a_surf_spinbox.setDecimals(4) # Precision for nm
-        self.a_surf_spinbox.setRange(0.0001, 10.0) # Reasonable range in nm
+        self.a_surf_spinbox.setDecimals(4) # Precision for nanometer values
+        self.a_surf_spinbox.setRange(0.0001, 10.0) # Reasonable range in nanometers
         self.a_surf_spinbox.setSingleStep(0.001)
         self.a_surf_spinbox.setValue(0.300) # Default example value
         form_layout.addRow("Surface Constant 'a_surf' (nm):", self.a_surf_spinbox)
 
         layout.addLayout(form_layout)
 
+        # Initialize dialog buttons
         self.button_box = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
@@ -53,7 +83,21 @@ class CustomLatticeDialog(QDialog):
         layout.addWidget(self.button_box)
 
     def accept_input(self):
-        """Validate input and store the definition before accepting."""
+        """
+        Validate input and store the definition before accepting.
+        
+        This method:
+        1. Validates the lattice name is not empty
+        2. Validates the surface constant is positive
+        3. Creates a dictionary with the lattice definition
+        4. Accepts the dialog if validation passes
+        
+        The lattice definition includes:
+        - name: User-defined name for the lattice
+        - type: Selected lattice type (hexagonal or square)
+        - a_surf: Surface constant in nanometers
+        - source: Indicates this is a user-defined lattice
+        """
         name = self.name_edit.text().strip()
         lattice_type = self.type_combo.currentText()
         a_surf = self.a_surf_spinbox.value()
@@ -75,5 +119,15 @@ class CustomLatticeDialog(QDialog):
         super().accept() # Call the original accept to close with QDialog.Accepted
 
     def get_lattice_definition(self) -> Optional[Dict[str, Any]]:
-        """Returns the defined lattice dictionary, or None if not accepted."""
+        """
+        Returns the defined lattice dictionary, or None if not accepted.
+        
+        Returns:
+            Optional[Dict[str, Any]]: Dictionary containing:
+                - name: Lattice name
+                - type: Lattice type (hexagonal or square)
+                - a_surf: Surface constant in nanometers
+                - source: "User Defined"
+            Returns None if the dialog was not accepted
+        """
         return self._lattice_definition

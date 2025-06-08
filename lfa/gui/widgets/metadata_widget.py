@@ -11,18 +11,16 @@ try:
     from PyQt6.QtCore import Qt
 except ImportError:
     logging.critical("Failed to import necessary PyQt6 modules for MetadataWidget.")
-    # Define dummy classes if Qt is not available (for headless testing?)
     class QWidget: pass
     class QFormLayout: pass
     class QLabel: pass
     Qt = None
 
-# Use relative import to get HistoryNode
 try:
-    from ...core.history import HistoryNode # Relative import: .. goes up to lfa/, then core.history
+    from ...core.history import HistoryNode 
 except ImportError:
     logging.error("Could not import HistoryNode in metadata_widget. Metadata display might fail.")
-    HistoryNode = None # Define as None if import fails
+    HistoryNode = None
 
 
 logger = logging.getLogger(__name__)
@@ -35,7 +33,6 @@ class MetadataWidget(QWidget):
         self.layout = QFormLayout(self)
         self.layout.setContentsMargins(10, 10, 10, 10)
         self.layout.setSpacing(5)
-        # Set alignment for labels to be on top for word wrapping
         self.layout.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         self.layout.setFormAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
@@ -97,9 +94,8 @@ class MetadataWidget(QWidget):
         history_dict: Optional[Dict[str, HistoryNode]] = None
         root_node: Optional[HistoryNode] = None
 
-        if isinstance(history, dict): # Dla kompatybilności wstecznej lub testów
+        if isinstance(history, dict):
             history_dict = history
-            # W tym przypadku musielibyśmy ręcznie szukać korzenia, jeśli 'node' nie jest nim
             if node:
                 temp_node = node
                 visited = {node.node_id}
@@ -110,17 +106,13 @@ class MetadataWidget(QWidget):
                     visited.add(temp_node.parent_id)
                     temp_node = history_dict[temp_node.parent_id]
                 if not root_node: root_node = temp_node # Fallback
-        else: # Zakładamy, że to obiekt HistoryManager
-            # Użyj asercji typu lub sprawdzania typu, jeśli chcesz być bardziej rygorystyczny
-            # from .history_manager import HistoryManager # Unikaj importu wewnątrz metody, jeśli to możliwe
-            # if isinstance(history_manager_or_dict, HistoryManager):
-            history_mgr = history # Zmień nazwę dla jasności
-            if node and history_mgr: # Upewnij się, że history_mgr nie jest None
+        else:
+            history_mgr = history
+            if node and history_mgr:
                  root_node = history_mgr.get_root_node_for_node(node.node_id)
-                 history_dict = history_mgr.history # Pobierz słownik historii z managera
-            # else: # Jeśli node lub history_mgr to None, root_node i history_dict pozostaną None
+                 history_dict = history_mgr.history
 
-        if node is None or history_dict is None: # Sprawdź też history_dict
+        if node is None or history_dict is None:
             self.clear_labels()
             return
 
@@ -153,8 +145,8 @@ class MetadataWidget(QWidget):
         self.node_params_label.setText(param_str)
 
 
-        if root_node and root_node.operation_name == "Original": # Sprawdź, czy znaleziony korzeń to "Original"
-            orig_params = root_node.parameters # Metadata oryginalnego pliku jest w parametrach węzła "Original"
+        if root_node and root_node.operation_name == "Original":
+            orig_params = root_node.parameters 
             self.filename_label.setText(orig_params.get("filename", "-"))
             px_x = orig_params.get("pixels_x", 0); px_y = orig_params.get("pixels_y", 0)
             self.orig_dims_px_label.setText(f"{px_x} x {px_y}" if px_x and px_y else "-")
@@ -163,14 +155,13 @@ class MetadataWidget(QWidget):
             bias = orig_params.get("bias_v", None)
             self.orig_bias_label.setText(f"{bias:.4f}" if bias is not None else "-")
             setpoint = orig_params.get("setpoint_a", None)
-            self.orig_setpoint_label.setText(f"{setpoint:.3e}" if setpoint is not None else "-") # Format naukowy dla prądu
+            self.orig_setpoint_label.setText(f"{setpoint:.3e}" if setpoint is not None else "-")
             angle = orig_params.get("scan_angle_deg", None)
             self.orig_angle_label.setText(f"{angle:.1f}" if angle is not None else "-")
         else:
             logger.warning(f"Could not trace back to a valid 'Original' root node from node {node.node_id if node else 'None'}. Root found: {root_node.operation_name if root_node else 'None'}")
             self.filename_label.setText("?")
             self.orig_dims_px_label.setText("?")
-            # ... (wyczyść resztę etykiet oryginalnych danych) ...
             self.orig_dims_nm_label.setText("?")
             self.orig_bias_label.setText("?")
             self.orig_setpoint_label.setText("?")

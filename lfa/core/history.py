@@ -1,6 +1,9 @@
 # lfa/core/history.py
 """
 History tracking and management for LFA operations.
+This module provides functionality for tracking the history of image processing operations,
+including FFT transformations and ROI-based operations, with support for parameter tracking
+and data type management.
 """
 import numpy as np
 from dataclasses import dataclass, field
@@ -13,7 +16,23 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class HistoryNode:
-    """Represents a single state in the processing history tree."""
+    """
+    Represents a single state in the processing history tree.
+    
+    This class stores information about a single processing operation, including
+    the operation type, parameters, timestamp, and the resulting image data.
+    It supports both STM and FFT data types, and can track ROI-based operations.
+
+    Attributes:
+        node_id (str): Unique identifier for this history node.
+        parent_id (Optional[str]): ID of the parent node in the history tree.
+        operation_name (str): Name of the operation performed.
+        parameters (Dict[str, Any]): Dictionary of operation parameters.
+        timestamp (float): Time when the operation was performed.
+        image_data (Optional[np.ndarray]): The processed image data.
+        data_type (Literal["STM", "FFT"]): Type of data stored in image_data.
+        source_roi_slice (Optional[Tuple[slice, slice]]): ROI slice if operation was ROI-based.
+    """
     node_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     parent_id: Optional[str] = None
     operation_name: str = "Original"
@@ -26,7 +45,18 @@ class HistoryNode:
     source_roi_slice: Optional[Tuple[slice, slice]] = field(repr=False, default=None)
 
     def get_display_text(self) -> str:
-        """Generates text representation for display in lists."""
+        """
+        Generates a human-readable text representation for display in lists.
+        
+        This method creates a formatted string that includes:
+        - Operation name
+        - Data type (FFT if applicable)
+        - ROI information if applicable
+        - Formatted parameter list (truncated if too long)
+        
+        Returns:
+            str: Formatted display text for the history node.
+        """
         base_name = self.operation_name
         suffix = ""
 
@@ -37,17 +67,13 @@ class HistoryNode:
             base_name += " (FFT)"
 
         # Check if source_roi_slice exists to determine if it came from ROI
-        # Note: A parameter 'apply_roi_only' might also exist in params
         if self.source_roi_slice is not None:
             suffix += " from ROI"
-        # Check if 'apply_roi_only' was True in params (more robust for non-FFT ops)
-        # elif self.parameters.get('apply_roi_only', False):
-        #    suffix += " (ROI Only)" # Alternative label
 
         if not self.parameters:
             param_str = "No parameters"
         else:
-            max_param_len = 35 # Adjusted based on previous testing
+            max_param_len = 35 # Maximum length for parameter string
             ellipsis = "..."
             fitting_param_parts = []
             current_len = 0
@@ -104,6 +130,18 @@ class HistoryNode:
 
 
     def __post_init__(self):
+        """
+        Validates the initialization parameters after object creation.
+        
+        This method checks:
+        - image_data is a NumPy array or None
+        - data_type is either 'STM' or 'FFT'
+        - source_roi_slice is properly formatted if provided
+        
+        Raises:
+            TypeError: If image_data or source_roi_slice have invalid types
+            ValueError: If data_type is invalid
+        """
         # Input validation
         if self.image_data is not None and not isinstance(self.image_data, np.ndarray):
             raise TypeError("image_data must be a NumPy array or None")

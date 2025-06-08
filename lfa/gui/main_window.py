@@ -16,7 +16,6 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtGui import QAction, QIcon
 from PyQt6.QtCore import Qt, pyqtSlot, QPointF
 
-# Import pyqtgraph after checking for installation
 try:
     import pyqtgraph as pg
 except ImportError:
@@ -188,6 +187,7 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("Ready - Load an image using File -> Open")
 
     def _connect_signals(self):
+        """Connects signals to slots."""
         if self.history_manager:
             self.history_list_widget.currentItemChanged.connect(self.on_history_selection_changed)
             self.history_manager.current_node_changed.connect(self._on_current_history_node_changed)
@@ -207,8 +207,8 @@ class MainWindow(QMainWindow):
             self.app_controller.adsorbate_expected_type_updated.connect(self._on_adsorbate_expected_type_updated)
 
             self.app_controller.substrate_transform_results_updated.connect(self._on_substrate_transform_results_updated)
-            self.app_controller.substrate_definition_changed.connect(self._on_substrate_definition_changed) # Już powinno być
-            self.app_controller.spot_lists_updated.connect(self._on_spot_lists_or_params_changed) # Do ogólnych aktualizacji
+            self.app_controller.substrate_definition_changed.connect(self._on_substrate_definition_changed)
+            self.app_controller.spot_lists_updated.connect(self._on_spot_lists_or_params_changed) 
 
             self.app_controller.substrate_real_space_params_updated.connect(self._on_substrate_real_space_params_updated)
             self.app_controller.adsorbate_real_space_params_updated.connect(self._on_adsorbate_real_space_params_updated)
@@ -222,10 +222,8 @@ class MainWindow(QMainWindow):
             self.fft_analysis_panel_widget.add_new_adsorbate_set_requested.connect(self._handle_add_new_adsorbate_set_request)
             self.fft_analysis_panel_widget.reselect_current_adsorbate_set_triggered.connect(self._on_reselect_adsorbate_set_clicked)
             self.fft_analysis_panel_widget.clear_all_adsorbate_sets_triggered.connect(self._on_clear_all_adsorbate_sets_clicked)
-            # self.fft_analysis_panel_widget.clear_last_adsorbate_point_triggered.connect(self._on_clear_last_adsorbate_point_clicked)
             self.fft_analysis_panel_widget.substrate_spots_visibility_changed.connect(self._handle_substrate_spots_visibility_changed)
             self.fft_analysis_panel_widget.adsorbate_spots_visibility_changed.connect(self._handle_adsorbate_spots_visibility_changed)
-            # self.fft_analysis_panel_widget.fitted_substrate_spots_visibility_changed.connect(self._handle_fitted_substrate_spots_visibility_changed)
             self.fft_analysis_panel_widget.select_edit_substrate_spots_requested.connect(self.open_substrate_spot_selection_dialog)
             self.fft_analysis_panel_widget.select_edit_adsorbate_spots_requested.connect(self.open_adsorbate_spot_selection_dialog)
             self.fft_analysis_panel_widget.calculate_substrate_real_space_params_requested.connect(self._on_calculate_substrate_rs_params_button_clicked)
@@ -240,6 +238,7 @@ class MainWindow(QMainWindow):
         logger.debug("Cleared all user-selected spot markers from view.")
 
     def _update_selected_spots_display(self):
+        """Updates the display of selected spots in the FFTAnalysisPanel."""
         if not hasattr(self, 'fft_analysis_panel_widget') or not hasattr(self.fft_analysis_panel_widget, 'selected_spots_display'):
             return
 
@@ -278,7 +277,7 @@ class MainWindow(QMainWindow):
         self.fft_analysis_panel_widget.selected_spots_display.setPlainText("\n".join(text_output))
 
     def _helper_open_processing_dialog(self, DialogClass, op_name_in_controller: str, dialog_specific_checks=None):
-        """Pomocnicza metoda do otwierania dialogów przetwarzania i obsługi wyników."""
+        """Helper method to open processing dialogs and handle results."""
         current_node_info = self.app_controller.get_current_node_info_for_dialogs()
         if not current_node_info:
             QMessageBox.warning(self, "No Image", "No data loaded or selected in history to process.")
@@ -331,27 +330,22 @@ class MainWindow(QMainWindow):
         """
         logger.debug("MainWindow: Updating action states...")
 
-        # --- Domyślne stany ---
         has_active_node = False
         is_stm_data_active = False
         is_fft_data_active = False
         
-        # Stany dla przycisków obliczeń parametrów rzeczywistych
         can_calculate_substrate_rs = False
         can_calculate_adsorbate_rs = False
         
-        # Stany dla przycisków w panelu FFT związanymi z edycją spotów
         can_edit_substrate_spots = False
         can_edit_adsorbate_spots = False
         
-        # Stany dla przycisków czyszczenia w panelu FFT
-        can_clear_substrate_from_panel = False # Czy FFTAnalysisPanel ma zarządzać tym? Raczej dialogi.
+        can_clear_substrate_from_panel = False
         can_clear_last_adsorbate_from_panel = False
         can_clear_current_adsorbate_set_from_panel = False
         can_clear_all_adsorbate_sets_from_panel = False
 
 
-        # --- Pobierz bieżący stan ---
         current_hist_node: Optional[HistoryNode] = None
         if self.history_manager:
             current_hist_node = self.history_manager.get_current_node()
@@ -365,8 +359,6 @@ class MainWindow(QMainWindow):
 
         can_visualize_real_space = False
         if self.app_controller and REAL_SPACE_VIS_DIALOG_AVAILABLE:
-            # Warunek: muszą być obliczone parametry rzeczywiste substratu LUB adsorbatu
-            # ORAZ musi być aktywny obraz FFT
             current_hist_node = self.history_manager.get_current_node()
             if current_hist_node and current_hist_node.data_type == "FFT":
                 if self.app_controller.substrate_real_space_results or \
@@ -376,7 +368,6 @@ class MainWindow(QMainWindow):
         can_analyze_domain_walls = False
         if self.app_controller and DOMAIN_WALL_DIALOG_AVAILABLE:
             current_hist_node = self.history_manager.get_current_node()
-            # Warunek: musi być obraz FFT i obliczona transformacja substratu
             if current_hist_node and current_hist_node.data_type == "FFT" and \
                self.app_controller.substrate_F_m2i is not None:
                 can_analyze_domain_walls = True
@@ -387,8 +378,6 @@ class MainWindow(QMainWindow):
         if hasattr(self, 'stm_fft_simulation_action'):
             self.stm_fft_simulation_action.setEnabled(SIMULATION_DIALOG_AVAILABLE)
 
-        # --- Logika dla Akcji Menu ---
-        # Preprocessing: dostępne, jeśli jest jakikolwiek aktywny węzeł (STM lub FFT)
         preprocessing_actions_enabled = has_active_node
         if hasattr(self, 'gaussian_blur_action'): self.gaussian_blur_action.setEnabled(preprocessing_actions_enabled and DIALOG_CLASSES_EXIST)
         if hasattr(self, 'gaussian_sharpen_action'): self.gaussian_sharpen_action.setEnabled(preprocessing_actions_enabled and DIALOG_CLASSES_EXIST)
@@ -396,33 +385,27 @@ class MainWindow(QMainWindow):
         if hasattr(self, 'median_filter_action'): self.median_filter_action.setEnabled(preprocessing_actions_enabled and DIALOG_CLASSES_EXIST)
         if hasattr(self, 'nlmeans_action'): self.nlmeans_action.setEnabled(preprocessing_actions_enabled and DIALOG_CLASSES_EXIST)
         if hasattr(self, 'bm3d_action'): self.bm3d_action.setEnabled(preprocessing_actions_enabled and DIALOG_CLASSES_EXIST)
-        # Analysis:
-        # Obliczanie FFT: tylko jeśli aktywny węzeł to STM
         if hasattr(self, 'fft_action'): self.fft_action.setEnabled(is_stm_data_active and DIALOG_CLASSES_EXIST)
         
-        # Wybór spotów substratu/adsorbatu: tylko jeśli aktywny węzeł to FFT i dialogi istnieją
         can_open_spot_selection_dialogs = is_fft_data_active and SPOT_SELECTION_DIALOGS_AVAILABLE
         if hasattr(self, 'select_substrate_spots_action'):
             self.select_substrate_spots_action.setEnabled(can_open_spot_selection_dialogs)
         if hasattr(self, 'select_adsorbate_spots_action'):
             self.select_adsorbate_spots_action.setEnabled(can_open_spot_selection_dialogs)
 
-        # --- Logika dla FFTAnalysisPanel ---
-        if hasattr(self, 'fft_analysis_dock'): # Dok panelu FFT
+        if hasattr(self, 'fft_analysis_dock'):
             self.fft_analysis_dock.setVisible(is_fft_data_active)
 
-        if hasattr(self, 'visualize_real_space_action'): # Akcja z MenuActionManager
+        if hasattr(self, 'visualize_real_space_action'):
             self.visualize_real_space_action.setEnabled(can_visualize_real_space)
 
         if hasattr(self, 'fft_analysis_panel_widget') and self.fft_analysis_panel_widget:
             panel = self.fft_analysis_panel_widget
             
             if is_fft_data_active and self.app_controller:
-                # Przyciski "Edit/Select..."
-                panel.set_edit_substrate_spots_button_enabled(True) # Zawsze włączone, jeśli jest FFT
-                panel.set_edit_adsorbate_spots_button_enabled(True) # Zawsze włączone, jeśli jest FFT
+                panel.set_edit_substrate_spots_button_enabled(True)
+                panel.set_edit_adsorbate_spots_button_enabled(True)
 
-                # Przyciski czyszczenia dla adsorbatu (zależne od stanu w AppController)
                 current_ads_idx = self.app_controller.current_adsorbate_set_index
                 ads_sets = self.app_controller.adsorbate_spot_sets
                 
@@ -430,20 +413,17 @@ class MainWindow(QMainWindow):
                     0 <= current_ads_idx < len(ads_sets) and 
                     bool(ads_sets[current_ads_idx])
                 )
-                # panel.set_clear_last_adsorbate_point_button_enabled(can_clear_last_adsorbate_from_panel)
 
                 can_clear_current_adsorbate_set_from_panel = (
                     0 <= current_ads_idx < len(ads_sets) and
-                    bool(ads_sets[current_ads_idx]) # Czy są jakieś spoty w bieżącym zestawie
+                    bool(ads_sets[current_ads_idx])
                 )
-                panel.set_reselect_adsorbate_set_button_enabled(can_clear_current_adsorbate_set_from_panel) # Ten przycisk czyści bieżący set
+                panel.set_reselect_adsorbate_set_button_enabled(can_clear_current_adsorbate_set_from_panel) 
 
-                can_clear_all_adsorbate_sets_from_panel = any(s for s in ads_sets if s) # Czy jakikolwiek zestaw ma spoty
+                can_clear_all_adsorbate_sets_from_panel = any(s for s in ads_sets if s) 
                 panel.set_clear_all_adsorbate_sets_button_enabled(can_clear_all_adsorbate_sets_from_panel)
 
-                # Przyciski obliczeń parametrów rzeczywistych
                 ac = self.app_controller
-                # Substrat
                 if (ac.substrate_lattice_type and ac.substrate_a_surf and ac.substrate_a_surf > 0 and
                     ac.reference_ideal_substrate_spots_px and ac.current_fft_data_shape and
                     LATTICE_ANALYSIS_FUNCTIONS_AVAILABLE):
@@ -455,57 +435,50 @@ class MainWindow(QMainWindow):
                     if len(ac.reference_ideal_substrate_spots_px) == expected_sub_spot_count and expected_sub_spot_count > 0:
                         can_calculate_substrate_rs = True
                 
-                # Adsorbat
                 if (0 <= current_ads_idx < len(ac.corrected_adsorbate_spot_sets) and
-                    ac.corrected_adsorbate_spot_sets[current_ads_idx] and # Muszą być skorygowane piki
+                    ac.corrected_adsorbate_spot_sets[current_ads_idx] and
                     ac.current_fft_data_shape and LATTICE_ANALYSIS_FUNCTIONS_AVAILABLE):
                     
-                    # Sprawdzenie, czy można pobrać Lx, Ly (wymagane do konwersji g* na nm^-1)
                     if current_hist_node:
                         root_node = self.history_manager.get_root_node_for_node(current_hist_node.node_id)
                         if root_node and root_node.parameters and \
                            root_node.parameters.get("size_nm_x") and root_node.parameters.get("size_nm_y"):
                             
-                            # Ile pików jest wymaganych przez logikę select_adsorbate_basis_g_vectors_px?
-                            # Załóżmy, że co najmniej 2 (jako wektory od centrum) lub 3 (z centrum).
-                            # select_adsorbate_basis_g_vectors_px samo sprawdzi dokładniej.
-                            if len(ac.corrected_adsorbate_spot_sets[current_ads_idx]) >= 2: # Minimalne wymaganie
+                            if len(ac.corrected_adsorbate_spot_sets[current_ads_idx]) >= 2:
                                 can_calculate_adsorbate_rs = True
                 
                 panel.set_calculate_substrate_rs_button_enabled(can_calculate_substrate_rs)
                 panel.set_calculate_adsorbate_rs_button_enabled(can_calculate_adsorbate_rs)
 
-            else: # Jeśli nie ma danych FFT, wyłącz wszystko w panelu FFT
+            else:
                 panel.set_edit_substrate_spots_button_enabled(False)
                 panel.set_edit_adsorbate_spots_button_enabled(False)
-                # panel.set_clear_last_adsorbate_point_button_enabled(False)
                 panel.set_reselect_adsorbate_set_button_enabled(False)
                 panel.set_clear_all_adsorbate_sets_button_enabled(False)
                 panel.set_calculate_substrate_rs_button_enabled(False)
                 panel.set_calculate_adsorbate_rs_button_enabled(False)
-                # Wyzeruj wyświetlane parametry, jeśli panel jest ukrywany
                 panel.update_substrate_real_space_display(None)
                 panel.update_adsorbate_real_space_display(None)
-                panel.update_transform_results_display(None) # Dla informacji o transformacji substratu
+                panel.update_transform_results_display(None)
 
         logger.debug(f"Action states updated. HasNode={has_active_node}, IsSTM={is_stm_data_active}, IsFFT={is_fft_data_active}, "
                      f"CanCalcSubRS={can_calculate_substrate_rs}, CanCalcAdsRS={can_calculate_adsorbate_rs}")
     
     @pyqtSlot()
     def open_stm_fft_simulation_dialog(self):
-        """Otwiera dialog do symulacji danych STM/FFT."""
+        """Opens the STM/FFT Simulation dialog."""
         logger.info("MainWindow: Opening STM/FFT Simulation dialog...")
         
         if not SIMULATION_DIALOG_AVAILABLE: # pragma: no cover
             QMessageBox.critical(self, "Dialog Error", "StmFftSimulationDialog is not available."); return
 
-        # Ten dialog na razie nie potrzebuje żadnych danych wejściowych
         dialog = StmFftSimulationDialog(parent=self)
-        dialog.exec() # Otwórz dialog modalny
+        dialog.exec()
         logger.info("STM/FFT Simulation dialog closed.")
 
     @pyqtSlot()
     def open_real_space_fft_visualizer(self):
+        """Opens the Real Space/FFT Visualizer dialog."""
         logger.info("MainWindow: Opening Real Space/FFT Visualizer dialog...")
         if not REAL_SPACE_VIS_DIALOG_AVAILABLE: # pragma: no cover
             QMessageBox.critical(self, "Error", "RealSpaceFFTVisualizerDialog is not available.")
@@ -516,15 +489,13 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "No FFT Data", "Please calculate FFT first to use the visualizer.")
             return
 
-        # Można tworzyć nową instancję za każdym razem lub pokazywać istniejącą (jeśli nie jest modalna)
-        # Dla modalnego dialogu, tworzymy nową:
-        if self.real_space_visualizer_dialog_instance is not None: # pragma: no cover (jeśli zawsze tworzymy nowy)
+        if self.real_space_visualizer_dialog_instance is not None: # pragma: no cover
             if self.real_space_visualizer_dialog_instance.isVisible():
                  logger.warning("RealSpaceFFTVisualizerDialog is already open.")
                  self.real_space_visualizer_dialog_instance.raise_()
                  self.real_space_visualizer_dialog_instance.activateWindow()
                  return
-            else: # Został zamknięty, ale referencja może istnieć, lepiej ją usunąć
+            else:
                  self.real_space_visualizer_dialog_instance.deleteLater()
                  self.real_space_visualizer_dialog_instance = None
 
@@ -532,18 +503,17 @@ class MainWindow(QMainWindow):
         dialog = RealSpaceFFTVisualizerDialog(
             app_controller=self.app_controller,
             history_manager=self.history_manager,
-            current_fft_node_id=current_fft_node.node_id, # Przekaż ID bieżącego węzła FFT
+            current_fft_node_id=current_fft_node.node_id,
             parent=self
         )
-        self.real_space_visualizer_dialog_instance = dialog # Zapisz referencję, jeśli chcemy zarządzać instancją
-        dialog.exec() # Modalny dialog
-        # Po zamknięciu modalnego dialogu, można wyczyścić referencję, jeśli nie chcemy go reużywać
+        self.real_space_visualizer_dialog_instance = dialog
+        dialog.exec()
         self.real_space_visualizer_dialog_instance = None 
         logger.info("RealSpaceFFTVisualizerDialog closed.")
 
     @pyqtSlot(int, str)
     def _handle_expected_adsorbate_type_changed_from_panel(self, set_index: int, selected_type: str):
-        """Obsługuje zmianę spodziewanego typu sieci adsorbatu z FFTAnalysisPanel."""
+        """Handles the update of expected adsorbate type from FFTAnalysisPanel."""
         logger.debug(f"MainWindow: Expected adsorbate type for set {set_index} changed to '{selected_type}' via panel.")
         self.app_controller.set_expected_adsorbate_lattice_type(set_index, selected_type)
         self._update_action_states()
@@ -551,24 +521,18 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot(int, str)
     def _on_adsorbate_expected_type_updated(self, set_index: int, type_name: str):
-        """
-        Slot wywoływany, gdy spodziewany typ sieci dla zestawu adsorbatu zmieni się w AppController.
-        Aktualizuje ComboBox w FFTAnalysisPanel, jeśli zmiana dotyczy bieżącego zestawu.
-        """
+        """Handles the update of expected adsorbate type in AppController."""
         logger.debug(f"MainWindow: AppController reported expected adsorbate type for set {set_index} is now '{type_name}'.")
         if hasattr(self, 'fft_analysis_panel_widget') and self.fft_analysis_panel_widget:
-            # Aktualizuj ComboBox tylko jeśli zmiana dotyczy aktualnie wybranego zestawu w panelu
-            # (lub jeśli panel powinien zawsze odzwierciedlać stan z AppController)
             current_panel_set_index = self.fft_analysis_panel_widget.adsorbate_set_combo.currentIndex()
-            # Sprawdź, czy to nie "<Add New Set...>"
             if current_panel_set_index < (self.fft_analysis_panel_widget.adsorbate_set_combo.count() -1) \
                and current_panel_set_index == set_index :
                 self.fft_analysis_panel_widget.set_expected_adsorbate_type(type_name)
-        # Aktualizacja stanu przycisków po zmianie typu może być potrzebna
         self._update_action_states()
 
     @pyqtSlot(dict)
     def _on_substrate_real_space_params_updated(self, params_dict: dict):
+        """Handles the update of substrate real space parameters."""
         logger.debug(f"MainWindow: Received substrate_real_space_params_updated: {params_dict}")
         if hasattr(self, 'fft_analysis_panel_widget') and self.fft_analysis_panel_widget:
             if "error" in params_dict:
@@ -580,10 +544,9 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot(int, dict) # set_index, params_dict
     def _on_adsorbate_real_space_params_updated(self, set_index: int, params_dict: dict):
+        """Handles the update of adsorbate real space parameters."""
         logger.debug(f"MainWindow: Received adsorbate_real_space_params_updated for set {set_index}: {params_dict}")
         if hasattr(self, 'fft_analysis_panel_widget') and self.fft_analysis_panel_widget:
-            # Aktualizuj UI tylko jeśli dotyczy to bieżącego zestawu wyświetlanego w panelu
-            # (FFTAnalysisPanel może wyświetlać tylko dla app_controller.current_adsorbate_set_index)
             if set_index == self.app_controller.current_adsorbate_set_index:
                 if "error" in params_dict:
                     QMessageBox.warning(self, f"Adsorbate Set {set_index+1} Calc Error", params_dict["error"])
@@ -591,11 +554,9 @@ class MainWindow(QMainWindow):
                 else:
                     self.fft_analysis_panel_widget.update_adsorbate_real_space_display(params_dict)
                     self.statusBar().showMessage(f"Adsorbate Set {set_index+1} real space parameters calculated.", 3000)
-            # else: Można dodać log, że zaktualizowano dla nieaktywnego zestawu
-
     @pyqtSlot()
     def open_domain_wall_analysis_dialog(self):
-        """Otwiera dialog do analizy odległości ścian domenowych."""
+        """Opens the dialog for domain wall analysis."""
         logger.info("MainWindow: Opening Domain Wall Analysis dialog...")
         if not DOMAIN_WALL_DIALOG_AVAILABLE: # pragma: no cover
             QMessageBox.critical(self, "Dialog Error", "DomainWallsAnalysisDialog is not available."); return
@@ -624,57 +585,44 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def _on_calculate_substrate_rs_params_button_clicked(self):
+        """Handles the calculation of substrate real space parameters."""
         logger.debug("MainWindow: Calculate Substrate Real Space Params button clicked.")
         self.app_controller.calculate_and_store_substrate_real_params()
 
-    @pyqtSlot(int) # Odbiera indeks zestawu adsorbatu z sygnału FFTAnalysisPanel
+    @pyqtSlot(int)
     def _on_calculate_adsorbate_rs_params_button_clicked(self, set_index: int):
+        """Handles the calculation of adsorbate real space parameters."""
         logger.debug(f"MainWindow: 'Calculate Adsorbate Real Space Params' button clicked for set index {set_index}.")
         if self.app_controller:
-            # Upewnij się, że przekazujemy poprawny indeks (np. ten aktywny w AppController)
-            # Jeśli FFTAnalysisPanel emituje indeks wybranego tam zestawu, to jest OK.
-            # Ale jeśli logika ma zawsze działać na app_controller.current_adsorbate_set_index:
             active_set_index = self.app_controller.current_adsorbate_set_index
             if set_index != active_set_index: # pragma: no cover
                 logger.warning(f"Request to calculate adsorbate params for set {set_index}, "
                                f"but current active set in AppController is {active_set_index}. Using active set.")
             self.app_controller.calculate_and_store_adsorbate_real_params(active_set_index)
-        # Wyniki zostaną obsłużone przez slot _on_adsorbate_real_space_params_updated
 
 
     @pyqtSlot(int)
     def _on_adsorbate_set_updated(self, set_index: int):
-        """
-        Slot wywoływany, gdy dane zestawu adsorbatu (surowe lub skorygowane) zostaną zaktualizowane.
-        Odświeża markery w VisualizationManager i potencjalnie inne UI.
-        """
+        """Handles the update of adsorbate set in AppController."""
         logger.info(f"MainWindow: Adsorbate set {set_index} updated. Refreshing view.")
-        self.display_image_data() # To powinno pobrać aktualne dane i flagi i przerysować
-        self._update_action_states() # Zaktualizuj stan przycisków
+        self.display_image_data() 
+        self._update_action_states() 
 
     @pyqtSlot()
     def _on_substrate_definition_changed(self):
-        """
-        Slot wywoływany, gdy definicja substratu (typ, a_surf, nazwa) zmieni się w AppController.
-        Aktualizuje odpowiednie UI, np. ComboBox w FFTAnalysisPanel i odświeża widok.
-        """
+        """Handles the update of substrate definition in AppController."""
         logger.debug("MainWindow: Received substrate_definition_changed from AppController.")
         if hasattr(self, 'fft_analysis_panel_widget') and self.fft_analysis_panel_widget:
-            # Ustaw ComboBox w FFTAnalysisPanel na podstawie wartości z AppController
-            current_def_name = self.app_controller.current_substrate_name # Używamy nowej nazwy atrybutu
+            current_def_name = self.app_controller.current_substrate_name 
             self.fft_analysis_panel_widget.set_substrate_combo_text(current_def_name)
-        self.display_image_data() # Odśwież widok (np. idealną siatkę)
+        self.display_image_data()
         self._update_action_states()
 
     @pyqtSlot()
     def _on_substrate_transform_results_updated(self):
-        """
-        Slot wywoływany, gdy AppController zaktualizuje wyniki transformacji substratu.
-        Aktualizuje UI, w tym markery dopasowanych pików i wyświetlane parametry transformacji.
-        """
+        """Handles the update of substrate transform results in AppController."""
         logger.debug("MainWindow: Received substrate_transform_results_updated signal.")
         
-        # 1. Aktualizacja parametrów transformacji w FFTAnalysisPanel
         if hasattr(self, 'fft_analysis_panel_widget') and self.fft_analysis_panel_widget:
             analysis = self.app_controller.substrate_transform_analysis_m2i
             if analysis:
@@ -683,22 +631,17 @@ class MainWindow(QMainWindow):
                 s_y = analysis.get('principal_stretches', [np.nan, np.nan])[1]
                 self.fft_analysis_panel_widget.scale_factor_label.setText(f"Stretches (M->I): ({s_x:.3f}, {s_y:.3f})")
                 self.fft_analysis_panel_widget.rmse_label.setText(f"Fit RMSE (M->I, px): {analysis.get('rmse', 'N/A'):.3f}")
-            #     self.fft_analysis_panel_widget.show_fitted_substrate_spots_checkbox.setChecked(
-            #         self.app_controller.show_fitted_substrate_spots
-            # )
             else:
                 self.fft_analysis_panel_widget.rotation_angle_label.setText("Rotation: -")
                 self.fft_analysis_panel_widget.scale_factor_label.setText("Stretches: -")
                 self.fft_analysis_panel_widget.rmse_label.setText("RMSE: -")
 
-        # 2. Odświeżenie markerów w VisualizationManager
-        # Zakładamy, że display_image_data() pobierze nowe displayable_fitted_substrate_spots_on_fft
-        # i przekaże je do VisualizationManager.
         self.display_image_data() 
-        self._update_action_states() # Na wszelki wypadek
+        self._update_action_states()
 
     @pyqtSlot()
     def open_substrate_spot_selection_dialog(self):
+        """Opens the substrate spot selection dialog."""
         logger.info("MainWindow: Opening substrate spot selection dialog...")
         
         current_node_info = self.app_controller.get_current_node_info_for_dialogs()
@@ -711,13 +654,12 @@ class MainWindow(QMainWindow):
             fft_image_data=fft_image_data_copy,
             history_manager=self.history_manager,
             current_fft_node_id=current_node_info[0],
-            current_spots=self.app_controller.user_selected_substrate_spots, # Używamy user_selected...
+            current_spots=self.app_controller.user_selected_substrate_spots, 
             initial_lattice_type=self.app_controller.substrate_lattice_type if self.app_controller.substrate_lattice_type else LATTICE_TYPE_HEXAGONAL,
             initial_selected_substrate_name=self.app_controller.substrate_definition_name,
             initial_custom_a_surf=self.app_controller.substrate_a_surf if self.app_controller.substrate_definition_name == PREDEFINED_SUBSTRATE_CUSTOM else None,
             default_refinement_method=self.app_controller.spot_refinement_method,
             default_refinement_roi_size=self.app_controller.refinement_roi_size,
-            # Przekaż istniejące wyniki transformacji, jeśli dialog ma je wyświetlać/edytować
             initial_transform_F = self.app_controller.substrate_F_m2i,
             initial_transform_t = self.app_controller.substrate_t_m2i,
             initial_fitted_spots = self.app_controller.displayable_fitted_substrate_spots_on_fft,
@@ -728,7 +670,6 @@ class MainWindow(QMainWindow):
             results = dialog.get_dialog_results()
             logger.info(f"Substrate spots dialog accepted. Results: {results}")
             self.app_controller.update_substrate_analysis_results(results)
-            # statusBar message może być teraz emitowane przez AppController lub po sygnale
         else:
             logger.info("Substrate spots selection cancelled.")
             self.statusBar().showMessage("Substrate spots selection cancelled.", 3000)
@@ -736,9 +677,9 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def open_adsorbate_spot_selection_dialog(self):
+        """Opens the adsorbate spot selection dialog."""
         logger.info("MainWindow: Opening adsorbate spot selection dialog...")
 
-        # 1. Sprawdź, czy aktywny jest obraz FFT i pobierz dane
         current_node_info = self.app_controller.get_current_node_info_for_dialogs()
         if not (current_node_info and current_node_info[1] == "FFT"):
             QMessageBox.warning(self, "Incorrect Data Type", 
@@ -754,19 +695,16 @@ class MainWindow(QMainWindow):
 
         parent_node_id, _, fft_image_data_copy = current_node_info
         
-        # 2. Pobierz istniejące piki dla bieżącego zestawu adsorbatu z AppController
         current_set_idx = self.app_controller.current_adsorbate_set_index
         current_adsorbate_spots_for_set = []
         if 0 <= current_set_idx < len(self.app_controller.adsorbate_spot_sets):
-            current_adsorbate_spots_for_set = list(self.app_controller.adsorbate_spot_sets[current_set_idx]) # Kopia
+            current_adsorbate_spots_for_set = list(self.app_controller.adsorbate_spot_sets[current_set_idx])
         else: # pragma: no cover
             logger.error(f"Invalid current_adsorbate_set_index ({current_set_idx}) for opening dialog.")
-            # Można rozważyć ustawienie na 0, jeśli lista nie jest pusta, lub wyświetlenie błędu.
-            # Na razie, jeśli indeks jest zły, dialog dostanie pustą listę.
-            if not self.app_controller.adsorbate_spot_sets: # Jeśli jakimś cudem lista jest pusta
-                self.app_controller.adsorbate_spot_sets.append([]) # Dodaj pierwszy pusty set
+            if not self.app_controller.adsorbate_spot_sets:
+                self.app_controller.adsorbate_spot_sets.append([])
                 current_set_idx = 0
-            else: # Jeśli indeks jest zły, ale lista nie jest pusta, można np. ustawić na 0
+            else:
                 current_set_idx = 0
                 current_adsorbate_spots_for_set = list(self.app_controller.adsorbate_spot_sets[current_set_idx])
 
@@ -783,7 +721,6 @@ class MainWindow(QMainWindow):
 
         ideal_sub_spots_for_ads_dialog = list(self.app_controller.reference_ideal_substrate_spots_px)
 
-        # 3. Utwórz i wyświetl dialog
         dialog = AdsorbateSpotSelectionDialog(
             fft_image_data=fft_image_data_copy,
             history_manager=self.history_manager,
@@ -795,18 +732,16 @@ class MainWindow(QMainWindow):
             substrate_F_m2i=sub_F,
             substrate_t_m2i=sub_t,
             substrate_transform_analysis=sub_analysis,
-            ideal_substrate_spots_for_display_px=ideal_sub_spots_for_ads_dialog, # Przekaż obliczone/pobrane
+            ideal_substrate_spots_for_display_px=ideal_sub_spots_for_ads_dialog,
             fitted_substrate_spots_for_display_px=fitted_sub_spots_px,
             parent=self
         )
         
-        # 4. Obsłuż wynik dialogu
         if dialog.exec() == QDialog.DialogCode.Accepted:
             results = dialog.get_dialog_results()
             
             raw_spots_from_dialog = results.get("raw_adsorbate_spots", [])
             corrected_spots_from_dialog = results.get("corrected_adsorbate_spots_in_ideal_system", [])
-            # Indeks zestawu powinien być ten sam, który przekazaliśmy, ale dialog go zwraca dla pewności
             set_idx_from_dialog = results.get("adsorbate_set_index", current_set_idx) 
 
             logger.info(f"Adsorbate spots dialog (set {set_idx_from_dialog + 1}) accepted. "
@@ -825,25 +760,17 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def _on_spot_lists_or_params_changed(self):
-        """
-        Slot wywoływany, gdy zmienią się listy pików lub parametry ich wyboru/uściślania.
-        Aktualizuje wyświetlanie tekstowe pików, markery na obrazie i stan akcji.
-        """
+        """Handles the update of spot lists or parameters in AppController."""
         logger.debug("MainWindow: Received spot_lists_updated or spot_selection_parameters_changed signal.")
         if hasattr(self, '_update_selected_spots_display'):
-            self._update_selected_spots_display() # Aktualizuje QTextEdit z listą pików
-        
-        # self.request_spot_markers_update() # Mówi VisualizationManager, aby przerysował markery
-        
+            self._update_selected_spots_display()
+                
         if hasattr(self, '_update_action_states'):
-            self._update_action_states() # Aktualizuje dostępność przycisków np. "Clear Last Point"
+            self._update_action_states()
 
     @pyqtSlot()
     def _on_adsorbate_sets_structure_changed(self):
-        """
-        Slot wywoływany, gdy zmieni się struktura zestawów adsorbatu (np. dodano nowy, wyczyszczono wszystkie).
-        Aktualizuje ComboBox w FFTAnalysisPanel.
-        """
+        """Handles the update of adsorbate sets structure in AppController."""
         logger.debug("MainWindow: Received adsorbate_sets_structure_changed signal.")
         if hasattr(self, 'fft_analysis_panel_widget') and self.fft_analysis_panel_widget:
             num_sets = len(self.app_controller.adsorbate_spot_sets)
@@ -852,33 +779,36 @@ class MainWindow(QMainWindow):
             current_set_text = ""
             if 0 <= self.app_controller.current_adsorbate_set_index < num_sets:
                 current_set_text = f"Set {self.app_controller.current_adsorbate_set_index + 1}"
-            elif num_sets > 0 : # Jeśli indeks jest niepoprawny, ale są zestawy, wybierz pierwszy
+            elif num_sets > 0 :
                 current_set_text = "Set 1"
             
             self.fft_analysis_panel_widget.update_adsorbate_set_combo(set_names_for_combo, current_set_text)
         
-        # Po zmianie struktury zestawów, również zaktualizuj wyświetlanie pików i stan akcji
         self._on_spot_lists_or_params_changed()
 
     @pyqtSlot(str)
     def _handle_substrate_changed(self, substrate_name: str):
+        """Handles the update of substrate in AppController."""
         logger.debug(f"MainWindow: Substrate changed to '{substrate_name}' via panel signal.")
-        self.app_controller.last_selected_substrate = substrate_name # Nadal można ustawiać bezpośrednio, jeśli to prosty stan
-        self.app_controller.custom_lattice_info = None # Lub metoda self.app_controller.set_selected_substrate(substrate_name)
+        self.app_controller.last_selected_substrate = substrate_name 
+        self.app_controller.custom_lattice_info = None
         self.display_image_data()
 
     @pyqtSlot(str)
     def _handle_refinement_method_changed_from_panel(self, method: str):
+        """Handles the update of refinement method in AppController."""
         logger.debug(f"MainWindow: Refinement method changed to '{method}' via panel signal.")
         self.app_controller.set_spot_refinement_method(method)
 
     @pyqtSlot(int)
     def _handle_refinement_area_size_changed_from_panel(self, area_size: int):
+        """Handles the update of refinement area size in AppController."""
         logger.debug(f"MainWindow: Refinement area size changed to {area_size} via panel signal.")
         self.app_controller.set_refinement_roi_size(area_size)
 
     @pyqtSlot()
     def _handle_custom_lattice_request(self):
+        """Handles the request for custom lattice definition in AppController."""
         logger.debug("MainWindow: Custom lattice definition requested via panel signal.")
         if not CustomLatticeDialog: # pragma: no cover
             QMessageBox.critical(self, "Error", "CustomLatticeDialog is not available.")
@@ -891,7 +821,7 @@ class MainWindow(QMainWindow):
             if self.app_controller.custom_lattice_info and self.fft_analysis_panel_widget:
                 new_name = self.app_controller.custom_lattice_info.get("name", "Custom")
                 self.fft_analysis_panel_widget.set_substrate_combo_text(new_name)
-                self.app_controller.last_selected_substrate = new_name # Ustawiamy też last_selected
+                self.app_controller.last_selected_substrate = new_name
                 logger.info(f"Custom lattice '{new_name}' defined and selected.")
                 self.display_image_data()
             else: # pragma: no cover
@@ -905,6 +835,7 @@ class MainWindow(QMainWindow):
     
     @pyqtSlot(str)
     def _handle_current_adsorbate_set_changed_from_panel(self, set_name: str):
+        """Handles the update of current adsorbate set in AppController."""
         found_idx = -1
         if hasattr(self, 'fft_analysis_panel_widget'):
             combo = self.fft_analysis_panel_widget.adsorbate_set_combo
@@ -913,7 +844,7 @@ class MainWindow(QMainWindow):
                     found_idx = i
                     break
 
-        if self.app_controller.current_adsorbate_set_index >= 0: # Upewnij się, że indeks jest prawidłowy
+        if self.app_controller.current_adsorbate_set_index >= 0:
             expected_type = self.app_controller.adsorbate_expected_lattice_types.get(
                 self.app_controller.current_adsorbate_set_index, ADSORBATE_LATTICE_TYPE_UNKNOWN
             )
@@ -929,30 +860,30 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot(bool)
     def _handle_show_ideal_lattice_changed(self, is_visible: bool):
+        """Handles the update of ideal lattice visibility in AppController."""
         logger.debug(f"MainWindow: Show ideal lattice changed to {is_visible} via panel signal.")
         self.app_controller.show_ideal_lattice = is_visible
         self.display_image_data()
 
     @pyqtSlot(bool)
     def _handle_substrate_spots_visibility_changed(self, is_visible: bool):
+        """Handles the update of substrate spots visibility in AppController."""
         logger.debug(f"MainWindow: Substrate spots visibility changed to {is_visible} via panel.")
         self.app_controller.show_substrate_spots_markers = is_visible
-        # self.request_spot_markers_update() # Na razie zostawiamy, aby działało
 
 
     @pyqtSlot(bool)
     def _handle_adsorbate_spots_visibility_changed(self, is_visible: bool):
+        """Handles the update of adsorbate spots visibility in AppController."""
         logger.debug(f"MainWindow: Adsorbate spots visibility changed to {is_visible} via panel.")
         self.app_controller.show_adsorbate_spots_markers = is_visible
-        # self.request_spot_markers_update() # Na razie zostawiamy
     
     def request_spot_markers_update(self):
+        """Requests the update of spot markers in VisualizationManager."""
         if hasattr(self, 'visualization_manager') and self.visualization_manager and \
            hasattr(self, 'fft_analysis_panel_widget') and self.fft_analysis_panel_widget:
             current_node = self.history_manager.get_current_node()
             if current_node and current_node.data_type == "FFT":
-                # show_sub = self.app_controller.show_substrate_spots_markers
-                # show_ads = self.app_controller.show_adsorbate_spots_markers
                 substrate_spots_data = self.app_controller.substrate_spots
                 adsorbate_spot_sets_data = self.app_controller.adsorbate_spot_sets
                 self.visualization_manager.redraw_spot_markers(
@@ -964,71 +895,51 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def _handle_add_new_adsorbate_set_request(self):
+        """Handles the request for adding a new adsorbate set in AppController."""
         logger.info("MainWindow: Add new adsorbate set requested via panel signal.")
         if hasattr(self, 'fft_analysis_panel_widget'):
             num_sets = len(self.app_controller.adsorbate_spot_sets)
             set_names_for_combo = [f"Set {i+1}" for i in range(num_sets)]
-            new_set_name = f"Set {num_sets}" # Ostatni dodany
+            new_set_name = f"Set {num_sets}"
             self.fft_analysis_panel_widget.update_adsorbate_set_combo(set_names_for_combo, new_set_name) # To ustawi currentIndex
             
-            # Ustaw expected_type_combo dla nowego (teraz bieżącego) zestawu
             new_set_idx = self.app_controller.current_adsorbate_set_index
             expected_type = self.app_controller.adsorbate_expected_lattice_types.get(new_set_idx, ADSORBATE_LATTICE_TYPE_UNKNOWN)
             self.fft_analysis_panel_widget.set_expected_adsorbate_type(expected_type)
         self.app_controller.add_new_adsorbate_set()
 
-    @pyqtSlot(object) # Sygnał z HistoryManager przekazuje HistoryNode lub None
+    @pyqtSlot(object)
     def _on_current_history_node_changed(self, current_node: Optional[HistoryNode]):
+        """Handles the update of current history node in AppController."""
         logger.debug(f"MainWindow: Slot _on_current_history_node_changed received node: {current_node.node_id if current_node else 'None'}")
         
-        # Najpierw zaktualizuj stany akcji i widoczność paneli
-        self._update_action_states() # To ustawi widoczność fft_analysis_dock
+        self._update_action_states()
 
-        # Następnie wyświetl obraz
-        self.display_image_data() # To odświeży główny obraz i może wywołać _update_action_states ponownie
+        self.display_image_data()
 
-        # Zaktualizuj metadane
         if hasattr(self, 'metadata_widget') and self.metadata_widget and hasattr(self, 'history_manager'):
             self.metadata_widget.update_metadata(current_node, self.history_manager)
 
-        # --- NOWA LOGIKA: Zawsze odświeżaj FFTAnalysisPanel, jeśli jest widoczny ---
-        # Po tym, jak _update_action_states ustawił jego widoczność
         if hasattr(self, 'fft_analysis_dock') and self.fft_analysis_dock.isVisible():
             if hasattr(self, 'fft_analysis_panel_widget') and self.fft_analysis_panel_widget and self.app_controller:
                 logger.debug("MainWindow: FFT Analysis Panel is visible, refreshing its content.")
-                # Odśwież informacje o transformacji substratu
                 self.fft_analysis_panel_widget.update_transform_results_display(
                     self.app_controller.substrate_transform_analysis_m2i
                 )
-                # Odśwież parametry rzeczywiste substratu
                 self.fft_analysis_panel_widget.update_substrate_real_space_display(
                     self.app_controller.substrate_real_space_results
                 )
-                # Odśwież parametry rzeczywiste dla bieżącego zestawu adsorbatu
                 current_ads_idx = self.app_controller.current_adsorbate_set_index
                 ads_params = self.app_controller.adsorbate_real_space_results.get(current_ads_idx)
                 self.fft_analysis_panel_widget.update_adsorbate_real_space_display(ads_params)
                 
-                # Upewnij się, że ComboBox dla zestawów adsorbatu jest zsynchronizowany
                 expected_type = self.app_controller.adsorbate_expected_lattice_types.get(
                     current_ads_idx, ADSORBATE_LATTICE_TYPE_UNKNOWN # Zaimportuj lub zdefiniuj stałą
                 )
                 self.fft_analysis_panel_widget.set_expected_adsorbate_type(expected_type)
-                # Oraz sam ComboBox z listą zestawów (choć to powinno być zarządzane przez _on_adsorbate_sets_structure_changed)
-                # self.fft_analysis_panel_widget.update_adsorbate_set_combo(...)
-        # --- KONIEC NOWEJ LOGIKI ---
-
-    # @pyqtSlot(object)
-    # def _on_current_history_node_changed(self, current_node: Optional[HistoryNode]):
-    #     logger.debug(f"MainWindow: Slot _on_current_history_node_changed received node: {current_node.node_id if current_node else 'None'}")
-        
-    #     self.display_image_data() # Ta metoda zbierze wszystko i wywoła visualization_manager
-
-    #     if hasattr(self, 'metadata_widget') and self.metadata_widget and hasattr(self, 'history_manager'):
-    #         self.metadata_widget.update_metadata(current_node, self.history_manager) 
-
     @pyqtSlot()
     def open_file_dialog(self):
+        """Opens the file dialog for loading STM files."""
         logger.debug("Open file dialog triggered.")
         file_filter = "STM Files (*.stp *.s94);;All Files (*)"
         start_dir = ""
@@ -1045,7 +956,7 @@ class MainWindow(QMainWindow):
         if file_path:
             logger.info(f"File selected by user: {file_path}")
             self.statusBar().showMessage(f"Loading file: {os.path.basename(file_path)}...")
-            QApplication.processEvents() # type: ignore # Daj GUI szansę na odświeżenie
+            QApplication.processEvents()
             
             self.app_controller.load_file(file_path)
         else: # pragma: no cover
@@ -1117,6 +1028,7 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def _on_clear_all_adsorbate_sets_clicked(self):
+        """Clears all adsorbate spot sets."""
         logger.info("MainWindow: Clearing all adsorbate spot sets button clicked.")
         self.app_controller.clear_all_adsorbate_sets()
         if hasattr(self, 'fft_analysis_panel_widget'):
@@ -1124,6 +1036,7 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot(str)
     def _handle_spot_selection_mode_changed_from_panel(self, mode: str):
+        """Handles the change of spot selection mode in AppController."""
         logger.debug(f"MainWindow: Spot selection mode changed to '{mode}' via panel.")
         self.app_controller.set_spot_selection_mode(mode)
 
@@ -1132,8 +1045,7 @@ class MainWindow(QMainWindow):
     def _on_visibility_checkbox_changed(self):
         """Slot for all visibility checkboxes."""
         logger.debug("Visibility checkbox changed, updating markers and ideal lattice.")
-        self.display_image_data() # To odświeży idealną sieć, jeśli trzeba
-        # self.request_spot_markers_update()
+        self.display_image_data()
 
     @pyqtSlot(str)
     def on_substrate_combo_changed(self, selected_text: str):
@@ -1145,21 +1057,22 @@ class MainWindow(QMainWindow):
             if dialog.exec() == QDialog.DialogCode.Accepted:
                 self.custom_lattice_info = dialog.get_lattice_definition()
                 if self.custom_lattice_info:
-                    self.last_selected_substrate = self.custom_option_text # Zapamiętaj wybór
+                    self.last_selected_substrate = self.custom_option_text
                     logger.info(f"Custom lattice defined and selected: {self.custom_lattice_info.get('name')}")
-                else: # Dialog zaakceptowany, ale brak definicji (nie powinno się zdarzyć)
+                else: 
                     self.custom_lattice_info = None
-                    self.substrate_combo.setCurrentText(self.last_selected_substrate) # Wróć do poprzedniego
-            else: # Custom dialog anulowany
+                    self.substrate_combo.setCurrentText(self.last_selected_substrate)
+            else:
                 self.custom_lattice_info = None
                 self.substrate_combo.setCurrentText(self.last_selected_substrate)
         else:
-            self.custom_lattice_info = None # Wyczyść definicję własną
-            self.last_selected_substrate = selected_text # Zapamiętaj wybór
+            self.custom_lattice_info = None
+            self.last_selected_substrate = selected_text
 
         self.display_image_data()
 
     def open_fft_dialog(self):
+        """Opens the FFT dialog for calculating FFT."""
         current_node_info = self.app_controller.get_current_node_info_for_dialogs()
         if not current_node_info:
             QMessageBox.warning(self, "No Image", "No data loaded or selected to calculate FFT.") # pragma: no cover
@@ -1176,9 +1089,9 @@ class MainWindow(QMainWindow):
 
         dialog = FFTDialog(image_data_copy, parent=self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
-            processed_fft_data = dialog.get_processed_data() # To jest już przeskalowana magnituda
-            params = dialog.get_fft_parameters() # Zawiera m.in. scaling_mode, window_type
-            was_roi_only = dialog.was_roi_applied_only() # Czy FFT było tylko z ROI
+            processed_fft_data = dialog.get_processed_data()
+            params = dialog.get_fft_parameters()
+            was_roi_only = dialog.was_roi_applied_only()
 
             if processed_fft_data is not None:
                 self.app_controller.calculate_fft_operation(
@@ -1197,21 +1110,26 @@ class MainWindow(QMainWindow):
 
 
     def open_gaussian_sharpening_dialog(self):
+        """Opens the Gaussian sharpening dialog for applying Gaussian sharpening."""
         self._helper_open_processing_dialog(GaussianSharpeningDialog, "apply_gaussian_sharpening")
 
     def open_bm3d_dialog(self):
+        """Opens the BM3D dialog for applying BM3D denoising."""
         def bm3d_checks(): # pragma: no cover
             try: import bm3d; return True
             except ImportError: QMessageBox.critical(self,"Missing Dependency","BM3D package needed."); return False
         self._helper_open_processing_dialog(BM3DDialog, "apply_bm3d_denoising", dialog_specific_checks=bm3d_checks)
 
     def open_nlmeans_dialog(self):
+        """Opens the NL-Means dialog for applying NL-Means denoising."""
         self._helper_open_processing_dialog(NLMeansDialog, "apply_nlmeans_denoising")
 
     def open_median_filter_dialog(self):
+        """Opens the median filter dialog for applying median filter."""
         self._helper_open_processing_dialog(MedianFilterDialog, "apply_median_filter")
 
     def open_plane_leveling_dialog(self):
+        """Opens the plane leveling dialog for applying plane leveling."""
         self._helper_open_processing_dialog(PlaneLevelingDialog, "apply_plane_leveling")
 
 
@@ -1239,9 +1157,11 @@ class MainWindow(QMainWindow):
         QMessageBox.about(self, "About LFA", about_text)
 
     def open_gaussian_blur_dialog(self):
+        """Opens the Gaussian blur dialog for applying Gaussian blur."""
         self._helper_open_processing_dialog(GaussianBlurDialog, "apply_gaussian_blur")
 
     def display_image_data(self):
+        """Displays the image data in the visualization manager."""
         if not hasattr(self, 'visualization_manager') or self.visualization_manager is None:
             logger.error("MainWindow: VisualizationManager not available for displaying data.")
             if hasattr(self, 'image_view') and self.image_view: self.image_view.clear() # pragma: no cover
@@ -1266,22 +1186,20 @@ class MainWindow(QMainWindow):
         
         self.visualization_manager.update_view(
             current_node,
-            # ... (parametry dla idealnej siatki) ...
             show_ideal_lattice, 
             selected_substrate, 
             self.app_controller.custom_lattice_info, 
             panel_custom_text,  
-            # --- Przekazanie odpowiednich danych i flagi widoczności ---
-            substrate_spots_to_draw,      # Tylko dopasowane piki
-            True, # Flaga widoczności dla nich
-            # --- Koniec ---
+            substrate_spots_to_draw, 
+            True,
             corrected_adsorbate_sets_ideal_sys,
-            True # Ta flaga też powinna być zarządzana przez AppController
+            True
         )
         if hasattr(self, '_update_action_states'): self._update_action_states()
     
     @pyqtSlot(QPointF)
     def _on_fft_view_clicked_from_visualizer(self, mapped_data_pos: QPointF):
+        """Handles the click event in the FFT view."""
         logger.debug(f"MainWindow: Received FFT click at data coords (kx, ky): ({mapped_data_pos.x():.2f}, {mapped_data_pos.y():.2f})")
         current_node = self.history_manager.get_current_node()
         if not (current_node and current_node.data_type == "FFT" and current_node.image_data is not None):
@@ -1319,19 +1237,17 @@ class MainWindow(QMainWindow):
                     logger.warning("2D Gaussian Fit failed. Using rounded click position.")
             else:  # pragma: no cover
                  logger.warning("Peak fitting (Gaussian) backend not available. Using rounded click.")
-        
-        # final_point_coords_kx_ky = (float(refined_kx), float(refined_ky)) # Przechowuj jako float dla potencjalnej przyszłej precyzji
-
-        # self.app_controller.add_spot(final_point_coords_kx_ky)
 
     @pyqtSlot()
     def _on_clear_substrate_spots_clicked(self):
+        """Clears the substrate spots."""
         logger.info("MainWindow: Clearing substrate spots.")
         self.app_controller.clear_substrate_spots()
 
 
     @pyqtSlot()
     def _on_reselect_adsorbate_set_clicked(self):
+        """Reselects the current adsorbate set."""
         logger.debug("MainWindow: Reselect current adsorbate set button clicked.")
         self.app_controller.reselect_current_adsorbate_set()
 

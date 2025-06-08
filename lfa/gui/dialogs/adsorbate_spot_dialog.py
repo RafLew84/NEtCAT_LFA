@@ -1,4 +1,12 @@
 # lfa/gui/dialogs/adsorbate_spot_dialog.py
+"""
+Dialog for selecting and managing adsorbate spots in FFT images.
+This module provides functionality for:
+- Selecting adsorbate spots in FFT images
+- Refining spot positions using different methods (direct click, max pixel, Gaussian fit)
+- Applying substrate correction to adsorbate spots
+- Visualizing spots and their corrections in both 2D and 3D views
+"""
 import logging
 from typing import List, Tuple, Optional, Dict, Any
 import numpy as np
@@ -7,7 +15,7 @@ from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QDialogButtonBox,
     QLabel, QListWidget, QAbstractItemView, QWidget, QGroupBox,
     QFormLayout, QRadioButton, QSpinBox, QCheckBox, QMessageBox,
-    QGridLayout, QSplitter # QSplitter jest używany
+    QGridLayout, QSplitter # QSplitter is used for layout management
 )
 from PyQt6.QtGui import QPen, QVector3D
 from PyQt6.QtCore import Qt, pyqtSlot 
@@ -65,6 +73,23 @@ REFINEMENT_MAX_PIXEL = "Max Pixel"
 REFINEMENT_GAUSSIAN_FIT = "2D Gaussian Fit"
 
 class AdsorbateSpotSelectionDialog(QDialog):
+    """
+    Dialog for selecting and managing adsorbate spots in FFT images.
+    
+    This dialog allows users to:
+    - Select adsorbate spots in FFT images using different refinement methods
+    - View and manage selected spots
+    - Apply substrate correction to adsorbate spots
+    - Visualize spots in both 2D and 3D views
+    
+    Attributes:
+        fft_data (np.ndarray): The FFT image data
+        history_manager (HistoryManager): Manager for operation history
+        current_fft_node_id (str): ID of the current FFT node
+        adsorbate_set_index (int): Index of the current adsorbate set
+        selected_adsorbate_spots_raw (List[Tuple[float, float]]): List of selected adsorbate spots
+        corrected_adsorbate_spots_in_ideal_system (List[Tuple[float, float]]): List of corrected spots
+    """
     def __init__(self,
                  fft_image_data: Optional[np.ndarray],
                  history_manager: HistoryManager,
@@ -79,6 +104,24 @@ class AdsorbateSpotSelectionDialog(QDialog):
                  ideal_substrate_spots_for_display_px: Optional[List[Tuple[float, float]]] = None,
                  fitted_substrate_spots_for_display_px: Optional[List[Tuple[float, float]]] = None,
                  parent=None):
+        """
+        Initialize the dialog.
+        
+        Args:
+            fft_image_data: The FFT image data to display
+            history_manager: Manager for operation history
+            current_fft_node_id: ID of the current FFT node
+            current_adsorbate_spots: List of currently selected adsorbate spots
+            adsorbate_set_index: Index of the current adsorbate set
+            default_refinement_method: Default method for spot refinement
+            default_refinement_roi_size: Default size of refinement ROI
+            substrate_F_m2i: Substrate transformation matrix
+            substrate_t_m2i: Substrate translation vector
+            substrate_transform_analysis: Analysis of substrate transformation
+            ideal_substrate_spots_for_display_px: Ideal substrate spots for display
+            fitted_substrate_spots_for_display_px: Fitted substrate spots for display
+            parent: Parent widget
+        """
         super().__init__(parent)
 
         if not PYQTGRAPH_AVAILABLE: # pragma: no cover
@@ -90,39 +133,47 @@ class AdsorbateSpotSelectionDialog(QDialog):
         self.setWindowTitle(f"Select Adsorbate Spots (Set {adsorbate_set_index + 1})")
         self.setMinimumSize(1200, 750)
 
+        # Store input parameters
         self.fft_data = fft_image_data
         self.history_manager = history_manager
         self.current_fft_node_id = current_fft_node_id
         self.adsorbate_set_index = adsorbate_set_index
 
+        # Initialize spot tracking
         self.selected_adsorbate_spots_raw: List[Tuple[float, float]] = list(current_adsorbate_spots) if current_adsorbate_spots else []
         self.raw_adsorbate_spot_markers: Optional[ScatterPlotItem] = None
 
+        # Store substrate transformation data
         self.sub_F_m2i = substrate_F_m2i
         self.sub_t_m2i = substrate_t_m2i
         self.sub_transform_analysis = substrate_transform_analysis
         
+        # Store substrate spots for display
         self.ideal_substrate_spots_to_display_px = list(ideal_substrate_spots_for_display_px) if ideal_substrate_spots_for_display_px else []
         self.fitted_substrate_spots_to_display_px = list(fitted_substrate_spots_for_display_px) if fitted_substrate_spots_for_display_px else []
         self.ideal_substrate_marker_item: Optional[ScatterPlotItem] = None
         self.fitted_substrate_marker_item: Optional[ScatterPlotItem] = None
 
+        # Initialize corrected spots tracking
         self.corrected_adsorbate_spots_in_ideal_system: List[Tuple[float, float]] = []
         self.corrected_adsorbate_marker_item: Optional[ScatterPlotItem] = None
 
+        # Set refinement parameters
         self.current_refinement_method = default_refinement_method
         self.refinement_roi_size = default_refinement_roi_size
 
+        # Initialize preview tracking
         self.last_preview_gauss_fit_popt: Optional[np.ndarray] = None
         self.last_preview_gauss_fit_center_abs: Optional[Tuple[float, float]] = None
         self.last_preview_gauss_roi_state: Optional[Dict] = None
         self.gl_roi_view_widget: Optional[GLViewWidget] = None
-        self.gl_roi_surface_plot_item: Optional[GLSurfacePlotItem] = None # Zmienione z self.gl_roi_surface_item
+        self.gl_roi_surface_plot_item: Optional[GLSurfacePlotItem] = None
         self.gl_gauss_view_widget: Optional[GLViewWidget] = None
-        self.gl_gauss_surface_plot_item: Optional[GLSurfacePlotItem] = None # Zmienione z self.gl_gauss_surface_item
+        self.gl_gauss_surface_plot_item: Optional[GLSurfacePlotItem] = None
         self.gl_roi_placeholder: Optional[QWidget] = None
         self.gl_gauss_placeholder: Optional[QWidget] = None
 
+        # Initialize UI and connect signals
         self._init_ui()
         self._connect_signals() 
         self._update_adsorbate_spots_list_widget()
@@ -131,6 +182,7 @@ class AdsorbateSpotSelectionDialog(QDialog):
         self._update_add_spot_button_state() 
         self._update_correction_button_state()
 
+        # Set initial refinement method
         if self.current_refinement_method == REFINEMENT_MAX_PIXEL: self.rb_refine_max_pixel.setChecked(True)
         elif self.current_refinement_method == REFINEMENT_GAUSSIAN_FIT: self.rb_refine_gaussian.setChecked(True)
         else: self.rb_refine_direct.setChecked(True)
@@ -138,11 +190,11 @@ class AdsorbateSpotSelectionDialog(QDialog):
         
         self._on_refinement_method_changed()
         self._display_substrate_transform_info()
-        self._redraw_all_markers_in_dialog() # Ponowne wywołanie, aby uwzględnić piki referencyjne po _display_substrate_transform_info
+        self._redraw_all_markers_in_dialog() # Redraw to include reference spots after displaying transform info
 
         logger.debug(f"AdsorbateSpotSelectionDialog for set {self.adsorbate_set_index} initialized.")
 
-    def _init_ui(self): # Kod UI jak w poprzedniej odpowiedzi
+    def _init_ui(self): 
         top_level_layout = QHBoxLayout(self)
         main_splitter = QSplitter(Qt.Orientation.Horizontal)
         top_level_layout.addWidget(main_splitter)
@@ -380,17 +432,15 @@ class AdsorbateSpotSelectionDialog(QDialog):
             self._clear_last_preview_gauss_fit()
             self._update_roi_previews()
 
-    def _update_roi_previews(self): # Logika bardzo podobna do SubstrateSpotSelectionDialog
-        # ... (Implementacja na podstawie SubstrateSpotSelectionDialog._update_roi_previews)
-        # Pamiętaj, aby dostosować logowanie i ewentualnie kolory/shadery dla 3D
+    def _update_roi_previews(self): 
         if not self.selection_roi.isVisible() or self.fft_data is None: # type: ignore
-            self._clear_last_preview_gauss_fit()# ... (czyszczenie widgetów podglądu) ...
+            self._clear_last_preview_gauss_fit()
             if hasattr(self, 'roi_preview_2d_image_item'): self.roi_preview_2d_image_item.clear()
             if hasattr(self, 'gaussian_preview_2d_image_item'): self.gaussian_preview_2d_image_item.clear()
             if hasattr(self, 'gl_roi_surface_plot_item') and self.gl_roi_surface_plot_item: self._clear_3d_surface(self.gl_roi_surface_plot_item)
             if hasattr(self, 'gl_gauss_surface_plot_item') and self.gl_gauss_surface_plot_item: self._clear_3d_surface(self.gl_gauss_surface_plot_item)
             return
-        # ... reszta logiki kopiowana i dostosowana ...
+        
         roi_state_for_comparison = self.selection_roi.getState()
         x0_roi, y0_roi = int(round(roi_state_for_comparison['pos'].x())), int(round(roi_state_for_comparison['pos'].y()))
         width_roi, height_roi = int(round(roi_state_for_comparison['size'].x())), int(round(roi_state_for_comparison['size'].y()))
@@ -476,14 +526,17 @@ class AdsorbateSpotSelectionDialog(QDialog):
         surface_item.setData(x=x,y=y,z=data_2d.T,colors=colors.transpose(1,0,2))
 
     def _update_corrected_adsorbate_spots_list_widget(self):
-        """Aktualizuje QListWidget dla skorygowanych pików adsorbatu."""
+        """
+        Updates the QListWidget for corrected adsorbate spots.
+        Displays the corrected spots in the ideal coordinate system.
+        """
         self.corrected_spots_list_widget.clear()
         if not self.corrected_adsorbate_spots_in_ideal_system:
             self.corrected_spots_list_widget.addItem("No corrected spots yet.")
             return
         
         for i, (kx, ky) in enumerate(self.corrected_adsorbate_spots_in_ideal_system):
-            # Te kx, ky są w "idealnym" systemie współrzędnych FFT
+            # These kx, ky are in the "ideal" FFT coordinate system
             self.corrected_spots_list_widget.addItem(f"Corr. A{i+1}: ({kx:.2f}, {ky:.2f}) [Ideal Sys]")
 
 
@@ -544,7 +597,7 @@ class AdsorbateSpotSelectionDialog(QDialog):
         x0,y0=int(round(roi_state['pos'].x())),int(round(roi_state['pos'].y()))
         w,h=int(round(roi_state['size'].x())),int(round(roi_state['size'].y()))
         ckx,cky=x0+w//2,y0+h//2
-        ref_kx,ref_ky = float(ckx),float(cky) # Domyślnie środek ROI
+        ref_kx,ref_ky = float(ckx),float(cky)
 
         if self.current_refinement_method == REFINEMENT_MAX_PIXEL and PEAK_FITTING_MODULE_AVAILABLE:
             pr = self.refinement_roi_size//2
@@ -557,7 +610,6 @@ class AdsorbateSpotSelectionDialog(QDialog):
             curr_roi_state=self.selection_roi.getState()
             roi_state_match = False
             if self.last_preview_gauss_roi_state and curr_roi_state:
-                # Proste porównanie, można dodać tolerancję
                 if self.last_preview_gauss_roi_state['pos'] == curr_roi_state['pos'] and \
                    self.last_preview_gauss_roi_state['size'] == curr_roi_state['size']:
                     roi_state_match = True
@@ -655,10 +707,6 @@ class AdsorbateSpotSelectionDialog(QDialog):
         
         if self.show_corrected_adsorbate_checkbox.isChecked() and self.corrected_adsorbate_spots_in_ideal_system and self.sub_F_m2i is not None and self.sub_t_m2i is not None:
             try:
-                # F_inv=np.linalg.inv(self.sub_F_m2i)
-                # t_prime=(-self.sub_t_m2i@F_inv.T).flatten() # type: ignore
-                # from ...analysis.drift_correction import apply_affine_transform
-                # spots_draw=apply_affine_transform(np.array(self.corrected_adsorbate_spots_in_ideal_system),F_inv,t_prime)
                 if self.corrected_adsorbate_spots_in_ideal_system is not None: d=[{'pos':tuple(p),'symbol':'s','size':10,'pen':pg.mkPen('r',width=1.5),'brush':pg.mkBrush(255,0,0,120)} for p in self.corrected_adsorbate_spots_in_ideal_system]
                 self.corrected_adsorbate_marker_item=ScatterPlotItem(spots=d)
                 self.fft_view_box.addItem(self.corrected_adsorbate_marker_item)
@@ -687,10 +735,8 @@ class AdsorbateSpotSelectionDialog(QDialog):
         else: event.ignore() # pragma: no cover
             
     def _update_add_spot_button_state(self):
-        # Prosta logika, można dodać limit, jeśli potrzebny dla adsorbatu
         self.add_adsorbate_spot_button.setEnabled(self.selection_roi.isVisible())
         num_sel = len(self.selected_adsorbate_spots_raw)
-        # Można dodać minimalną wymaganą liczbę, np. 3
         min_req = 3 
         if num_sel < min_req : self.status_label.setText(f"Select at least {min_req-num_sel} more adsorbate spot(s). Current: {num_sel}.")
         else: self.status_label.setText(f"Selected {num_sel} adsorbate spots. Ready to add or correct.")
@@ -714,7 +760,7 @@ class AdsorbateSpotSelectionDialog(QDialog):
             self.sub_transform_info_label_rot.setText("Sub. Rotation: -")
             self.sub_transform_info_label_scale.setText("Sub. Scale (X,Y): -")
             self.sub_transform_info_label_rmse.setText("Sub. RMSE (px): -")
-        self._update_correction_button_state() # Zaktualizuj stan przycisku po wyświetleniu info
+        self._update_correction_button_state() 
 
     @pyqtSlot()
     def _on_apply_substrate_correction_clicked(self):
@@ -724,7 +770,7 @@ class AdsorbateSpotSelectionDialog(QDialog):
             return
 
         try:
-            from ...analysis.drift_correction import apply_affine_transform # Upewnij się, że import jest OK
+            from ...analysis.drift_correction import apply_affine_transform
             raw_spots_np = np.array(self.selected_adsorbate_spots_raw, dtype=float)
             corrected_spots_np = apply_affine_transform(raw_spots_np, self.sub_F_m2i, self.sub_t_m2i)
             print(f"corrected_spots_np: {corrected_spots_np}")
@@ -733,7 +779,7 @@ class AdsorbateSpotSelectionDialog(QDialog):
                 self.corrected_adsorbate_spots_in_ideal_system = [tuple(pt) for pt in corrected_spots_np]
                 logger.info(f"Applied substrate correction to {len(self.corrected_adsorbate_spots_in_ideal_system)} adsorbate spots.")
                 self._update_corrected_adsorbate_spots_list_widget()
-                self._redraw_all_markers_in_dialog() # Aby pokazać skorygowane, jeśli checkbox zaznaczony
+                self._redraw_all_markers_in_dialog() 
                 self.status_label.setText(f"{len(self.corrected_adsorbate_spots_in_ideal_system)} adsorbate spots corrected (in ideal system).")
             else: raise ValueError("apply_affine_transform returned None for adsorbate spots.") # pragma: no cover
         except Exception as e: # pragma: no cover
@@ -763,7 +809,7 @@ class AdsorbateSpotSelectionDialog(QDialog):
         if hasattr(self, 'gl_roi_view_widget') and self.gl_roi_view_widget:
             if hasattr(self, 'gl_roi_surface_plot_item') and self.gl_roi_surface_plot_item: self.gl_roi_view_widget.removeItem(self.gl_roi_surface_plot_item)
             self.gl_roi_view_widget.setParent(None)
-            self.gl_roi_view_widget.deleteLater() # Lepsze czyszczenie
+            self.gl_roi_view_widget.deleteLater()
         if hasattr(self, 'gl_gauss_view_widget') and self.gl_gauss_view_widget:
             if hasattr(self, 'gl_gauss_surface_plot_item') and self.gl_gauss_surface_plot_item: self.gl_gauss_view_widget.removeItem(self.gl_gauss_surface_plot_item)
             self.gl_gauss_view_widget.setParent(None)

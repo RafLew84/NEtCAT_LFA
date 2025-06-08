@@ -2,26 +2,20 @@
 import logging
 import numpy as np
 from typing import Optional, List, Tuple, Union, Dict, Any
-from PyQt6.QtCore import QObject, pyqtSignal, QPointF, Qt # QPointF dla współrzędnych kliknięcia
+from PyQt6.QtCore import QObject, pyqtSignal, QPointF, Qt 
 
 try:
     import pyqtgraph as pg
-    # from pyqtgraph.GraphicsScene.mouseEvents import MouseClickEvent # Dla type hinting, jeśli zajdzie potrzeba
 except ImportError: # pragma: no cover
     pg = None
     logging.critical("VisualizationManager: PyQtGraph is not available! Visualizations will not work.")
 
-# Importy z twojego projektu (dostosuj ścieżki, jeśli są inne)
-# Zakładamy, że HistoryNode i HistoryManager są importowane tam, gdzie są potrzebne,
-# lub przekazywane jako obiekty. Dla type hinting można je tu zaimportować.
 try:
     from ..core.history import HistoryNode
     from ..logic.history_manager import HistoryManager # Zakładając, że history_manager jest w logic
     from ..analysis.lattice import get_reciprocal_points, KNOWN_LATTICES
-    # from .panels.fft_analysis_panel import FFTAnalysisPanel # Jeśli byłby potrzebny bezpośredni dostęp
 except ImportError as e: # pragma: no cover
     logging.error(f"VisualizationManager: Error importing project modules: {e}")
-    # Definiowanie placeholderów, aby uniknąć błędów importu w środowiskach bez pełnej struktury
     HistoryNode = None
     HistoryManager = None
     KNOWN_LATTICES = False
@@ -35,13 +29,11 @@ class VisualizationManager(QObject):
     Manages the display of images (STM, FFT) and graphical overlays
     (ideal lattice, selected spots) in the main ImageView.
     """
-    # Sygnał emitowany po kliknięciu na obrazie FFT (przekazuje zmapowane współrzędne QPointF w systemie danych obrazu)
     fft_view_clicked = pyqtSignal(QPointF)
-    # Można dodać inne sygnały, np. view_updated = pyqtSignal(), jeśli inne komponenty muszą reagować na aktualizację widoku.
 
     def __init__(self,
-                 image_view: pg.ImageView, # Główny widget ImageView z MainWindow
-                 history_manager: HistoryManager, # Menedżer historii do pobierania danych
+                 image_view: pg.ImageView,
+                 history_manager: HistoryManager,
                  parent: Optional[QObject] = None):
         super().__init__(parent)
 
@@ -51,8 +43,6 @@ class VisualizationManager(QObject):
             self.view_box = None
             self.image_item = None
             self._is_initialized_correctly = False
-            # Można rzucić wyjątek, aby zatrzymać aplikację, jeśli wizualizacja jest krytyczna
-            # raise RuntimeError("PyQtGraph or ImageView is required for VisualizationManager.")
             return
 
         self._is_initialized_correctly = True
@@ -60,9 +50,7 @@ class VisualizationManager(QObject):
         self.view_box = self.image_view.getView()
         self.image_item = self.image_view.getImageItem()
         self.history_manager = history_manager
-        # self.fft_analysis_panel = fft_analysis_panel # Opcjonalnie, jeśli bezpośredni dostęp jest NIEZBĘDNY
 
-        # Atrybuty do przechowywania itemów graficznych, zarządzane przez ten menedżer
         self.ideal_lattice_overlay_item: Optional[pg.ScatterPlotItem] = None
         self.substrate_spot_markers: Optional[pg.ScatterPlotItem] = None
         self.adsorbate_spot_set_markers: List[pg.ScatterPlotItem] = []
@@ -72,32 +60,30 @@ class VisualizationManager(QObject):
         logger.info("VisualizationManager initialized successfully.")
 
     def update_view(self,
-                    current_node: Optional[HistoryNode], # Obecnie wybrany węzeł historii
-                    # Ustawienia z FFTAnalysisPanel (lub MainWindow, które je agreguje)
+                    current_node: Optional[HistoryNode],
                     show_ideal_lattice: bool,
-                    selected_substrate_name: str, # Nazwa wybranego substratu lub specjalny tekst
-                    custom_lattice_definition: Optional[Dict[str, Any]], # Definicja customowej sieci
-                    panel_custom_option_text: str, # Stała tekstowa "<Custom Define...>" z panelu
-                    # Dane o pikach (z MainWindow lub SpotSelectionController)
+                    selected_substrate_name: str, 
+                    custom_lattice_definition: Optional[Dict[str, Any]], 
+                    panel_custom_option_text: str,
                     substrate_spots_data: List[Tuple[float, float]],
                     show_substrate_markers: bool,
                     adsorbate_spot_sets_data: List[List[Tuple[float, float]]],
                     show_adsorbate_markers: bool
                     ) -> None:
         """
-        Główna metoda aktualizująca cały widok obrazu (ImageItem) wraz z nakładkami graficznymi.
-        Zastąpi dużą część logiki z oryginalnej metody MainWindow.display_image_data().
+        Main method updating the entire image view (ImageItem) with graphical overlays.
+        Replaces a large part of the logic from the original MainWindow.display_image_data() method.
 
         Args:
-            current_node: Węzeł historii do wyświetlenia.
-            show_ideal_lattice: Czy pokazać nakładkę idealnej sieci.
-            selected_substrate_name: Nazwa wybranego substratu z panelu.
-            custom_lattice_definition: Definicja sieci własnej (jeśli istnieje).
-            panel_custom_option_text: Tekst opcji "<Custom Define...>" z panelu.
-            substrate_spots_data: Lista współrzędnych pików substratu.
-            show_substrate_markers: Czy pokazać markery pików substratu.
-            adsorbate_spot_sets_data: Lista list współrzędnych pików adsorbatu.
-            show_adsorbate_markers: Czy pokazać markery pików adsorbatu.
+            current_node: History node to display.
+            show_ideal_lattice: Whether to show the ideal lattice overlay.
+            selected_substrate_name: Name of the selected substrate from the panel.
+            custom_lattice_definition: Custom lattice definition (if exists).
+            panel_custom_option_text: Text of the "<Custom Define...>" option from the panel.
+            substrate_spots_data: List of substrate spot coordinates.
+            show_substrate_markers: Whether to show substrate spot markers.
+            adsorbate_spot_sets_data: List of lists of adsorbate spot coordinates.
+            show_adsorbate_markers: Whether to show adsorbate spot markers.
         """
         if not self._is_initialized_correctly or self.view_box is None or self.image_item is None:
             logger.error("VisualizationManager not properly initialized, cannot update view.")
@@ -105,50 +91,46 @@ class VisualizationManager(QObject):
 
         logger.debug("VisualizationManager: Updating view...")
 
-        self._clear_all_graphic_items()      # Wyczyść wszystkie stare nakładki i markery
-        self._disconnect_fft_click_handler() # Zawsze odłącz stary handler przed potencjalnym podłączeniem nowego
+        self._clear_all_graphic_items()      
+        self._disconnect_fft_click_handler() 
 
         if current_node and current_node.image_data is not None:
             display_data = current_node.image_data
             data_type = current_node.data_type
 
-            # 1. Ustaw główny obraz (STM lub FFT)
             self._set_image_display(display_data, data_type)
 
-            # 2. Jeśli dane FFT, obsłuż specyficzne dla FFT elementy
             if data_type == "FFT":
-                self._connect_fft_click_handler() # Podłącz handler kliknięć tylko dla FFT
+                self._connect_fft_click_handler() 
 
-                # Rysuj nakładkę idealnej sieci, jeśli wymagane
                 if KNOWN_LATTICES and show_ideal_lattice:
                     self._draw_ideal_lattice_overlay(
-                        fft_image_data=display_data, # Dane obrazu FFT
-                        current_history_node=current_node, # Potrzebne do znalezienia korzenia dla Lx, Ly
+                        fft_image_data=display_data,
+                        current_history_node=current_node, 
                         selected_substrate_name=selected_substrate_name,
                         custom_lattice_definition=custom_lattice_definition,
                         panel_custom_option_text=panel_custom_option_text
                     )
             
-            # 3. Rysuj markery wybranych pików (dla FFT)
-            if data_type == "FFT": # Markery pików rysujemy tylko na obrazie FFT
+            if data_type == "FFT":
                 self._draw_spot_markers(
                     substrate_spots_data, show_substrate_markers,
                     adsorbate_spot_sets_data, show_adsorbate_markers
                 )
             
-            self.view_box.autoRange() # Dopasuj zakres widoku po dodaniu wszystkich itemów
+            self.view_box.autoRange() 
             logger.debug(f"VisualizationManager: View updated for node '{current_node.operation_name}'.")
         else:
-            self.image_item.clear() # Wyczyść obraz, jeśli nie ma danych
+            self.image_item.clear()
             logger.debug("VisualizationManager: No node to display or node has no data. View cleared.")
 
     def _clear_all_graphic_items(self):
-        """Wewnętrzna metoda do czyszczenia wszystkich zarządzanych itemów graficznych (nakładki, markery)."""
+        """Internal method for clearing all managed graphic items (overlays, markers)."""
         if not self.view_box: return
 
         if self.ideal_lattice_overlay_item:
             try: self.view_box.removeItem(self.ideal_lattice_overlay_item)
-            except RuntimeError: pass # Już usunięty lub scena nieprawidłowa
+            except RuntimeError: pass
             self.ideal_lattice_overlay_item = None
         
         if self.substrate_spot_markers:
@@ -160,11 +142,10 @@ class VisualizationManager(QObject):
             if marker_set:
                 try: self.view_box.removeItem(marker_set)
                 except RuntimeError: pass
-        self.adsorbate_spot_set_markers = [] # Wyczyść listę
-        # logger.debug("VisualizationManager: All managed graphic items cleared.") # Mniej szczegółowe logowanie
+        self.adsorbate_spot_set_markers = []
 
     def _set_image_display(self, image_data: np.ndarray, data_type: str):
-        """Ustawia dane obrazu w ImageItem z odpowiednią orientacją i skalowaniem."""
+        """Sets the image data in the ImageItem with the appropriate orientation and scaling."""
         if not self.image_item or not self.view_box: return
 
         if data_type == "STM":
@@ -177,10 +158,9 @@ class VisualizationManager(QObject):
             logger.warning(f"VisualizationManager: Unknown data type '{data_type}', displaying like STM.")
             self.view_box.invertY(True)
             self.image_item.setImage(image_data.astype(np.float32).T, autoLevels=True)
-        # logger.debug(f"VisualizationManager: Image data set for type '{data_type}'.")
 
     def _connect_fft_click_handler(self):
-        """Podłącza wewnętrzny slot _handle_fft_view_mouse_click do sygnału kliknięcia sceny ImageItem."""
+        """Connects the internal slot _handle_fft_view_mouse_click to the ImageItem scene click signal."""
         if not self._is_initialized_correctly or not self.image_item:
             logger.warning("VisualizationManager: Cannot connect FFT click handler - ImageItem not available.")
             return
@@ -204,7 +184,7 @@ class VisualizationManager(QObject):
 
 
     def _disconnect_fft_click_handler(self):
-        """Odłącza wewnętrzny slot od sygnału kliknięcia sceny ImageItem."""
+        """Disconnects the internal slot from the ImageItem scene click signal."""
         if self._current_fft_mouse_click_connection is not None:
             if self.image_item: # Tylko jeśli image_item istnieje
                 scene = getattr(self.image_item, 'scene', lambda: None)()
@@ -213,49 +193,24 @@ class VisualizationManager(QObject):
                         scene.sigMouseClicked.disconnect(self._current_fft_mouse_click_connection)
                         logger.debug("VisualizationManager: FFT mouse click handler disconnected.")
                     except (TypeError, RuntimeError): # pragma: no cover
-                        # To może się zdarzyć, jeśli połączenie zostało już usunięte lub scena się zmieniła
                         logger.debug("VisualizationManager: Could not disconnect FFT mouse click (normal if connection was already broken or scene changed).")
-            # Zawsze resetuj referencję, nawet jeśli odłączenie się nie powiodło (np. z powodu braku sceny)
             self._current_fft_mouse_click_connection = None
             
-    def _handle_fft_view_mouse_click(self, event): # Dodano type hint dla `event`
+    def _handle_fft_view_mouse_click(self, event):
         """
-        Wewnętrzny slot obsługujący kliknięcia myszą na obrazie FFT.
-        Mapuje współrzędne kliknięcia i emituje sygnał `fft_view_clicked`.
+        Internal slot handling mouse clicks on the FFT image.
+        Maps the click coordinates and emits the `fft_view_clicked` signal.
         """
         if not self._is_initialized_correctly or not self.image_item or not event or not hasattr(event, 'button'):
             if hasattr(event, 'ignore'): event.ignore() # pragma: no cover
             return
 
         if event.button() == Qt.MouseButton.LeftButton:
-            # mapFromScene konwertuje współrzędne sceny na lokalne współrzędne itemu
             pos_in_item_coords = self.image_item.mapFromScene(event.scenePos())
-            
-            # mapToData konwertuje lokalne współrzędne itemu na współrzędne danych obrazu,
-            # które zostały użyte w self.image_item.setImage().
-            # Jeśli obraz był transponowany (np. data.T), to mapToData zwróci
-            # współrzędne (indeks_wiersza_oryginalnych_danych, indeks_kolumny_oryginalnych_danych)
-            # jeśli dane oryginalne miały kształt (wiersze, kolumny).
-            # Czyli QPointF(y_oryginalne, x_oryginalne).
+
             mapped_pos_data_coords = self.image_item.mapToData(pos_in_item_coords)
 
             if mapped_pos_data_coords is not None:
-                # Emitujemy QPointF(x_danych, y_danych) - pyqtgraph.ImageView.getImageItem().mapToData()
-                # zwraca QPointF, gdzie x() to pierwsza oś danych (wiersze, jeśli obraz nie był transponowany przed setImage),
-                # a y() to druga oś danych (kolumny).
-                # Ponieważ używamy data.T w setImage, to:
-                # mapped_pos_data_coords.x() -> indeks wzdłuż pierwszej osi data.T (czyli oryginalne kolumny) -> kx
-                # mapped_pos_data_coords.y() -> indeks wzdłuż drugiej osi data.T (czyli oryginalne wiersze) -> ky
-                # Dla spójności z oczekiwaniami (kx, ky), emitujemy (x(), y())
-                # W MainWindow (lub kontrolerze) odbiorca sygnału będzie musiał wiedzieć, że QPointF.x() to kx, a QPointF.y() to ky.
-                
-                # Weryfikacja:
-                # oryginalne_dane_fft ma shape (liczba_wierszy_ky, liczba_kolumn_kx)
-                # self.image_item.setImage(oryginalne_dane_fft.T)
-                # więc item.image ma shape (liczba_kolumn_kx, liczba_wierszy_ky)
-                # mapToData zwróci (indeks_w_pierwszej_osi_item.image, indeks_w_drugiej_osi_item.image)
-                # czyli (indeks_kolumny_kx, indeks_wiersza_ky)
-                # A więc: mapped_pos_data_coords.x() to kx, mapped_pos_data_coords.y() to ky.
                 
                 self.fft_view_clicked.emit(QPointF(mapped_pos_data_coords.x(), mapped_pos_data_coords.y()))
                 logger.debug(f"VisualizationManager: FFT view clicked. Emitted data coords (original kx, original ky): ({mapped_pos_data_coords.x():.2f}, {mapped_pos_data_coords.y():.2f})")
@@ -268,12 +223,12 @@ class VisualizationManager(QObject):
 
 
     def _draw_ideal_lattice_overlay(self,
-                                    fft_image_data: np.ndarray, # Dane FFT aktualnie wyświetlane
-                                    current_history_node: HistoryNode, # Potrzebne do znalezienia korzenia dla Lx, Ly
+                                    fft_image_data: np.ndarray,
+                                    current_history_node: HistoryNode, 
                                     selected_substrate_name: Union[str, Dict[str, Any], None],
                                     custom_lattice_definition: Optional[Dict[str, Any]],
                                     panel_custom_option_text: str):
-        """Rysuje nakładkę idealnej sieci na obrazie FFT."""
+        """Draws the ideal lattice overlay on the FFT image."""
         if not self.view_box or not KNOWN_LATTICES: return
 
         lattice_info_to_use: Optional[Union[str, Dict[str, Any]]] = None
@@ -297,8 +252,6 @@ class VisualizationManager(QObject):
         Lx = orig_params.get("size_nm_x")
         Ly = orig_params.get("size_nm_y")
         
-        # Kształt wyświetlanych danych FFT (po ewentualnym paddingu, jeśli FFT było z ROI)
-        # fft_image_data to dane przekazane do setImage, czyli przed .T
         fft_data_rows_ky, fft_data_cols_kx = fft_image_data.shape
 
         if not (Lx and Ly and Lx > 0 and Ly > 0 and fft_data_cols_kx > 0 and fft_data_rows_ky > 0): # pragma: no cover
@@ -311,20 +264,14 @@ class VisualizationManager(QObject):
             return
 
         pixel_coords_for_scatter = []
-        # Środek obrazu FFT (wyświetlanego, który jest transponowany)
-        # item.image ma kształt (fft_data_cols_kx, fft_data_rows_ky) po transpozycji
-        # więc:
-        center_display_x = fft_data_rows_ky / 2.0 # odpowiada osi ky oryginalnego FFT
-        center_display_y = fft_data_cols_kx / 2.0 # odpowiada osi kx oryginalnego FFT
+        center_display_x = fft_data_rows_ky / 2.0
+        center_display_y = fft_data_cols_kx / 2.0
 
         for Gx_nm_inv, Gy_nm_inv in ideal_points_g_nm_inv:
-            # Mapowanie na współrzędne pikseli dla obrazu wyświetlanego (po transpozycji)
-            # Gx_nm_inv (kierunek x w przestrzeni odwrotnej) -> mapuje się na oś Y wyświetlacza
-            # Gy_nm_inv (kierunek y w przestrzeni odwrotnej) -> mapuje się na oś X wyświetlacza
             display_x_px = center_display_x + (Gy_nm_inv * Ly)
             display_y_px = center_display_y + (Gx_nm_inv * Lx)
             pixel_coords_for_scatter.append({
-                'pos': (display_x_px, display_y_px), # (x_na_ekranie, y_na_ekranie)
+                'pos': (display_x_px, display_y_px),
                 'symbol': 'o', 'size': 7,
                 'pen': pg.mkPen('r', width=1.5), 'brush': pg.mkBrush(None)
             })
@@ -340,13 +287,11 @@ class VisualizationManager(QObject):
     def _draw_spot_markers(self,
                            substrate_spots: List[Tuple[float, float]], show_substrate: bool,
                            adsorbate_sets: List[List[Tuple[float, float]]], show_adsorbate: bool):
-        """Rysuje markery dla wybranych pików substratu i adsorbatu."""
+        """Draws markers for selected substrate and adsorbate spots."""
         if not self.view_box: return
 
         # --- Substrate Spots ---
         if show_substrate and substrate_spots:
-            # Współrzędne pików są przechowywane jako (kx_oryginalne, ky_oryginalne)
-            # Dla wyświetlania na obrazie .T, musimy je zamienić miejscami: (ky_oryginalne, kx_oryginalne)
             display_substrate_spots = [(kx, ky) for kx, ky in substrate_spots]
             try:
                 self.substrate_spot_markers = pg.ScatterPlotItem(
@@ -358,13 +303,11 @@ class VisualizationManager(QObject):
             except Exception as e: # pragma: no cover
                 logger.exception(f"Error creating/adding substrate spot markers: {e}")
 
-        # --- Adsorbate Spots ---
         if show_adsorbate and adsorbate_sets:
             adsorbate_colors = ['b', 'c', 'm', (255, 165, 0)] # Orange
             new_markers_list = []
             for i, spot_set in enumerate(adsorbate_sets):
                 if spot_set:
-                    # Podobnie, zamiana (kx, ky) na (ky, kx) dla wyświetlania
                     display_spot_set = [(kx, ky) for kx, ky in spot_set]
                     color = adsorbate_colors[i % len(adsorbate_colors)]
                     try:
@@ -385,6 +328,7 @@ class VisualizationManager(QObject):
                             show_substrate: bool,
                             adsorbate_spot_sets_data: List[List[Tuple[float, float]]], 
                             show_adsorbate: bool):
+        """Redraws the spot markers."""
         if not self._is_initialized_correctly: return
         logger.debug("VisualizationManager: Redrawing spot markers.")
         if self.substrate_spot_markers and self.view_box:
@@ -402,7 +346,8 @@ class VisualizationManager(QObject):
         self.adsorbate_spot_set_markers = []
         self._draw_spot_markers(substrate_spots_data, show_substrate, adsorbate_spot_sets_data, show_adsorbate)
 
-    def _clear_spot_markers_only(self): # Metoda pomocnicza
+    def _clear_spot_markers_only(self):
+        """Clears the spot markers."""
         if not self.view_box: return
         if self.substrate_spot_markers:
             try: self.view_box.removeItem(self.substrate_spot_markers)
