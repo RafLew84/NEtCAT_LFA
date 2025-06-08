@@ -361,8 +361,7 @@ class MainWindow(QMainWindow):
         if self.app_controller and REAL_SPACE_VIS_DIALOG_AVAILABLE:
             current_hist_node = self.history_manager.get_current_node()
             if current_hist_node and current_hist_node.data_type == "FFT":
-                if self.app_controller.substrate_real_space_results or \
-                   (self.app_controller.current_adsorbate_set_index in self.app_controller.adsorbate_real_space_results):
+                if self.app_controller.substrate_real_space_results:
                     can_visualize_real_space = True
 
         can_analyze_domain_walls = False
@@ -397,7 +396,7 @@ class MainWindow(QMainWindow):
             self.fft_analysis_dock.setVisible(is_fft_data_active)
 
         if hasattr(self, 'visualize_real_space_action'):
-            self.visualize_real_space_action.setEnabled(can_visualize_real_space)
+            self.visualize_real_space_action.setEnabled(True)
 
         if hasattr(self, 'fft_analysis_panel_widget') and self.fft_analysis_panel_widget:
             panel = self.fft_analysis_panel_widget
