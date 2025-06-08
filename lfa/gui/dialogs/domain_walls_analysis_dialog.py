@@ -20,7 +20,13 @@ try:
     from pyqtgraph import GraphicsLayoutWidget, ImageItem, ViewBox, RectROI, ScatterPlotItem
     PYQTGRAPH_AVAILABLE = True
 except ImportError: # pragma: no cover
-    pg = None; GraphicsLayoutWidget = None; ImageItem = None; ViewBox = None; RectROI = None; ScatterPlotItem = None; PYQTGRAPH_AVAILABLE = False
+    pg = None
+    GraphicsLayoutWidget = None
+    ImageItem = None
+    ViewBox = None
+    RectROI = None
+    ScatterPlotItem = None
+    PYQTGRAPH_AVAILABLE = False
     logging.error("DomainWallsAnalysisDialog: PyQtGraph not found.")
 
 # Importy z projektu (tylko dla type hinting w konstruktorze)
@@ -111,7 +117,9 @@ class DomainWallsAnalysisDialog(QDialog):
             return # Zakończ inicjalizację, aby nie tworzyć reszty UI niepotrzebnie.
 
         if not PYQTGRAPH_AVAILABLE: # pragma: no cover
-            QVBoxLayout(self).addWidget(QLabel("Critical Error: PyQtGraph is required...")); self.setWindowTitle("Error"); return
+            QVBoxLayout(self).addWidget(QLabel("Critical Error: PyQtGraph is required..."))
+            self.setWindowTitle("Error")
+            return
 
         self.setWindowTitle("Domain Wall Analysis")
         self.setMinimumSize(1200, 700)
@@ -152,13 +160,16 @@ class DomainWallsAnalysisDialog(QDialog):
         # === LEWY PANEL: Kontrolki ===
         left_controls_widget = QWidget()
         left_controls_layout = QVBoxLayout(left_controls_widget)
-        left_controls_widget.setMinimumWidth(300); left_controls_widget.setMaximumWidth(380)
+        left_controls_widget.setMinimumWidth(300)
+        left_controls_widget.setMaximumWidth(380)
 
         refinement_group = QGroupBox("Spot Selection") # Zmieniono nazwę grupy
         refinement_layout = QFormLayout(refinement_group)
         refinement_layout.addRow(QLabel("Refinement Method: 2D Gaussian Fit"))
         self.refinement_roi_size_spinbox = QSpinBox()
-        self.refinement_roi_size_spinbox.setMinimum(3); self.refinement_roi_size_spinbox.setMaximum(31); self.refinement_roi_size_spinbox.setSingleStep(2)
+        self.refinement_roi_size_spinbox.setMinimum(3)
+        self.refinement_roi_size_spinbox.setMaximum(31)
+        self.refinement_roi_size_spinbox.setSingleStep(2)
         refinement_layout.addRow("Refinement Area Size (px):", self.refinement_roi_size_spinbox)
         
         # Nowe, oddzielne przyciski
@@ -191,35 +202,75 @@ class DomainWallsAnalysisDialog(QDialog):
         self.fft_view_box = self.fft_plot_widget.addViewBox(row=0, col=0, lockAspect=True, invertY=True)
         self.fft_image_item = ImageItem()
         self.fft_view_box.addItem(self.fft_image_item)
-        self.fft_view_box.setMenuEnabled(True); self.fft_view_box.setMouseMode(ViewBox.PanMode); self.fft_view_box.setMouseEnabled(x=True,y=True)
+        self.fft_view_box.setMenuEnabled(True)
+        self.fft_view_box.setMouseMode(ViewBox.PanMode)
+        self.fft_view_box.setMouseEnabled(x=True,y=True)
         if self.fft_data is not None: self.fft_image_item.setImage(self.fft_data.T)
         self.selection_roi = RectROI(pos=(0,0), size=(self.refinement_roi_size, self.refinement_roi_size), pen=pg.mkPen('cyan', width=2), movable=True, resizable=True)
-        self.fft_view_box.addItem(self.selection_roi); self.selection_roi.setVisible(False)
+        self.fft_view_box.addItem(self.selection_roi)
+        self.selection_roi.setVisible(False)
         main_splitter.addWidget(self.fft_plot_widget)
 
         # === PRAWY PANEL: Podglądy i Wyniki ===
-        right_panel_widget = QWidget(); right_panel_layout = QVBoxLayout(right_panel_widget)
-        right_panel_widget.setMinimumWidth(400); right_panel_widget.setMaximumWidth(500)
+        right_panel_widget = QWidget()
+        right_panel_layout = QVBoxLayout(right_panel_widget)
+        right_panel_widget.setMinimumWidth(400)
+        right_panel_widget.setMaximumWidth(500)
 
         preview_group = QGroupBox("Live Previews (Gaussian Fit)")
         preview_grid_layout = QGridLayout(preview_group)
         # 2D ROI Preview
-        roi_2d_container = QWidget(); roi_2d_v_layout = QVBoxLayout(roi_2d_container); roi_2d_h_layout = QHBoxLayout(); roi_2d_h_layout.addWidget(QLabel("ROI 2D Preview:")); self.enable_2d_roi_preview_checkbox = QCheckBox("Enable"); self.enable_2d_roi_preview_checkbox.setChecked(True); roi_2d_h_layout.addWidget(self.enable_2d_roi_preview_checkbox); roi_2d_h_layout.addStretch(); roi_2d_v_layout.addLayout(roi_2d_h_layout); self.roi_preview_2d_widget = GraphicsLayoutWidget(); self.roi_preview_2d_widget.setMinimumHeight(150); self.roi_preview_2d_widget.setMaximumHeight(200); self.roi_preview_2d_plot = self.roi_preview_2d_widget.addViewBox(lockAspect=True, invertY=True); self.roi_preview_2d_image_item = ImageItem(); self.roi_preview_2d_plot.addItem(self.roi_preview_2d_image_item); roi_2d_v_layout.addWidget(self.roi_preview_2d_widget, 1); preview_grid_layout.addWidget(roi_2d_container, 0, 0)
+        roi_2d_container = QWidget()
+        roi_2d_v_layout = QVBoxLayout(roi_2d_container)
+        roi_2d_h_layout = QHBoxLayout()
+        roi_2d_h_layout.addWidget(QLabel("ROI 2D Preview:"))
+        self.enable_2d_roi_preview_checkbox = QCheckBox("Enable")
+        self.enable_2d_roi_preview_checkbox.setChecked(True)
+        roi_2d_h_layout.addWidget(self.enable_2d_roi_preview_checkbox)
+        roi_2d_h_layout.addStretch()
+        roi_2d_v_layout.addLayout(roi_2d_h_layout)
+        self.roi_preview_2d_widget = GraphicsLayoutWidget()
+        self.roi_preview_2d_widget.setMinimumHeight(150)
+        self.roi_preview_2d_widget.setMaximumHeight(200)
+        self.roi_preview_2d_plot = self.roi_preview_2d_widget.addViewBox(lockAspect=True, invertY=True)
+        self.roi_preview_2d_image_item = ImageItem()
+        self.roi_preview_2d_plot.addItem(self.roi_preview_2d_image_item)
+        roi_2d_v_layout.addWidget(self.roi_preview_2d_widget, 1)
+        preview_grid_layout.addWidget(roi_2d_container, 0, 0)
         # 2D Gaussian Fit Preview
-        self.gauss_2d_container = QWidget(); gauss_2d_v_layout = QVBoxLayout(self.gauss_2d_container); gauss_2d_h_layout = QHBoxLayout(); gauss_2d_h_layout.addWidget(QLabel("Gaussian Fit 2D Preview:")); self.enable_gauss_2d_preview_checkbox = QCheckBox("Enable"); self.enable_gauss_2d_preview_checkbox.setChecked(True); gauss_2d_h_layout.addWidget(self.enable_gauss_2d_preview_checkbox); gauss_2d_h_layout.addStretch(); gauss_2d_v_layout.addLayout(gauss_2d_h_layout); self.gaussian_preview_2d_widget = GraphicsLayoutWidget(); self.gaussian_preview_2d_widget.setMinimumHeight(150); self.gaussian_preview_2d_widget.setMaximumHeight(200); self.gaussian_preview_2d_plot = self.gaussian_preview_2d_widget.addViewBox(lockAspect=True, invertY=True); self.gaussian_preview_2d_image_item = ImageItem(); self.gaussian_preview_2d_plot.addItem(self.gaussian_preview_2d_image_item); gauss_2d_v_layout.addWidget(self.gaussian_preview_2d_widget, 1); preview_grid_layout.addWidget(self.gauss_2d_container, 0, 1)
+        self.gauss_2d_container = QWidget()
+        gauss_2d_v_layout = QVBoxLayout(self.gauss_2d_container)
+        gauss_2d_h_layout = QHBoxLayout()
+        gauss_2d_h_layout.addWidget(QLabel("Gaussian Fit 2D Preview:"))
+        self.enable_gauss_2d_preview_checkbox = QCheckBox("Enable")
+        self.enable_gauss_2d_preview_checkbox.setChecked(True)
+        gauss_2d_h_layout.addWidget(self.enable_gauss_2d_preview_checkbox)
+        gauss_2d_h_layout.addStretch()
+        gauss_2d_v_layout.addLayout(gauss_2d_h_layout)
+        self.gaussian_preview_2d_widget = GraphicsLayoutWidget()
+        self.gaussian_preview_2d_widget.setMinimumHeight(150)
+        self.gaussian_preview_2d_widget.setMaximumHeight(200)
+        self.gaussian_preview_2d_plot = self.gaussian_preview_2d_widget.addViewBox(lockAspect=True, invertY=True)
+        self.gaussian_preview_2d_image_item = ImageItem()
+        self.gaussian_preview_2d_plot.addItem(self.gaussian_preview_2d_image_item)
+        gauss_2d_v_layout.addWidget(self.gaussian_preview_2d_widget, 1)
+        preview_grid_layout.addWidget(self.gauss_2d_container, 0, 1)
         right_panel_layout.addWidget(preview_group)
 
         selected_spots_group = QGroupBox("Selected Peaks Information")
         selected_spots_layout = QFormLayout(selected_spots_group)
-        self.main_peak_info_label = QLabel("Not Selected"); self.main_peak_info_label.setWordWrap(True)
-        self.satellite_peak_info_label = QLabel("Not Selected"); self.satellite_peak_info_label.setWordWrap(True)
+        self.main_peak_info_label = QLabel("Not Selected")
+        self.main_peak_info_label.setWordWrap(True)
+        self.satellite_peak_info_label = QLabel("Not Selected")
+        self.satellite_peak_info_label.setWordWrap(True)
         # self.clear_all_peaks_button = QPushButton("Clear Both Peaks") # Jeden przycisk do czyszczenia
         selected_spots_layout.addRow("Main Peak:", self.main_peak_info_label)
         selected_spots_layout.addRow("Satellite Peak:", self.satellite_peak_info_label)
         # selected_spots_layout.addRow(self.clear_all_peaks_button)
         right_panel_layout.addWidget(selected_spots_group)
         
-        results_group = QGroupBox("Calculated Results"); results_layout = QFormLayout(results_group)
+        results_group = QGroupBox("Calculated Results")
+        results_layout = QFormLayout(results_group)
         self.calculate_distance_button = QPushButton("Calculate Domain Wall Parameters")
         self.calculate_distance_button.setEnabled(False)
         results_layout.addRow(self.calculate_distance_button)
@@ -235,11 +286,15 @@ class DomainWallsAnalysisDialog(QDialog):
         results_layout.addRow("Max Value Ratio (Set/Main):", self.max_value_label)
         right_panel_layout.addWidget(results_group)
 
-        self.status_label = QLabel("Click on FFT to select a spot."); right_panel_layout.addWidget(self.status_label)
-        self.button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Close); right_panel_layout.addWidget(self.button_box)
-        right_panel_layout.addStretch(1); main_splitter.addWidget(right_panel_widget)
+        self.status_label = QLabel("Click on FFT to select a spot.")
+        right_panel_layout.addWidget(self.status_label)
+        self.button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        right_panel_layout.addWidget(self.button_box)
+        right_panel_layout.addStretch(1)
+        main_splitter.addWidget(right_panel_widget)
         
-        main_splitter.setSizes([350,550,300]); main_splitter.setStretchFactor(1,1)
+        main_splitter.setSizes([350,550,300])
+        main_splitter.setStretchFactor(1,1)
 
 
     def _connect_signals(self):
@@ -286,13 +341,17 @@ class DomainWallsAnalysisDialog(QDialog):
 
         # Sprawdzenie, czy dane kalibracyjne są dostępne
         if self.fft_data is None or self.history_manager is None:
-            QMessageBox.critical(self, "Error", "Internal error: FFT data or History Manager not available."); return
+            QMessageBox.critical(self, "Error", "Internal error: FFT data or History Manager not available.")
+            return
         root_node = self.history_manager.get_root_node_for_node(self.current_fft_node_id)
         if not (root_node and root_node.parameters):
-            QMessageBox.critical(self, "Error", "Could not retrieve calibration data (Lx, Ly) from original image."); return
-        Lx_nm = root_node.parameters.get("size_nm_x"); Ly_nm = root_node.parameters.get("size_nm_y")
+            QMessageBox.critical(self, "Error", "Could not retrieve calibration data (Lx, Ly) from original image.")
+            return
+        Lx_nm = root_node.parameters.get("size_nm_x")
+        Ly_nm = root_node.parameters.get("size_nm_y")
         if not (Lx_nm and Ly_nm and Lx_nm > 0 and Ly_nm > 0):
-             QMessageBox.critical(self, "Error", "Invalid calibration data (Lx, Ly)."); return
+             QMessageBox.critical(self, "Error", "Invalid calibration data (Lx, Ly).")
+             return
         
         try:
             # 2. Obliczenie odległości w przestrzeni odwrotnej
@@ -338,7 +397,9 @@ class DomainWallsAnalysisDialog(QDialog):
             self.max_value_label.setText("Error")
 
     def _on_add_satellite_peak_clicked(self, event):
-        if not self.selection_roi.isVisible(): QMessageBox.warning(self,"No ROI","Please place ROI on the main peak first."); return
+        if not self.selection_roi.isVisible(): 
+            QMessageBox.warning(self,"No ROI","Please place ROI on the main peak first.") 
+            return
         results = self._refine_and_process_spot()
         if results:
             raw,corr,intensity,amplitude, max_value, d_spacing_nm = results
@@ -350,7 +411,8 @@ class DomainWallsAnalysisDialog(QDialog):
             self.basic_satellite_periodicity_nm=d_spacing_nm
             logger.info(f"Satelite peak selected/updated: Raw={raw}, Corrected={corr}, Intensity={intensity:.2e}, Amplitude={amplitude:.2e}")
             self._update_all_ui_elements()
-        self.selection_roi.setVisible(False); self._update_buttons_state()
+        self.selection_roi.setVisible(False)
+        self._update_buttons_state()
 
     @pyqtSlot(object)
     def _handle_fft_image_click(self, event):
@@ -433,8 +495,10 @@ class DomainWallsAnalysisDialog(QDialog):
         wr, hr = int(round(roi_state['size'].x())), int(round(roi_state['size'].y()))
         
         mky, mkx = self.fft_data.shape
-        y0c=np.clip(y0r,0,mky); y1c=np.clip(y0r+hr,0,mky)
-        x0c=np.clip(x0r,0,mkx); x1c=np.clip(x0r+wr,0,mkx)
+        y0c=np.clip(y0r,0,mky)
+        y1c=np.clip(y0r+hr,0,mky)
+        x0c=np.clip(x0r,0,mkx)
+        x1c=np.clip(x0r+wr,0,mkx)
         
         if y1c <= y0c or x1c <= x0c:
             self.roi_preview_2d_image_item.clear()
@@ -629,12 +693,24 @@ class DomainWallsAnalysisDialog(QDialog):
     def _refine_and_process_spot(self) -> Optional[Tuple[Tuple[float, float], Tuple[float, float], float]]:
         if not self.selection_roi.isVisible() or self.fft_data is None: return None
         
-        roi_state=self.selection_roi.getState(); x0r,y0r=int(round(roi_state['pos'].x())),int(round(roi_state['pos'].y())); wr,hr=int(round(roi_state['size'].x())),int(round(roi_state['size'].y())); ckx_roi,cky_roi=x0r+wr//2,y0r+hr//2
-        if not (PEAK_FITTING_MODULE_AVAILABLE and fit_2d_gaussian_in_roi_with_all_data and callable(fit_2d_gaussian_in_roi_with_all_data)): return None
-        pr=self.refinement_roi_size_spinbox.value()//2; mh,mw=self.fft_data.shape; eff_cky,eff_ckx=np.clip(cky_roi,pr,mh-1-pr),np.clip(ckx_roi,pr,mw-1-pr)
+        roi_state=self.selection_roi.getState()
+        x0r,y0r=int(round(roi_state['pos'].x())),int(round(roi_state['pos'].y()))
+        wr,hr=int(round(roi_state['size'].x())),int(round(roi_state['size'].y()))
+        ckx_roi,cky_roi=x0r+wr//2,y0r+hr//2
+
+        if not (PEAK_FITTING_MODULE_AVAILABLE and fit_2d_gaussian_in_roi_with_all_data and callable(fit_2d_gaussian_in_roi_with_all_data)): 
+            return None
+        
+        pr=self.refinement_roi_size_spinbox.value()//2
+        mh,mw=self.fft_data.shape
+        eff_cky,eff_ckx=np.clip(cky_roi,pr,mh-1-pr),np.clip(ckx_roi,pr,mw-1-pr)
+
         fit_res=fit_2d_gaussian_in_roi_with_all_data(self.fft_data, (eff_cky,eff_ckx), pr)
-        if not fit_res: logger.warning("Gaussian fit failed."); return None
-        popt_fit,(fky_abs,fkx_abs),roi_patch_used = fit_res; refined_kx_fft,refined_ky_fft=float(fkx_abs),float(fky_abs);
+        if not fit_res: 
+            logger.warning("Gaussian fit failed.")
+            return None
+        popt_fit,(fky_abs,fkx_abs),roi_patch_used = fit_res
+        refined_kx_fft,refined_ky_fft=float(fkx_abs),float(fky_abs)
         
         raw_refined_spot = (refined_kx_fft, refined_ky_fft)
         
@@ -663,9 +739,13 @@ class DomainWallsAnalysisDialog(QDialog):
                 
                 # Pobranie kalibracji
                 root_node = self.history_manager.get_root_node_for_node(self.current_fft_node_id)
-                if not (root_node and root_node.parameters): raise ValueError("Calibration data not found.")
-                Lx_nm=root_node.parameters.get("size_nm_x"); Ly_nm=root_node.parameters.get("size_nm_y")
-                if not (Lx_nm and Ly_nm): raise ValueError("Invalid Lx/Ly in calibration data.")
+                if not (root_node and root_node.parameters): 
+                    raise ValueError("Calibration data not found.")
+                
+                Lx_nm=root_node.parameters.get("size_nm_x")
+                Ly_nm=root_node.parameters.get("size_nm_y")
+                if not (Lx_nm and Ly_nm): 
+                    raise ValueError("Invalid Lx/Ly in calibration data.")
                 
                 # Konwersja i obliczenie
                 g_vector_nm_inv = convert_g_vector_px_to_nm_inv(g_vector_ideal_px, Lx_nm, Ly_nm, fft_cols_kx, fft_rows_ky)
@@ -676,7 +756,9 @@ class DomainWallsAnalysisDialog(QDialog):
                 logger.error(f"Could not calculate d-spacing for spot {corrected_spot}: {e}")
 
         
-        if corrected_spot is None: logger.warning(f"Could not correct spot {raw_refined_spot}."); return None
+        if corrected_spot is None: 
+            logger.warning(f"Could not correct spot {raw_refined_spot}.")
+            return None
         print(f"raw_refined_spot: {raw_refined_spot}")
         print(f"corrected_spot: {corrected_spot}")
         print(f"intensity: {intensity}")
@@ -686,7 +768,10 @@ class DomainWallsAnalysisDialog(QDialog):
 
     @pyqtSlot()
     def _on_add_main_spot_clicked(self):
-        if not self.selection_roi.isVisible(): QMessageBox.warning(self,"No ROI","Please place ROI on the main peak first."); return
+        if not self.selection_roi.isVisible(): 
+            QMessageBox.warning(self,"No ROI","Please place ROI on the main peak first.")
+            return
+        
         results = self._refine_and_process_spot()
         if results:
             raw,corr,intensity,amplitude, max_value, d_spacing_nm = results
@@ -698,7 +783,8 @@ class DomainWallsAnalysisDialog(QDialog):
             self.basic_main_periodicity_nm=d_spacing_nm
             logger.info(f"Main peak selected/updated: Raw={raw}, Corrected={corr}, Intensity={intensity:.2e}, Amplitude={amplitude:.2e}")
             self._update_all_ui_elements()
-        self.selection_roi.setVisible(False); self._update_buttons_state()
+        self.selection_roi.setVisible(False)
+        self._update_buttons_state()
 
     def _update_buttons_state(self):
         roi_is_visible = self.selection_roi.isVisible()
