@@ -30,7 +30,6 @@ except ImportError: # pragma: no cover
     PYQTGRAPH_AVAILABLE = False
     logging.error("DomainWallsAnalysisDialog: PyQtGraph not found.")
 
-# Importy z projektu (tylko dla type hinting w konstruktorze)
 try:
     from ...logic.app_controller import AppController
 except ImportError: # pragma: no cover
@@ -48,7 +47,6 @@ except ImportError: # pragma: no cover
     KNOWN_LATTICES = {}
     logging.error("AdsorbateSpotSelectionDialog: Could not import peak_fitting or lattice modules.")
     def find_max_pixel_in_roi(data, center, radius): return center
-    # def fit_2d_gaussian_in_roi(data, center, radius): return None
     def _gaussian_2d(*args, **kwargs): raise ImportError("Gaussian 2D function is not available")
 
 try:
@@ -78,7 +76,6 @@ class DomainWallsAnalysisDialog(QDialog):
                  parent=None):
         super().__init__(parent)
 
-        # Przechowywanie danych i referencji
         self.fft_data = fft_image_data
         self.history_manager = history_manager
         self.current_fft_node_id = current_fft_node_id
@@ -87,13 +84,11 @@ class DomainWallsAnalysisDialog(QDialog):
         self.sub_t_m2i = substrate_t_m2i
         self.sub_transform_analysis = substrate_transform_analysis
 
-                # Sprawdź, czy przekazano poprawne referencje
         if not (self.history_manager and self.current_fft_node_id):
             QMessageBox.critical(self, "Initialization Error", "History context was not provided to the dialog.")
             QTimer.singleShot(0, self.reject)
             return
 
-        # Pobierz węzeł FFT i sprawdź jego parametry
         fft_node = self.history_manager.get_node_by_id(self.current_fft_node_id)
         is_power_scale = False
         if fft_node and fft_node.parameters:
@@ -112,10 +107,8 @@ class DomainWallsAnalysisDialog(QDialog):
                 "Please go back, recalculate the FFT with the correct setting, and try again."
             )
             
-            # Zaplanuj zamknięcie dialogu natychmiast po tym, jak pętla zdarzeń go przetworzy.
-            # To jest bezpieczny sposób na zamknięcie dialogu z wnętrza jego konstruktora.
             QTimer.singleShot(0, self.reject)
-            return # Zakończ inicjalizację, aby nie tworzyć reszty UI niepotrzebnie.
+            return
 
         if not PYQTGRAPH_AVAILABLE: # pragma: no cover
             QVBoxLayout(self).addWidget(QLabel("Critical Error: PyQtGraph is required..."))
@@ -125,7 +118,6 @@ class DomainWallsAnalysisDialog(QDialog):
         self.setWindowTitle("Domain Wall Analysis")
         self.setMinimumSize(1200, 700)
 
-        # Inicjalizacja atrybutów dla danych i UI
         self._selection_mode: Optional[str] = None
         self.main_peak_raw_refined_px: Optional[Tuple[float, float]] = None
         self.satellite_peak_raw_refined_px: Optional[Tuple[float, float]] = []
@@ -148,8 +140,8 @@ class DomainWallsAnalysisDialog(QDialog):
         self._connect_signals()
         
         self.refinement_roi_size_spinbox.setValue(self.refinement_roi_size)
-        self._display_substrate_transform_info() # Placeholder
-        self._update_all_ui_elements() # Placeholder
+        self._display_substrate_transform_info() 
+        self._update_all_ui_elements() 
 
         logger.debug("DomainWallsAnalysisDialog initialized.")
 
@@ -158,13 +150,12 @@ class DomainWallsAnalysisDialog(QDialog):
         main_splitter = QSplitter(Qt.Orientation.Horizontal)
         top_level_layout.addWidget(main_splitter)
 
-        # === LEWY PANEL: Kontrolki ===
         left_controls_widget = QWidget()
         left_controls_layout = QVBoxLayout(left_controls_widget)
         left_controls_widget.setMinimumWidth(300)
         left_controls_widget.setMaximumWidth(380)
 
-        refinement_group = QGroupBox("Spot Selection") # Zmieniono nazwę grupy
+        refinement_group = QGroupBox("Spot Selection")
         refinement_layout = QFormLayout(refinement_group)
         refinement_layout.addRow(QLabel("Refinement Method: 2D Gaussian Fit"))
         self.refinement_roi_size_spinbox = QSpinBox()
@@ -173,7 +164,6 @@ class DomainWallsAnalysisDialog(QDialog):
         self.refinement_roi_size_spinbox.setSingleStep(2)
         refinement_layout.addRow("Refinement Area Size (px):", self.refinement_roi_size_spinbox)
         
-        # Nowe, oddzielne przyciski
         self.add_main_spot_button = QPushButton("Add/Update Main Spot from ROI")
         self.add_main_spot_button.setEnabled(True)
         self.add_satellite_spot_button = QPushButton("Add Satellite Spot from ROI")
@@ -198,7 +188,6 @@ class DomainWallsAnalysisDialog(QDialog):
         left_controls_layout.addStretch(1)
         main_splitter.addWidget(left_controls_widget)
 
-        # === CENTRALNY PANEL: Główny obraz FFT ===
         self.fft_plot_widget = GraphicsLayoutWidget()
         self.fft_view_box = self.fft_plot_widget.addViewBox(row=0, col=0, lockAspect=True, invertY=True)
         self.fft_image_item = ImageItem()
@@ -212,7 +201,6 @@ class DomainWallsAnalysisDialog(QDialog):
         self.selection_roi.setVisible(False)
         main_splitter.addWidget(self.fft_plot_widget)
 
-        # === PRAWY PANEL: Podglądy i Wyniki ===
         right_panel_widget = QWidget()
         right_panel_layout = QVBoxLayout(right_panel_widget)
         right_panel_widget.setMinimumWidth(400)
@@ -220,7 +208,6 @@ class DomainWallsAnalysisDialog(QDialog):
 
         preview_group = QGroupBox("Live Previews (Gaussian Fit)")
         preview_grid_layout = QGridLayout(preview_group)
-        # 2D ROI Preview
         roi_2d_container = QWidget()
         roi_2d_v_layout = QVBoxLayout(roi_2d_container)
         roi_2d_h_layout = QHBoxLayout()
@@ -238,7 +225,6 @@ class DomainWallsAnalysisDialog(QDialog):
         self.roi_preview_2d_plot.addItem(self.roi_preview_2d_image_item)
         roi_2d_v_layout.addWidget(self.roi_preview_2d_widget, 1)
         preview_grid_layout.addWidget(roi_2d_container, 0, 0)
-        # 2D Gaussian Fit Preview
         self.gauss_2d_container = QWidget()
         gauss_2d_v_layout = QVBoxLayout(self.gauss_2d_container)
         gauss_2d_h_layout = QHBoxLayout()
@@ -264,10 +250,8 @@ class DomainWallsAnalysisDialog(QDialog):
         self.main_peak_info_label.setWordWrap(True)
         self.satellite_peak_info_label = QLabel("Not Selected")
         self.satellite_peak_info_label.setWordWrap(True)
-        # self.clear_all_peaks_button = QPushButton("Clear Both Peaks") # Jeden przycisk do czyszczenia
         selected_spots_layout.addRow("Main Peak:", self.main_peak_info_label)
         selected_spots_layout.addRow("Satellite Peak:", self.satellite_peak_info_label)
-        # selected_spots_layout.addRow(self.clear_all_peaks_button)
         right_panel_layout.addWidget(selected_spots_group)
         
         results_group = QGroupBox("Calculated Results")
@@ -282,7 +266,7 @@ class DomainWallsAnalysisDialog(QDialog):
         self.max_value_label = QLabel("-")
         results_layout.addRow("Distance in k-space (Δg*):", self.distance_fft_label)
         results_layout.addRow("Real Space Periodicity (P):", self.distance_real_space_label)
-        results_layout.addRow("Intensity Ratio (Sat/Main):", self.intensity_ratio_label) # <<< NOWY ELEMENT
+        results_layout.addRow("Intensity Ratio (Sat/Main):", self.intensity_ratio_label)
         results_layout.addRow("Amplitude Ratio (Sat/Main):", self.amplitude_ratio_label)
         results_layout.addRow("Max Value Ratio (Set/Main):", self.max_value_label)
         right_panel_layout.addWidget(results_group)
@@ -299,7 +283,7 @@ class DomainWallsAnalysisDialog(QDialog):
 
 
     def _connect_signals(self):
-        """Podłącza sygnały z UI do slotów."""
+        """Connects signals from UI to slots."""
         self.button_box.clicked.connect(self.accept)
 
         if self.fft_view_box and self.fft_view_box.scene():
@@ -308,15 +292,12 @@ class DomainWallsAnalysisDialog(QDialog):
         self.selection_roi.sigRegionChanged.connect(self._handle_roi_region_changing)
         self.refinement_roi_size_spinbox.valueChanged.connect(self._on_refinement_roi_size_changed)
 
-        # Użyj poprawnej nazwy przycisku z _init_ui
         self.add_main_spot_button.clicked.connect(self._on_add_main_spot_clicked)
         self.add_satellite_spot_button.clicked.connect(self._on_add_satellite_peak_clicked)
 
-        # Checkboxy podglądów
         self.enable_2d_roi_preview_checkbox.stateChanged.connect(self._update_roi_previews)
         self.enable_gauss_2d_preview_checkbox.stateChanged.connect(self._update_roi_previews)
         
-        # Przycisk obliczeń (zostanie zaimplementowany później)
         self.calculate_distance_button.clicked.connect(self._on_calculate_distance_clicked)
 
         logger.debug("SpotDistanceDialog signals connected.")
@@ -324,12 +305,10 @@ class DomainWallsAnalysisDialog(QDialog):
     @pyqtSlot()
     def _on_calculate_distance_clicked(self):
         """
-        Oblicza i wyświetla odległość, periodyczność i stosunki intensywności/amplitud
-        pomiędzy skorygowanym pikiem głównym a skorygowanym pikiem satelitarnym.
+        Calculates and displays the distance, periodicity and intensity/amplitude ratios between the corrected main peak and the corrected satellite peak.
         """
         logger.debug("Calculate Distance button clicked.")
         
-        # 1. Walidacja, czy wszystkie potrzebne dane istnieją
         if not (self.main_peak_corrected_ideal_px and self.satellite_peak_corrected_ideal_px and
                 self.main_peak_intensity is not None and self.satellite_peak_intensity is not None and
                 self.main_peak_amplitude is not None and self.satellite_peak_amplitude is not None and
@@ -337,7 +316,6 @@ class DomainWallsAnalysisDialog(QDialog):
             QMessageBox.warning(self, "Incomplete Data", "Both Main and Satellite peaks must be selected and successfully processed to perform calculation.")
             return
 
-        # Prepare data dictionaries for the calculation
         main_peak_data = {
             'corrected': self.main_peak_corrected_ideal_px,
             'intensity': self.main_peak_intensity,
@@ -352,7 +330,6 @@ class DomainWallsAnalysisDialog(QDialog):
             'max_value': self.satellite_peak_max_value
         }
 
-        # Sprawdzenie, czy dane kalibracyjne są dostępne
         if self.fft_data is None or self.history_manager is None:
             QMessageBox.critical(self, "Error", "Internal error: FFT data or History Manager not available.")
             return
@@ -407,7 +384,7 @@ class DomainWallsAnalysisDialog(QDialog):
 
     @pyqtSlot(object)
     def _handle_fft_image_click(self, event):
-        """Obsługuje kliknięcie na głównym obrazie FFT w tym dialogu."""
+        """Handles click on the main FFT image in this dialog."""
         if not (self.fft_data is not None and self.fft_image_item and self.selection_roi):
             return
 
@@ -419,7 +396,6 @@ class DomainWallsAnalysisDialog(QDialog):
                 kx, ky = mapped_pos.x(), mapped_pos.y()
                 logger.debug(f"SpotDistanceDialog FFT click: data (kx, ky) = ({kx:.1f}, {ky:.1f})")
 
-                # Zawsze umieszczaj ROI po kliknięciu, niezależnie od trybu uściślania
                 roi_size = self.refinement_roi_size_spinbox.value()
                 roi_x = kx - roi_size // 2
                 roi_y = ky - roi_size // 2
@@ -432,7 +408,6 @@ class DomainWallsAnalysisDialog(QDialog):
                 self.selection_roi.setSize((roi_size, roi_size), update=False)
                 self.selection_roi.setVisible(True)
                 
-                # Uaktywnij przyciski po umieszczeniu ROI
                 self._update_buttons_state()
                 self._update_roi_previews()
                 event.accept()
@@ -445,7 +420,6 @@ class DomainWallsAnalysisDialog(QDialog):
         if roi_item is None: roi_item = self.selection_roi
         if not isinstance(roi_item, RectROI) or not roi_item.isVisible(): return
 
-        # Zaktualizuj spinbox, jeśli użytkownik ręcznie zmienił rozmiar ROI
         current_roi_w = int(round(roi_item.size().x()))
         if current_roi_w != self.refinement_roi_size_spinbox.value() and \
            self.refinement_roi_size_spinbox.minimum() <= current_roi_w <= self.refinement_roi_size_spinbox.maximum() and \
@@ -459,7 +433,7 @@ class DomainWallsAnalysisDialog(QDialog):
 
     @pyqtSlot(int)
     def _on_refinement_roi_size_changed(self, value: int):
-        """Slot wywoływany przy zmianie wartości w spinboxie rozmiaru ROI."""
+        """Slot called when the ROI size value in the spinbox changes."""
         self.refinement_roi_size = value
         self._clear_last_preview_gauss_fit()
         if self.selection_roi.isVisible():
@@ -474,7 +448,7 @@ class DomainWallsAnalysisDialog(QDialog):
             self._handle_roi_region_changing()
 
     def _update_roi_previews(self):
-        """Aktualizuje podglądy 2D ROI i dopasowania Gaussa."""
+        """Updates 2D ROI and Gaussian fit previews."""
         if not self.selection_roi.isVisible() or self.fft_data is None:
             if hasattr(self, 'roi_preview_2d_image_item'): self.roi_preview_2d_image_item.clear()
             if hasattr(self, 'gaussian_preview_2d_image_item'): self.gaussian_preview_2d_image_item.clear()
@@ -499,14 +473,12 @@ class DomainWallsAnalysisDialog(QDialog):
         roi_patch = self.fft_data[y0c:y1c, x0c:x1c]
 
         if roi_patch.size > 0:
-            # Podgląd 2D ROI
             if self.enable_2d_roi_preview_checkbox.isChecked():
                 self.roi_preview_2d_image_item.setImage(roi_patch.T)
                 self.roi_preview_2d_plot.autoRange()
             else:
                 self.roi_preview_2d_image_item.clear()
 
-            # Podgląd Dopasowania Gaussa 2D
             if self.gauss_2d_container.isVisible():
                 fitted_gauss_2d = None
                 if self.enable_gauss_2d_preview_checkbox.isChecked():
@@ -519,7 +491,6 @@ class DomainWallsAnalysisDialog(QDialog):
                             p0g = [roi_patch.max()-roi_patch.min(), ph/2., pw/2., pw/4., ph/4., 0., roi_patch.min()]
                             popt_g, _ = scipy_curve_fit(_gaussian_2d, pxy_flat_g, pdata_flat_g, p0=p0g, maxfev=2000)
                             
-                            # Zapisz wyniki podglądu do późniejszego użycia
                             self.last_preview_gauss_fit_popt = popt_g
                             afk_g, afky_g = x0r + popt_g[2], y0r + popt_g[1]
                             self.last_preview_gauss_fit_center_abs = (afk_g, afky_g)
@@ -530,14 +501,14 @@ class DomainWallsAnalysisDialog(QDialog):
                         except Exception as e:
                             logger.warning(f"DistDlg Preview GaussFit Fail: {e}")
                             self._clear_last_preview_gauss_fit()
-                            fitted_gauss_2d = roi_patch # Pokaż oryginał w razie błędu
+                            fitted_gauss_2d = roi_patch
                     
                     if fitted_gauss_2d is not None:
                         self.gaussian_preview_2d_image_item.setImage(fitted_gauss_2d.T)
                     else:
                         self.gaussian_preview_2d_image_item.setImage(roi_patch.T) # Fallback
                     self.gaussian_preview_2d_plot.autoRange()
-                else: # Checkbox odznaczony
+                else:
                     self.gaussian_preview_2d_image_item.clear()
         else: # roi_patch.size == 0
             self.roi_preview_2d_image_item.clear()
@@ -545,19 +516,16 @@ class DomainWallsAnalysisDialog(QDialog):
 
     def _display_substrate_transform_info(self):
         """
-        Wypełnia etykiety w UI informacjami o transformacji substratu,
-        które zostały przekazane do dialogu podczas jego tworzenia.
+        Fills the UI labels with information about the substrate transformation,
+        which was passed to the dialog during its creation.
         """
         if self.sub_transform_analysis:
-            # Jeśli dane analizy transformacji są dostępne
             self.dist_sub_transform_info_label_status.setText("Status: Available")
             
-            # Pobierz i sformatuj kąt rotacji
             rot_angle = self.sub_transform_analysis.get('rotation_angle_deg', 'N/A')
             rot_text = f"{rot_angle:.2f}°" if isinstance(rot_angle, (int, float)) else "N/A"
             self.dist_sub_transform_info_label_rot.setText(rot_text)
 
-            # Pobierz i sformatuj współczynniki rozciągania
             stretches = self.sub_transform_analysis.get('principal_stretches', [np.nan, np.nan])
             if stretches is not None and len(stretches) == 2:
                 scale_text = f"({stretches[0]:.3f}, {stretches[1]:.3f})"
@@ -565,14 +533,12 @@ class DomainWallsAnalysisDialog(QDialog):
                 scale_text = "N/A"
             self.dist_sub_transform_info_label_scale.setText(scale_text)
 
-            # Pobierz i sformatuj RMSE
             rmse = self.sub_transform_analysis.get('rmse', 'N/A')
             rmse_text = f"{rmse:.3f} px" if isinstance(rmse, (int, float)) else "N/A"
             self.dist_sub_transform_info_label_rmse.setText(rmse_text)
             
             logger.info("Displayed available substrate transformation info.")
         else:
-            # Jeśli dane analizy transformacji nie zostały przekazane
             self.dist_sub_transform_info_label_status.setText("Status: Not Calculated / Not Available")
             self.dist_sub_transform_info_label_rot.setText("-")
             self.dist_sub_transform_info_label_scale.setText("-")
@@ -580,6 +546,7 @@ class DomainWallsAnalysisDialog(QDialog):
             logger.warning("Substrate transformation info not passed to dialog.")
 
     def _update_all_ui_elements(self):
+        """Updates all UI elements."""
         self._update_spot_info_display()
         self._redraw_all_markers_on_fft()
         self._update_buttons_state()
@@ -589,9 +556,8 @@ class DomainWallsAnalysisDialog(QDialog):
 
     def _update_spot_info_display(self):
         """
-        Aktualizuje pola tekstowe, wyświetlając informacje o wybranych pikach.
+        Updates the text fields, displaying information about the selected peaks.
         """
-        # Aktualizacja wyświetlacza piku głównego
         if self.main_peak_raw_refined_px and self.main_peak_corrected_ideal_px and self.main_peak_intensity is not None:
             raw = self.main_peak_raw_refined_px
             corr = self.main_peak_corrected_ideal_px
@@ -603,7 +569,6 @@ class DomainWallsAnalysisDialog(QDialog):
         else:
             self.main_peak_info_label.setText("Not Selected")
         
-        # Aktualizacja wyświetlacza piku satelitarnego
         if self.satellite_peak_raw_refined_px and self.satellite_peak_corrected_ideal_px and self.satellite_peak_intensity is not None:
             raw = self.satellite_peak_raw_refined_px
             corr = self.satellite_peak_corrected_ideal_px
@@ -617,10 +582,8 @@ class DomainWallsAnalysisDialog(QDialog):
 
     def _redraw_all_markers_on_fft(self):
         """
-        Rysuje markery dla piku głównego i satelitarnego (surowe/uściślone
-        oraz ich skorygowane pozycje) na obrazie FFT.
+        Draws markers for the main peak and satellite peak (raw/refined and corrected positions) on the FFT image.
         """
-        # Usuń wszystkie stare markery
         if self.main_peak_raw_marker: 
             self.fft_view_box.removeItem(self.main_peak_raw_marker)
             self.main_peak_raw_marker=None
@@ -634,15 +597,12 @@ class DomainWallsAnalysisDialog(QDialog):
             self.fft_view_box.removeItem(self.satellite_corrected_marker)
             self.satellite_corrected_marker=None
 
-        # --- Rysuj surowe (uściślone) piki ---
-        # Pik główny (np. duży żółty okrąg)
         if self.main_peak_raw_refined_px:
             self.main_peak_raw_marker = pg.ScatterPlotItem(
                 spots=[{'pos': self.main_peak_raw_refined_px, 'symbol': 'o', 'size': 14, 'pen': pg.mkPen('y', width=2), 'brush': pg.mkBrush(255, 255, 0, 120)}]
             )
             self.fft_view_box.addItem(self.main_peak_raw_marker)
         
-        # Pik satelitarny (np. mniejszy pomarańczowy okrąg)
         if self.satellite_peak_raw_refined_px:
             self.satellite_raw_marker = pg.ScatterPlotItem(
                 spots=[{'pos': self.satellite_peak_raw_refined_px, 'symbol': 'o', 'size': 10, 'pen': pg.mkPen('orange', width=1.5), 'brush': pg.mkBrush(255, 165, 0, 100)}]
@@ -655,14 +615,11 @@ class DomainWallsAnalysisDialog(QDialog):
             )
             self.fft_view_box.addItem(self.main_peak_corrected_marker)
                 
-                # # Skorygowany pik satelitarny (np. mniejszy cyjanowy kwadrat)
         if self.satellite_peak_corrected_ideal_px:
                 self.satellite_corrected_marker = pg.ScatterPlotItem(
                     spots=[{'pos': tuple(self.satellite_peak_corrected_ideal_px), 'symbol': 'x', 'size': 10, 'pen': pg.mkPen('cyan', width=1.5)}]
                 )
                 self.fft_view_box.addItem(self.satellite_corrected_marker)
-            # except Exception as e:
-            #     logger.error(f"Error drawing corrected markers: {e}")
         
         if self.main_peak_corrected_ideal_px and self.satellite_peak_corrected_ideal_px:
             self.calculate_distance_button.setEnabled(True)
