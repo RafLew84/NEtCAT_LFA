@@ -59,6 +59,7 @@ class AppController(QObject):
     spot_selection_parameters_changed = pyqtSignal()
     adsorbate_sets_structure_changed = pyqtSignal()
     substrate_transform_results_updated = pyqtSignal()
+    domain_wall_results_updated = pyqtSignal(object)
 
     substrate_definition_changed = pyqtSignal()
 
@@ -118,6 +119,8 @@ class AppController(QObject):
         self.substrate_real_space_results: Optional[Dict[str, Any]] = None
         self.adsorbate_real_space_results: Dict[int, Dict[str, Any]] = {} 
         self.adsorbate_expected_lattice_types: Dict[int, str] = {0: ADSORBATE_LATTICE_TYPE_UNKNOWN}
+
+        self.domain_wall_analysis_results: Optional[Dict[str, Any]] = None
 
         logger.info("AppController initialized.")
 
@@ -195,11 +198,13 @@ class AppController(QObject):
                 self.substrate_transform_analysis_m2i = None
                 self.substrate_real_space_results = None
                 self.current_fft_data_shape = None
+                self.domain_wall_analysis_results = None
                 self.displayable_fitted_substrate_spots_on_fft.clear()
                 self.adsorbate_real_space_results.clear()
                 self.substrate_definition_changed.emit()
                 self.substrate_transform_results_updated.emit()
                 self.substrate_real_space_params_updated.emit({})
+                self.domain_wall_results_updated.emit(None)
                 logger.info(f"AppController: File '{os.path.basename(file_path)}' loaded successfully.")
                 self.file_loaded_successfully.emit(os.path.basename(file_path))
             else:
@@ -668,6 +673,11 @@ class AppController(QObject):
             self.adsorbate_real_space_params_updated.emit(set_index, {})
             if hasattr(self, 'adsorbate_real_space_params_updated'): self.adsorbate_real_space_params_updated.emit(set_index, {})
 
+    def update_domain_wall_results(self, results: Optional[Dict[str, Any]]):
+        """Updates and stores the domain wall analysis results."""
+        self.domain_wall_analysis_results = results
+        logger.info(f"AppController: Updated domain wall analysis results: {results}")
+        self.domain_wall_results_updated.emit(self.domain_wall_analysis_results)
 
     def add_new_adsorbate_set(self):
         """Adds a new, empty adsorbate spot set and sets it as current."""
@@ -712,6 +722,8 @@ class AppController(QObject):
         self.displayable_fitted_substrate_spots_on_fft.clear()
         self.substrate_real_space_results = None
         self.adsorbate_expected_lattice_types = {0: ADSORBATE_LATTICE_TYPE_UNKNOWN}
+        self.domain_wall_analysis_results = None
+        self.domain_wall_results_updated.emit(None)
 
         if hasattr(self, 'substrate_real_space_params_updated'): self.substrate_real_space_params_updated.emit({})
         if hasattr(self, 'spot_lists_updated'): self.spot_lists_updated.emit()

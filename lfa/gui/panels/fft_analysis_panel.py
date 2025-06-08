@@ -76,6 +76,7 @@ class FFTAnalysisPanel(QWidget):
         self._create_spot_selection_group(main_layout)
 
         self._create_real_space_params_group(main_layout)
+        self._create_domain_wall_results_group(main_layout)
 
         main_layout.addStretch(1) # Add stretchable space at the bottom
         self.setLayout(main_layout)
@@ -99,6 +100,38 @@ class FFTAnalysisPanel(QWidget):
 
         self.lattice_group.setLayout(lattice_layout)
         parent_layout.addWidget(self.lattice_group)
+
+    def _create_domain_wall_results_group(self, parent_layout: QVBoxLayout):
+        """Creates a group for displaying domain wall analysis results."""
+        self.domain_wall_results_group = QGroupBox("Domain Wall Analysis Results")
+        layout = QFormLayout(self.domain_wall_results_group)
+        
+        self.dw_dist_kspace_label = QLabel("-")
+        self.dw_periodicity_label = QLabel("-")
+        self.dw_intensity_ratio_label = QLabel("-")
+        self.dw_amplitude_ratio_label = QLabel("-")
+        self.dw_max_value_ratio_label = QLabel("-")
+
+        layout.addRow("k-space Distance (Δg*):", self.dw_dist_kspace_label)
+        layout.addRow("Real Space Periodicity (P):", self.dw_periodicity_label)
+        layout.addRow("Intensity Ratio (Sat/Main):", self.dw_intensity_ratio_label)
+        layout.addRow("Amplitude Ratio (Sat/Main):", self.dw_amplitude_ratio_label)
+        layout.addRow("Max Value Ratio (Sat/Main):", self.dw_max_value_ratio_label)
+        
+        parent_layout.addWidget(self.domain_wall_results_group)
+        self.domain_wall_results_group.setVisible(False) # Widoczny tylko, gdy są wyniki
+
+    def update_domain_wall_results_display(self, results: Optional[Dict[str, Any]]):
+        """Updates the labels with the domain wall analysis results."""
+        if results:
+            self.dw_dist_kspace_label.setText(f"{results.get('dist_px', '-'):.2f} px | {results.get('dist_nm_inv', '-'):.4f} nm⁻¹")
+            self.dw_periodicity_label.setText(f"{results.get('periodicity_nm', '-'):.3f} nm")
+            self.dw_intensity_ratio_label.setText(f"{results.get('intensity_ratio', '-'):.3f}")
+            self.dw_amplitude_ratio_label.setText(f"{results.get('amplitude_ratio', '-'):.3f}")
+            self.dw_max_value_ratio_label.setText(f"{results.get('max_value_ratio', '-'):.3f}")
+            self.domain_wall_results_group.setVisible(True)
+        else:
+            self.domain_wall_results_group.setVisible(False)
 
     def _create_real_space_params_group(self, parent_layout: QVBoxLayout):
         self.real_space_group = QGroupBox("Real Space Lattice Parameters")

@@ -212,6 +212,7 @@ class MainWindow(QMainWindow):
 
             self.app_controller.substrate_real_space_params_updated.connect(self._on_substrate_real_space_params_updated)
             self.app_controller.adsorbate_real_space_params_updated.connect(self._on_adsorbate_real_space_params_updated)
+            self.app_controller.domain_wall_results_updated.connect(self._on_domain_wall_results_updated)
 
         if hasattr(self, 'fft_analysis_panel_widget'):
             self.fft_analysis_panel_widget.substrate_changed.connect(self._handle_substrate_changed)
@@ -474,6 +475,13 @@ class MainWindow(QMainWindow):
         dialog = StmFftSimulationDialog(parent=self)
         dialog.exec()
         logger.info("STM/FFT Simulation dialog closed.")
+    
+    @pyqtSlot(object) 
+    def _on_domain_wall_results_updated(self, results: Optional[Dict[str, Any]]):
+        """Updates the panel with the domain wall analysis results."""
+        if hasattr(self, 'fft_analysis_panel_widget') and self.fft_analysis_panel_widget:
+            logger.debug(f"MainWindow: Received domain wall results update: {results}")
+            self.fft_analysis_panel_widget.update_domain_wall_results_display(results)
 
     @pyqtSlot()
     def open_real_space_fft_visualizer(self):
@@ -579,7 +587,15 @@ class MainWindow(QMainWindow):
             substrate_transform_analysis=self.app_controller.substrate_transform_analysis_m2i,
             parent=self
         )
-        dialog.exec()
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            results = dialog.get_analysis_results()
+            if results and self.app_controller:
+                logger.info(f"Domain wall analysis accepted with results: {results}")
+                self.app_controller.update_domain_wall_results(results)
+            else:
+                logger.info("Domain wall analysis dialog closed without valid results.")
+        else:
+            logger.info("Domain Wall Analysis dialog cancelled.")
         logger.info("Domain Wall Analysis dialog closed.")
 
     @pyqtSlot()

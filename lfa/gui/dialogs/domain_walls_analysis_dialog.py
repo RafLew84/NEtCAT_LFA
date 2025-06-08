@@ -135,6 +135,7 @@ class DomainWallsAnalysisDialog(QDialog):
         self.satellite_peak_max_value: Optional[float] = None
         self.basic_main_periodicity_nm: Optional[float] = None
         self.basic_satellite_periodicity_nm: Optional[float] = None
+        self._final_results: Optional[Dict[str, Any]] = None
 
         self._init_ui()
         self._connect_signals()
@@ -350,8 +351,10 @@ class DomainWallsAnalysisDialog(QDialog):
             lx_nm=Lx_nm,
             ly_nm=Ly_nm
         )
+            
 
         if results:
+            self._final_results = results
             self.distance_fft_label.setText(f"{results['dist_px']:.2f} px | {results['dist_nm_inv']:.4f} nm⁻¹")
             self.distance_real_space_label.setText(f"{results['periodicity_nm']:.3f} nm")
             self.intensity_ratio_label.setText(f"{results['intensity_ratio']:.3f}")
@@ -360,7 +363,7 @@ class DomainWallsAnalysisDialog(QDialog):
             self.status_label.setText("Calculation successful.")
         else:
             QMessageBox.critical(self, "Calculation Error", "Could not calculate domain wall parameters.")
-            # Wyczyść etykiety wyników
+            self._final_results = None
             self.distance_fft_label.setText("Error"); self.distance_real_space_label.setText("Error")
             self.intensity_ratio_label.setText("Error"); self.amplitude_ratio_label.setText("Error"); self.max_value_label.setText("Error")
 
@@ -722,6 +725,23 @@ class DomainWallsAnalysisDialog(QDialog):
         
         self.add_main_spot_button.setEnabled(roi_is_visible)
         self.add_satellite_spot_button.setEnabled(roi_is_visible and main_peak_exists)
+
+    def accept(self):
+        """Ensure final results are saved before accepting."""
+        if not self._final_results:
+             reply = QMessageBox.question(self, "No Results", 
+                                          "No calculations have been performed. Close anyway?",
+                                          QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                          QMessageBox.StandardButton.No)
+             if reply == QMessageBox.StandardButton.No:
+                 return # Nie zamykaj dialogu
+
+        logger.info("DomainWallsAnalysisDialog accepted.")
+        super().accept()
+    
+    def get_analysis_results(self) -> Optional[Dict[str, Any]]:
+        """Returns a dictionary with the final calculated parameters."""
+        return self._final_results
 
 
     
