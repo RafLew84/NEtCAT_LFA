@@ -712,3 +712,102 @@ def select_adsorbate_reciprocal_basis_vectors_px(
     else: # pragma: no cover (nie powinno się zdarzyć, jeśli typy są ograniczone w UI)
         logger.error(f"Unsupported expected_lattice_type '{expected_lattice_type}' or insufficient spots for selection.")
         return None
+    
+def calculate_d_spacing_from_ideal_spot(
+    spot_corrected_ideal_px: Tuple[float, float],
+    fft_shape: Tuple[int, int],
+    lx_nm: float,
+    ly_nm: float
+) -> Optional[float]:
+    """
+    Calculates the real-space d-spacing for a single corrected spot.
+
+    Args:
+        spot_corrected_ideal_px: Corrected (kx, ky) coordinates in the ideal FFT system.
+        fft_shape: The shape of the FFT data (rows_ky, cols_kx).
+        lx_nm: Real-space calibration size in the x-direction (nm).
+        ly_nm: Real-space calibration size in the y-direction (nm).
+
+    Returns:
+        The calculated d-spacing in nm, or None on error.
+    """
+    if not all([spot_corrected_ideal_px, fft_shape, lx_nm, ly_nm]):
+        logger.warning("d-spacing calc: Missing input data.")
+        return None
+        
+    try:
+        fft_rows_ky, fft_cols_kx = fft_shape
+        center_kx_ideal = fft_cols_kx / 2.0
+        center_ky_ideal = fft_rows_ky / 2.0
+        
+        g_vector_ideal_px = (spot_corrected_ideal_px[0] - center_kx_ideal, 
+                             spot_corrected_ideal_px[1] - center_ky_ideal)
+        
+        g_vector_nm_inv = convert_g_vector_px_to_nm_inv(g_vector_ideal_px, lx_nm, ly_nm, fft_cols_kx, fft_rows_ky)
+        if g_vector_nm_inv is None:
+            raise ValueError("k-space vector conversion failed.")
+            
+        g_mag_nm_inv = np.linalg.norm(g_vector_nm_inv)
+        return 1.0 / g_mag_nm_inv if g_mag_nm_inv > 1e-9 else float('inf')
+        
+    except Exception as e:
+        logger.error(f"Error in calculate_d_spacing_from_ideal_spot: {e}")
+        return None
+
+def calculate_domain_wall_parameters(
+    main_peak_data: Dict[str, Any],
+    satellite_peak_data: Dict[str, Any],
+    fft_shape: Tuple[int, int],
+    lx_nm: float,
+    ly_nm: float
+) -> Optional[Dict[str, float]]:
+    """
+    Calculates various domain wall parameters based on a main and satellite peak.
+
+    Args:
+        main_peak_data: Dictionary containing data for the main peak.
+                        Must include 'corrected', 'intensity', 'amplitude', 'max_value'.
+        satellite_peak_data: Dictionary for the satellite peak.
+        fft_shape, lx_nm, ly_nm: Calibration data.
+
+    Returns:
+        A dictionary with calculated parameters, or None on error.
+    """
+    try:
+        # Walidacja danych wejściowych
+        required_keys = ['corrected', 'intensity', 'amplitude', 'max_value']
+        if not all(k in main_peak_data and main_peak_data[k] is not None for k in required_keys) or \
+           not all(k in satellite_peak_data and satellite_peak_data[k] is not None for k in required_keys):
+            logger.warning("Domain wall parameter calculation failed: Incomplete peak data.")
+            return None
+
+        main_corr_px = main_peak_data['corrected']
+        sat_corr_px = satellite_peak_data['corrected']
+
+        # Obliczenie wektora różnicy
+        delta_g_vec_ideal_px = (sat_corr_px[0] - main_corr_px[0], sat_corr_px[1] - main_corr_px[1])
+        dist_fft_px = np.linalg.norm(delta_g_vec_ideal_px)
+        
+        # Konwersja i obliczenie odległości
+        fft_rows_ky, fft_cols_kx = fft_shape
+        delta_g_vec_nm_inv = convert_g_vector_px_to_nm_inv(delta_g_vec_ideal_px, lx_nm, ly_nm, fft_cols_kx, fft_rows_ky)
+        if delta_g_vec_nm_inv is None: raise ValueError("k-space conversion failed for delta_g.")
+        dist_nm_inv = np.linalg.norm(delta_g_vec_nm_inv)
+        periodicity_nm = 1.0 / dist_nm_inv if dist_nm_inv > 1e-9 else float('inf')
+        
+        # Obliczenie stosunków
+        intensity_ratio = satellite_peak_data['intensity'] / main_peak_data['intensity'] if main_peak_data['intensity'] > 1e-9 else float('inf')
+        amplitude_ratio = satellite_peak_data['amplitude'] / main_peak_data['amplitude'] if main_peak_data['amplitude'] > 1e-9 else float('inf')
+        max_value_ratio = satellite_peak_data['max_value'] / main_peak_data['max_value'] if main_peak_data['max_value'] > 1e-9 else float('inf')
+
+        return {
+            "dist_px": dist_fft_px,
+            "dist_nm_inv": dist_nm_inv,
+            "periodicity_nm": periodicity_nm,
+            "intensity_ratio": intensity_ratio,
+            "amplitude_ratio": amplitude_ratio,
+            "max_value_ratio": max_value_ratio
+        }
+    except Exception as e:
+        logger.error(f"Error in calculate_domain_wall_parameters: {e}")
+        return None

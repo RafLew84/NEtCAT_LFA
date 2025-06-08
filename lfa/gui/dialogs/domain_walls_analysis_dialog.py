@@ -14,6 +14,7 @@ from PyQt6.QtCore import Qt, pyqtSlot, QTimer
 
 from ...analysis.drift_correction import apply_affine_transform
 from ...analysis.lattice import convert_g_vector_px_to_nm_inv
+from ...analysis.lattice import calculate_d_spacing_from_ideal_spot, calculate_domain_wall_parameters
 
 try:
     import pyqtgraph as pg
@@ -336,8 +337,20 @@ class DomainWallsAnalysisDialog(QDialog):
             QMessageBox.warning(self, "Incomplete Data", "Both Main and Satellite peaks must be selected and successfully processed to perform calculation.")
             return
 
-        main_corr_px = self.main_peak_corrected_ideal_px
-        sat_corr_px = self.satellite_peak_corrected_ideal_px
+        # Prepare data dictionaries for the calculation
+        main_peak_data = {
+            'corrected': self.main_peak_corrected_ideal_px,
+            'intensity': self.main_peak_intensity,
+            'amplitude': self.main_peak_amplitude,
+            'max_value': self.main_peak_max_value
+        }
+        
+        satellite_peak_data = {
+            'corrected': self.satellite_peak_corrected_ideal_px,
+            'intensity': self.satellite_peak_intensity,
+            'amplitude': self.satellite_peak_amplitude,
+            'max_value': self.satellite_peak_max_value
+        }
 
         # Sprawdzenie, czy dane kalibracyjne są dostępne
         if self.fft_data is None or self.history_manager is None:
@@ -353,48 +366,26 @@ class DomainWallsAnalysisDialog(QDialog):
              QMessageBox.critical(self, "Error", "Invalid calibration data (Lx, Ly).")
              return
         
-        try:
-            # 2. Obliczenie odległości w przestrzeni odwrotnej
-            fft_rows_ky, fft_cols_kx = self.fft_data.shape
-            
-            # Wektor różnicy w pikselach w idealnym systemie
-            delta_g_vec_ideal_px = (sat_corr_px[0] - main_corr_px[0], sat_corr_px[1] - main_corr_px[1])
-            dist_fft_px = np.linalg.norm(delta_g_vec_ideal_px)
+        results = calculate_domain_wall_parameters(
+            main_peak_data=main_peak_data,
+            satellite_peak_data=satellite_peak_data,
+            fft_shape=self.fft_data.shape,
+            lx_nm=Lx_nm,
+            ly_nm=Ly_nm
+        )
 
-
-            # Konwersja wektora różnicy na nm⁻¹
-            if convert_g_vector_px_to_nm_inv is None: raise ImportError("convert_g_vector_px_to_nm_inv is missing")
-            delta_g_vec_nm_inv = convert_g_vector_px_to_nm_inv(delta_g_vec_ideal_px, Lx_nm, Ly_nm, fft_cols_kx, fft_rows_ky)
-            
-            if delta_g_vec_nm_inv is None: raise ValueError("k-space conversion failed.")
-            dist_nm_inv = np.linalg.norm(delta_g_vec_nm_inv)
-            
-            # 3. Obliczenie periodyczności w przestrzeni rzeczywistej
-            periodicity_nm = 1.0 / dist_nm_inv if dist_nm_inv > 1e-9 else float('inf')
-
-            # 4. Obliczenie stosunków
-            intensity_ratio = self.satellite_peak_intensity / self.main_peak_intensity if self.main_peak_intensity > 1e-9 else float('inf')
-            amplitude_ratio = self.satellite_peak_amplitude / self.main_peak_amplitude if self.main_peak_amplitude > 1e-9 else float('inf')
-            max_value_ratio = self.satellite_peak_max_value / self.main_peak_max_value if self.main_peak_max_value > 1e-9 else float('inf')
-
-            # 5. Aktualizacja UI
-            self.distance_fft_label.setText(f"{dist_fft_px:.2f} px | {dist_nm_inv:.4f} nm⁻¹")
-            self.distance_real_space_label.setText(f"{periodicity_nm:.3f} nm")
-            self.intensity_ratio_label.setText(f"{intensity_ratio:.3f}")
-            self.amplitude_ratio_label.setText(f"{amplitude_ratio:.3f}")
-            self.max_value_label.setText(f"{max_value_ratio:.3f}")
-
+        if results:
+            self.distance_fft_label.setText(f"{results['dist_px']:.2f} px | {results['dist_nm_inv']:.4f} nm⁻¹")
+            self.distance_real_space_label.setText(f"{results['periodicity_nm']:.3f} nm")
+            self.intensity_ratio_label.setText(f"{results['intensity_ratio']:.3f}")
+            self.amplitude_ratio_label.setText(f"{results['amplitude_ratio']:.3f}")
+            self.max_value_label.setText(f"{results['max_value_ratio']:.3f}")
             self.status_label.setText("Calculation successful.")
-            logger.info(f"Calculated results: Δg*={dist_nm_inv:.4f} nm⁻¹, P={periodicity_nm:.3f} nm, I_ratio={intensity_ratio:.3f}")
-
-        except Exception as e:
-            logger.error(f"Error during distance calculation: {e}")
-            QMessageBox.critical(self, "Calculation Error", f"Could not calculate results: {e}")
-            self.distance_fft_label.setText("Error")
-            self.distance_real_space_label.setText("Error")
-            self.intensity_ratio_label.setText("Error")
-            self.amplitude_ratio_label.setText("Error")
-            self.max_value_label.setText("Error")
+        else:
+            QMessageBox.critical(self, "Calculation Error", "Could not calculate domain wall parameters.")
+            # Wyczyść etykiety wyników
+            self.distance_fft_label.setText("Error"); self.distance_real_space_label.setText("Error")
+            self.intensity_ratio_label.setText("Error"); self.amplitude_ratio_label.setText("Error"); self.max_value_label.setText("Error")
 
     def _on_add_satellite_peak_clicked(self, event):
         if not self.selection_roi.isVisible(): 
@@ -729,41 +720,23 @@ class DomainWallsAnalysisDialog(QDialog):
                 logger.error(f"Error correcting spot {raw_refined_spot}: {e}")
         
         d_spacing_nm = None
-        if corrected_spot:
-            try:
-                fft_rows_ky, fft_cols_kx = self.fft_data.shape
-                center_kx_ideal, center_ky_ideal = fft_cols_kx / 2.0, fft_rows_ky / 2.0
-                
-                # Wektor od centrum idealnego FFT do skorygowanego piku
-                g_vector_ideal_px = (corrected_spot[0] - center_kx_ideal, corrected_spot[1] - center_ky_ideal)
-                
-                # Pobranie kalibracji
-                root_node = self.history_manager.get_root_node_for_node(self.current_fft_node_id)
-                if not (root_node and root_node.parameters): 
-                    raise ValueError("Calibration data not found.")
-                
-                Lx_nm=root_node.parameters.get("size_nm_x")
-                Ly_nm=root_node.parameters.get("size_nm_y")
-                if not (Lx_nm and Ly_nm): 
-                    raise ValueError("Invalid Lx/Ly in calibration data.")
-                
-                # Konwersja i obliczenie
-                g_vector_nm_inv = convert_g_vector_px_to_nm_inv(g_vector_ideal_px, Lx_nm, Ly_nm, fft_cols_kx, fft_rows_ky)
-                if g_vector_nm_inv is None: raise ValueError("k-space conversion failed.")
-                g_mag_nm_inv = np.linalg.norm(g_vector_nm_inv)
-                d_spacing_nm = 1.0 / g_mag_nm_inv if g_mag_nm_inv > 1e-9 else float('inf')
-            except Exception as e:
-                logger.error(f"Could not calculate d-spacing for spot {corrected_spot}: {e}")
+        if corrected_spot and self.fft_data is not None and self.history_manager:
+            root_node = self.history_manager.get_root_node_for_node(self.current_fft_node_id)
+            if root_node and root_node.parameters:
+                lx = root_node.parameters.get("size_nm_x")
+                ly = root_node.parameters.get("size_nm_y")
+                if lx and ly:
+                    d_spacing_nm = calculate_d_spacing_from_ideal_spot(
+                        spot_corrected_ideal_px=corrected_spot,
+                        fft_shape=self.fft_data.shape,
+                        lx_nm=lx,
+                        ly_nm=ly
+                    )
 
-        
         if corrected_spot is None: 
             logger.warning(f"Could not correct spot {raw_refined_spot}.")
             return None
-        print(f"raw_refined_spot: {raw_refined_spot}")
-        print(f"corrected_spot: {corrected_spot}")
-        print(f"intensity: {intensity}")
-        print(f"amplitude: {amplitude}")
-        print(f"d_spacing_nm: {d_spacing_nm}")
+
         return raw_refined_spot, corrected_spot, intensity, amplitude, max_value, d_spacing_nm
 
     @pyqtSlot()
