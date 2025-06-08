@@ -748,14 +748,6 @@ class AdsorbateSpotSelectionDialog(QDialog):
         }
 
     def accept(self):
-        # Można dodać walidację, np. czy wybrano przynajmniej 3 piki adsorbatu, jeśli to potrzebne do dalszej analizy
-        # if len(self.selected_adsorbate_spots_raw) < 3 and not self.corrected_adsorbate_spots_in_ideal_system:
-        #     reply = QMessageBox.question(self, "Few Spots Selected", 
-        #                                  f"Only {len(self.selected_adsorbate_spots_raw)} raw spots selected for set {self.adsorbate_set_index + 1}. "
-        #                                  "At least 3 are often needed for lattice definition. Continue anyway?",
-        #                                  QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No)
-        #     if reply == QMessageBox.StandardButton.No:
-        #         return
         
         logger.info(f"AdsorbateSpotSelectionDialog for set {self.adsorbate_set_index + 1} accepted. "
                     f"Raw spots: {len(self.selected_adsorbate_spots_raw)}, "
