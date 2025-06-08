@@ -301,9 +301,7 @@ class DomainWallsAnalysisDialog(QDialog):
             # Wektor różnicy w pikselach w idealnym systemie
             delta_g_vec_ideal_px = (sat_corr_px[0] - main_corr_px[0], sat_corr_px[1] - main_corr_px[1])
             dist_fft_px = np.linalg.norm(delta_g_vec_ideal_px)
-            print(f"main_corr_px: {main_corr_px}")
-            print(f"sat_corr_px: {sat_corr_px}")
-            print(f"dist_fft_px: {dist_fft_px}")
+
 
             # Konwersja wektora różnicy na nm⁻¹
             if convert_g_vector_px_to_nm_inv is None: raise ImportError("convert_g_vector_px_to_nm_inv is missing")
@@ -350,11 +348,6 @@ class DomainWallsAnalysisDialog(QDialog):
             self.satellite_peak_amplitude=amplitude
             self.satellite_peak_max_value=max_value
             self.basic_satellite_periodicity_nm=d_spacing_nm
-            # self.main_peak_raw_refined_px=raw
-            # self.main_peak_corrected_ideal_px=corr
-            # self.main_peak_intensity=intensity
-            # self.main_peak_amplitude=amplitude
-            # self.main_peak_max_value=max_value
             logger.info(f"Satelite peak selected/updated: Raw={raw}, Corrected={corr}, Intensity={intensity:.2e}, Amplitude={amplitude:.2e}")
             self._update_all_ui_elements()
         self.selection_roi.setVisible(False); self._update_buttons_state()
@@ -567,34 +560,6 @@ class DomainWallsAnalysisDialog(QDialog):
         else:
             self.satellite_peak_info_label.setText("Not Selected")
 
-        # if self.main_peak_data:
-        #     # Używamy skorygowanych współrzędnych i obliczonych wartości
-        #     corr = self.main_peak_data.get('corrected')
-        #     intensity = self.main_peak_data.get('intensity')
-        #     amplitude = self.main_peak_data.get('amplitude')
-            
-        #     corr_text = f"Corr: ({corr[0]:.1f}, {corr[1]:.1f}) px" if corr else "Corr: Error"
-        #     intensity_text = f"I: {intensity:.2e}" if intensity is not None else "I: -"
-        #     amplitude_text = f"A: {amplitude:.2e}" if amplitude is not None else "A: -"
-            
-        #     self.main_peak_info_label.setText(f"{corr_text} | {intensity_text} | {amplitude_text}")
-        # else:
-        #     self.main_peak_info_label.setText("Not Selected")
-        
-        # # Aktualizacja wyświetlacza piku satelitarnego
-        # if self.satellite_peak_data:
-        #     corr = self.satellite_peak_data.get('corrected')
-        #     intensity = self.satellite_peak_data.get('intensity')
-        #     amplitude = self.satellite_peak_data.get('amplitude')
-
-        #     corr_text = f"Corr: ({corr[0]:.1f}, {corr[1]:.1f}) px" if corr else "Corr: Error"
-        #     intensity_text = f"I: {intensity:.2e}" if intensity is not None else "I: -"
-        #     amplitude_text = f"A: {amplitude:.2e}" if amplitude is not None else "A: -"
-            
-        #     self.satellite_peak_info_label.setText(f"{corr_text} | {intensity_text} | {amplitude_text}")
-        # else:
-        #     self.satellite_peak_info_label.setText("Not Selected")
-
     def _redraw_all_markers_on_fft(self):
         """
         Rysuje markery dla piku głównego i satelitarnego (surowe/uściślone
@@ -629,24 +594,6 @@ class DomainWallsAnalysisDialog(QDialog):
             )
             self.fft_view_box.addItem(self.satellite_raw_marker)
 
-        # --- Rysuj skorygowane piki (przetransformowane z powrotem do przestrzeni obrazu FFT) ---
-        # spots_to_transform = []
-        # if self.main_peak_corrected_ideal_px:
-        #     spots_to_transform.append(self.main_peak_corrected_ideal_px)
-        # if self.satellite_peak_corrected_ideal_px:
-        #     spots_to_transform.append(self.satellite_peak_corrected_ideal_px)
-
-        # if self.sub_F_m2i is not None and apply_affine_transform:
-        #     try:
-                # F_inv = np.linalg.inv(self.sub_F_m2i)
-                # t_m2i = self.sub_t_m2i or np.zeros(2)
-                # t_prime_for_display = (-t_m2i @ F_inv.T).flatten()
-                
-                # transformed_main_back = apply_affine_transform(np.array(self.main_peak_corrected_ideal_px), F_inv, t_prime_for_display)
-                # transformed_sat_back = apply_affine_transform(np.array(self.satellite_peak_corrected_ideal_px), F_inv, t_prime_for_display)
-                
-                # if transformed_main_back is not None:
-                    # Skorygowany pik główny (np. duży cyjanowy kwadrat)
         if self.main_peak_corrected_ideal_px:
             self.main_peak_corrected_marker = pg.ScatterPlotItem(
                 spots=[{'pos': tuple(self.main_peak_corrected_ideal_px), 'symbol': 'x', 'size': 14, 'pen': pg.mkPen('c', width=2)}]
@@ -759,9 +706,6 @@ class DomainWallsAnalysisDialog(QDialog):
         
         self.add_main_spot_button.setEnabled(roi_is_visible)
         self.add_satellite_spot_button.setEnabled(roi_is_visible and main_peak_exists)
-        
-        # self.clear_main_peak_button.setEnabled(main_peak_exists)
-        # self.clear_satellites_button.setEnabled(bool(self.satellite_peaks_raw_refined_px))
 
 
     
