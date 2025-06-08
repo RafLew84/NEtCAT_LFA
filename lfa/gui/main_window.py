@@ -101,6 +101,13 @@ except ImportError: # pragma: no cover
     REAL_SPACE_VIS_DIALOG_AVAILABLE = False
     logging.warning("Could not import RealSpaceFFTVisualizerDialog.")
 
+try:
+    from .dialogs.stm_fft_simulation_dialog import StmFftSimulationDialog
+    SIMULATION_DIALOG_AVAILABLE = True
+except ImportError as e: # pragma: no cover
+    StmFftSimulationDialog = None; SIMULATION_DIALOG_AVAILABLE = False
+    logging.warning(f"Could not import StmFftSimulationDialog: {e}")
+
 class MainWindow(QMainWindow):
     """
     The main application window inheriting from QMainWindow.
@@ -376,6 +383,9 @@ class MainWindow(QMainWindow):
         
         if hasattr(self, 'domain_wall_analysis_action'):
             self.domain_wall_analysis_action.setEnabled(can_analyze_domain_walls)
+        
+        if hasattr(self, 'stm_fft_simulation_action'):
+            self.stm_fft_simulation_action.setEnabled(SIMULATION_DIALOG_AVAILABLE)
 
         # --- Logika dla Akcji Menu ---
         # Preprocessing: dostępne, jeśli jest jakikolwiek aktywny węzeł (STM lub FFT)
@@ -480,6 +490,19 @@ class MainWindow(QMainWindow):
 
         logger.debug(f"Action states updated. HasNode={has_active_node}, IsSTM={is_stm_data_active}, IsFFT={is_fft_data_active}, "
                      f"CanCalcSubRS={can_calculate_substrate_rs}, CanCalcAdsRS={can_calculate_adsorbate_rs}")
+    
+    @pyqtSlot()
+    def open_stm_fft_simulation_dialog(self):
+        """Otwiera dialog do symulacji danych STM/FFT."""
+        logger.info("MainWindow: Opening STM/FFT Simulation dialog...")
+        
+        if not SIMULATION_DIALOG_AVAILABLE: # pragma: no cover
+            QMessageBox.critical(self, "Dialog Error", "StmFftSimulationDialog is not available."); return
+
+        # Ten dialog na razie nie potrzebuje żadnych danych wejściowych
+        dialog = StmFftSimulationDialog(parent=self)
+        dialog.exec() # Otwórz dialog modalny
+        logger.info("STM/FFT Simulation dialog closed.")
 
     @pyqtSlot()
     def open_real_space_fft_visualizer(self):
