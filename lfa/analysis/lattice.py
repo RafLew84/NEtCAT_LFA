@@ -62,6 +62,38 @@ KNOWN_LATTICES: Dict[str, Dict] = {
         "a_surf": 0.246, # nm
         "source": "Typical value"
     },
+    "Au(100)": {
+        "type": "square",
+        "a_bulk": 0.408,  # nm (stała sieciowa)
+        "a_surf": 0.408 / np.sqrt(2),  # ~0.288 nm
+        "source": "Approx. bulk value"
+    },
+    # Platinum (Pt) - FCC
+    "Pt(111)": {
+        "type": "hexagonal",
+        "a_bulk": 0.392,  # nm
+        "a_surf": 0.392 / np.sqrt(2),  # ~0.277 nm
+        "source": "Approx. bulk value"
+    },
+    "Pt(100)": {
+        "type": "square",
+        "a_bulk": 0.392,
+        "a_surf": 0.392 / np.sqrt(2),  # ~0.277 nm
+        "source": "Approx. bulk value"
+    },
+    # Nickel (Ni) - FCC
+    "Ni(111)": {
+        "type": "hexagonal",
+        "a_bulk": 0.352,  # nm
+        "a_surf": 0.352 / np.sqrt(2),  # ~0.249 nm
+        "source": "Approx. bulk value"
+    },
+    "Ni(100)": {
+        "type": "square",
+        "a_bulk": 0.352,
+        "a_surf": 0.352 / np.sqrt(2),  # ~0.249 nm
+        "source": "Approx. bulk value"
+    },
     # Add more lattices here
 }
 

@@ -466,13 +466,39 @@ class MainWindow(QMainWindow):
     
     @pyqtSlot()
     def open_stm_fft_simulation_dialog(self):
-        """Opens the STM/FFT Simulation dialog."""
+        """Otwiera dialog do symulacji i porównania z danymi eksperymentalnymi."""
         logger.info("MainWindow: Opening STM/FFT Simulation dialog...")
         
-        if not SIMULATION_DIALOG_AVAILABLE: # pragma: no cover
+        if not SIMULATION_DIALOG_AVAILABLE: 
             QMessageBox.critical(self, "Dialog Error", "StmFftSimulationDialog is not available."); return
 
-        dialog = StmFftSimulationDialog(parent=self)
+        current_node_info = self.app_controller.get_current_node_info_for_dialogs()
+        if not (current_node_info and current_node_info[1] == "FFT"):
+            QMessageBox.warning(self, "No FFT Data", "Simulation comparison requires an active experimental FFT image."); return
+
+        node_id, _, experimental_fft_image = current_node_info
+        
+        experimental_data = {
+            "substrate_real_params": self.app_controller.substrate_real_space_results,
+            "transform_analysis": self.app_controller.substrate_transform_analysis_m2i,
+            "adsorbate_real_params": self.app_controller.adsorbate_real_space_results,
+            "domain_wall_params": self.app_controller.domain_wall_analysis_results
+        }
+        
+        root_node = self.history_manager.get_root_node_for_node(node_id)
+        simulation_params = {
+            "px_x": root_node.parameters.get("pixels_x"),
+            "px_y": root_node.parameters.get("pixels_y"),
+            "nm_x": root_node.parameters.get("size_nm_x"),
+            "nm_y": root_node.parameters.get("size_nm_y"),
+        }
+
+        dialog = StmFftSimulationDialog(
+            experimental_fft_image=experimental_fft_image,
+            experimental_data=experimental_data,
+            simulation_params=simulation_params,
+            parent=self
+        )
         dialog.exec()
         logger.info("STM/FFT Simulation dialog closed.")
     
