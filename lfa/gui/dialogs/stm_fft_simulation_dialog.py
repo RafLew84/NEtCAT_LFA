@@ -22,8 +22,10 @@ except ImportError: # pragma: no cover
 
 try:
     from ...analysis.lattice import KNOWN_LATTICES
+    from ...analysis.fft_engine import calculate_fft
 except ImportError:
     KNOWN_LATTICES = {"Error": {"type": "hexagonal", "a_surf": 0.3}}
+    def calculate_fft(*args, **kwargs): return None
     logging.error("StmFftSimulationDialog: Could not import KNOWN_LATTICES.")
 
 logger = logging.getLogger(__name__)
@@ -348,6 +350,14 @@ class StmFftSimulationDialog(QDialog):
     #     self.exp_layout.addLayout(form_layout)
     #     self.exp_layout.addStretch()
 
+    def _create_slider(self, label_text: str, min_val: int, max_val: int, initial_val: int) -> Tuple[QSlider, QLabel]:
+        """Metoda pomocnicza do tworzenia suwaka z etykietą."""
+        label = QLabel(label_text)
+        slider = QSlider(Qt.Orientation.Horizontal)
+        slider.setRange(min_val, max_val)
+        slider.setValue(initial_val)
+        return slider, label
+
     def _display_experimental_data(self):
         """Wypełnia panel danymi z analizy eksperymentalnej w nowym układzie."""
         for layout in [self.exp_sub_layout, self.exp_transform_layout, self.exp_ads_layout, self.exp_dw_layout]:
@@ -422,20 +432,277 @@ class StmFftSimulationDialog(QDialog):
         text = f"|a1|={a1:.3f}nm\n|a2|={a2:.3f}nm\nα={alpha:.2f}°"
         self.exp_adsorbate_label.setText(text)
 
-    def _create_slider(self, label_text: str, min_val: int, max_val: int, initial_val: int) -> Tuple[QSlider, QLabel]:
-        """Metoda pomocnicza do tworzenia suwaka z etykietą."""
-        label = QLabel(label_text)
-        slider = QSlider(Qt.Orientation.Horizontal)
-        slider.setRange(min_val, max_val)
-        slider.setValue(initial_val)
-        return slider, label
-
     def _connect_signals(self):
-        # TODO: Implementacja w kolejnym kroku
+        """Podłącza wszystkie kontrolki UI do slotu aktualizującego symulację."""
         self.button_box.accepted.connect(self.accept)
         self.button_box.rejected.connect(self.reject)
-        logger.debug("StmFftSimulationDialog signals will be connected later.")
 
+        # Połącz wszystkie kontrolki z jednym slotem
+        self.substrate_combo.currentTextChanged.connect(self._update_simulation)
+        self.adsorbate_combo.currentTextChanged.connect(self._update_simulation)
+        self.compression_slider.valueChanged.connect(self._update_simulation)
+        self.stripe_width_slider.valueChanged.connect(self._update_simulation)
+        self.relax_width_slider.valueChanged.connect(self._update_simulation)
+        self.domain_type_combo.currentTextChanged.connect(self._update_simulation)
+        self.symmetry_combo.currentTextChanged.connect(self._update_simulation)
+        self.sub_size_slider.valueChanged.connect(self._update_simulation)
+        self.ads_size_slider.valueChanged.connect(self._update_simulation)
+        self.fft_window_combo.currentTextChanged.connect(self._update_simulation)
+
+
+    def _get_current_simulation_parameters(self) -> Dict[str, Any]:
+        """Zbiera wszystkie aktualne parametry z kontrolek UI."""
+        params = self.sim_params.copy() # Start with px_x, px_y, nm_x, nm_y
+        
+        params['substrate_name'] = self.substrate_combo.currentText()
+        params['adsorbate_name'] = self.adsorbate_combo.currentText()
+        params['compression'] = self.compression_slider.value() / 100.0
+        params['stripe_width'] = self.stripe_width_slider.value() / 100.0
+        params['relax_width'] = self.relax_width_slider.value() / 100.0
+        params['domain_type'] = self.domain_type_combo.currentText()
+        params['symmetry'] = self.symmetry_combo.currentText()
+        params['atom_size_sub'] = self.sub_size_slider.value()
+        params['atom_size_ads'] = self.ads_size_slider.value()
+        params['fft_window_type'] = self.fft_window_combo.currentText()
+        
+        return params
+    
+    def _generate_image(self, params: Dict[str, Any]) -> Optional[np.ndarray]:
+        """Generuje obraz topografii STM na podstawie parametrów."""
+        img_size_y, img_size_x = params['px_y'], params['px_x']
+        # Używamy jednego skalowania, aby uniknąć dystorsji, jeśli piksele nie są kwadratowe
+        pixel_per_nm = params['px_x'] / params['nm_x']
+
+        # Generuj koordynaty
+        sub_coords = self._get_substrate_coords(params)
+        ads_coords = self._get_adsorbate_coords(params)
+
+        img = np.zeros((img_size_y, img_size_x), dtype=np.float32)
+
+        def splat(coords: Optional[np.ndarray], intensity: float):
+            """
+            Helper do 'malowania' atomów. Teraz bezpiecznie obsługuje krawędzie.
+            """
+            if coords is None or coords.size == 0:
+                return
+
+            # Skaluj pozycje w nm na piksele
+            px = coords[:, 0] * pixel_per_nm
+            py = coords[:, 1] * pixel_per_nm
+            
+            # Zaokrąglij do najbliższych współrzędnych całkowitych
+            ix = np.round(px).astype(int)
+            iy = np.round(py).astype(int)
+            
+            # --- POPRAWKA: Stwórz maskę, aby odfiltrować punkty POZA granicami ---
+            # Sprawdź, czy zaokrąglone indeksy mieszczą się w zakresie [0, size-1]
+            mask = (ix >= 0) & (ix < img_size_x) & (iy >= 0) & (iy < img_size_y)
+            
+            # Użyj tylko prawidłowych indeksów
+            valid_ix = ix[mask]
+            valid_iy = iy[mask]
+            
+            # Dodaj intensywność w prawidłowych lokalizacjach
+            img[valid_iy, valid_ix] += intensity
+            # --- KONIEC POPRAWKI ---
+
+        # "Malowanie" atomów
+        splat(sub_coords, intensity=0.5)
+        splat(ads_coords, intensity=1.0)
+        
+        if not img.any():
+            return img
+
+        # Rozmycie gaussowskie dla realistycznego wyglądu
+        sigma = max((params.get('atom_size_sub', 50) + params.get('atom_size_ads', 50)) / 200.0, 0.1)
+        if sigma > 0 and pg:
+             img = pg.gaussianFilter(img, (sigma, sigma))
+        
+        return img / img.max() if img.max() > 0 else img
+    
+    # def _generate_image(self, params: Dict[str, Any]) -> Optional[np.ndarray]:
+    #     """Generuje obraz topografii STM na podstawie parametrów."""
+    #     img_size = params['px_x'] # Używamy wymiarów z obrazu eksperymentalnego
+    #     pixel_per_nm = params['px_x'] / params['nm_x']
+
+    #     acc = np.zeros((img_size, img_size), dtype=float)
+        
+    #     def splat(coords: np.ndarray, size_param: int):
+    #         """Helper do 'malowania' atomów."""
+    #         for p in coords:
+    #             x, y = p[0] * pixel_per_nm, p[1] * pixel_per_nm
+    #             xf, yf = int(np.floor(x)), int(np.floor(y))
+    #             if 0 <= xf < img_size and 0 <= yf < img_size:
+    #                 acc[yf, xf] += 1.0 # Prostsze 'malowanie' dla szybkości
+        
+    #     # Generuj koordynaty substratu i adsorbatu
+    #     sub_coords = self._get_substrate_coords(params)
+    #     ads_coords = self._get_adsorbate_coords(params, sub_coords)
+        
+    #     if sub_coords is not None: splat(sub_coords, params['atom_size_sub'])
+    #     if ads_coords is not None: splat(ads_coords, params['atom_size_ads'])
+        
+    #     if not acc.any(): return np.zeros((img_size, img_size), dtype=np.float32)
+
+    #     # Rozmycie gaussowskie dla realistycznego wyglądu
+    #     # Rozmiar atomu kontroluje sigmę rozmycia
+    #     sigma = max((params['atom_size_sub'] + params['atom_size_ads']) / 200.0, 0.1)
+    #     img = pg.gaussianFilter(acc, (sigma, sigma))
+        
+    #     return img / img.max() if img.max() > 0 else img
+
+    # --- NOWA, GŁÓWNA METODA LOGIKI ---
+    @pyqtSlot()
     def _update_simulation(self):
-        # TODO: Implementacja w kolejnym kroku
-        pass
+        """Główna pętla: zbiera parametry, generuje obraz, oblicza FFT i aktualizuje widoki."""
+        if not self.isVisible(): return # Nie rób nic, jeśli okno nie jest widoczne
+        
+        params = self._get_current_simulation_parameters()
+        
+        # Aktualizuj etykiety suwaków
+        self.compression_label.setText(f"Compression: {params['compression']:.2f}")
+        self.stripe_width_label.setText(f"Stripe Width: {params['stripe_width']:.2f} nm")
+        self.relax_width_label.setText(f"Relax Width: {params['relax_width']:.2f} nm")
+        self.sub_size_label.setText(f"Sub. Atom Size: {params['atom_size_sub']}")
+        self.ads_size_label.setText(f"Ads. Atom Size: {params['atom_size_ads']}")
+        
+        # Generuj obraz STM
+        stm_image = self._generate_image(params)
+        if stm_image is None: logger.error("STM image generation failed."); return
+        
+        # Oblicz FFT
+        fft_image = self._calculate_fft(stm_image, params)
+        if fft_image is None: logger.error("FFT calculation failed."); return
+
+        # Wyświetl obrazy
+        self.sim_stm_image_item.setImage(stm_image.T, autoLevels=True)
+        self.sim_fft_image_item.setImage(fft_image.T, autoLevels=True) # Poziomy kontrolowane przez histogram
+        
+        # Ustaw skalę osi dla widoków
+        # Lx, Ly = params['nm_x'], params['nm_y']
+        px_x, px_y = params['px_x'], params['px_y']
+        self.sim_stm_plot.setRange(xRange=(0,px_x), yRange=(0,px_y))
+        
+        # k_range = np.pi / (px_x/params['px_x']) # Zakres k od -k_max do k_max
+        fft_Ny, fft_Nx = fft_image.shape
+        self.sim_fft_plot.setRange(xRange=(0,fft_Nx), yRange=(0,fft_Ny))
+
+    def _get_substrate_coords(self, params: Dict[str, Any]) -> Optional[np.ndarray]:
+        """Uogólniona metoda do generowania koordynatów substratu."""
+        lattice_name = params['substrate_name']
+        if lattice_name not in KNOWN_LATTICES: return None
+        
+        info = KNOWN_LATTICES[lattice_name]
+        a_sub_nm = info['a_surf']
+        l_type = info['type']
+        L = params['nm_x']
+
+        if l_type == 'hexagonal':
+            a1 = np.array([a_sub_nm, 0])
+            a2 = np.array([a_sub_nm/2, a_sub_nm * np.sqrt(3)/2])
+        elif l_type == 'square':
+            a1 = np.array([a_sub_nm, 0])
+            a2 = np.array([0, a_sub_nm])
+        else: return None
+
+        pts = []
+        N = int(np.ceil((L/2)/a_sub_nm)*1.5) + 5
+        for i in range(-N, N+1):
+            for j in range(-N, N+1):
+                pts.append(i*a1 + j*a2 + np.array([L/2, L/2]))
+        return np.array(pts)
+        
+    def _get_adsorbate_coords(self, params: Dict[str, Any]) -> Optional[np.ndarray]:
+        """
+        Uogólniona metoda do generowania współrzędnych adsorbatu, uwzględniająca
+        kompresję i modelowanie ścian domenowych.
+        """
+        if params.get('adsorbate_name') == "None":
+            return None # Jeśli nie wybrano adsorbatu, zwróć None
+        
+        # Pobierz wektory bazowe substratu, które są podstawą do definicji adsorbatu
+        substrate_info = KNOWN_LATTICES.get(params['substrate_name'])
+        if not substrate_info:
+            return None
+        
+        a_sub_nm = substrate_info['a_surf']
+        sub_a1 = np.array([a_sub_nm, 0])
+        sub_a2 = np.array([a_sub_nm/2, a_sub_nm * np.sqrt(3)/2])
+        
+        # --- Logika specyficzna dla "Iodine (predefined)" ---
+        # W przyszłości można to rozbudować o inne adsorbanty
+        if params['adsorbate_name'] == "Iodine (predefined)":
+            # Definicja idealnej sieci adsorbatu względem substratu
+            fcc_offset = (sub_a1 + sub_a2) / 3
+            ads_ideal_a1 = sub_a1 + sub_a2
+            ads_ideal_a2 = -sub_a1 + 2 * sub_a2
+
+            # Zastosuj kompresję jednoosiową
+            T = np.array([[params['compression'], 0], [0, 1]])
+            a1 = T @ ads_ideal_a1
+            a2 = T @ ads_ideal_a2
+            
+            # Parametry ścian domenowych
+            phi_map = {'Heavy': 1/3., 'Super Heavy': 2/3., 'Light': -1/3., 'Super Light': -2/3.}
+            shift = phi_map.get(params['domain_type'], 0) * a1
+            
+            # Generowanie punktów
+            pts = []
+            L = params['nm_x']
+            spacing = min(np.linalg.norm(a1), np.linalg.norm(a2))
+            if spacing < 1e-6: spacing = a_sub_nm
+            N = int(np.ceil((L/2)/spacing)*1.5) + 15
+
+            if params['symmetry'] == 'Striped':
+                stripe_width = params.get('stripe_width', 5.0)
+                relax_width = params.get('relax_width', 2.0)
+                for i in range(-N, N + 1):
+                    for j in range(-N, N + 1):
+                        base = i*a1 + j*a2 + fcc_offset
+                        p = base + np.array([L/2, L/2]) # Centrowanie
+                        if stripe_width < 1e-6 or relax_width < 1e-6:
+                            pts.append(p)
+                            continue
+                        d = int(np.floor(p[0] / stripe_width))
+                        xp = p[0] - d * stripe_width
+                        t = (xp - stripe_width / 2) / relax_width
+                        f = 0 if t < -20 else (1 if t > 20 else (1 + np.tanh(t)) / 2)
+                        pts.append(p + shift * (f if d % 2 else 1 - f))
+            else: # Symetria heksagonalna
+                S = int(N / 4) + 3
+                M = 4
+                for i in range(-S, S + 1):
+                    for j in range(-S, S + 1):
+                        dom = ((i + j) % 3) / 3.0 * shift
+                        for u in range(-M, M + 1):
+                            for v in range(-M, M + 1):
+                                base = u*a1 + v*a2 + fcc_offset + dom
+                                pts.append(base + np.array([L/2, L/2]))
+            
+            return np.array(pts)
+
+        elif params['adsorbate_name'] == "<Custom Define...>":
+            logger.warning("Custom adsorbate definition is not yet implemented.")
+            return None
+            
+        return None
+    
+    def _calculate_fft(self, image_data: np.ndarray, params: Dict[str, Any]) -> Optional[np.ndarray]:
+        """
+        Oblicza FFT na podstawie parametrów i zwraca wynik w skali mocy (|F|^2).
+        """
+        # Użyj funkcji calculate_fft z modułu fft_engine, która obsługuje okienkowanie
+        fft_complex = calculate_fft(
+            image_data, 
+            apply_window=(params['fft_window_type'] != 'None'), 
+            window_type=params['fft_window_type'].lower()
+        )
+        
+        if fft_complex is None: 
+            return None
+        
+        # --- ZMIANA: Zwracaj bezpośrednio kwadrat modułu (|F|^2) ---
+        # To jest "Power Spectrum", wymagane do analizy intensywności.
+        magnitude_squared = np.abs(fft_complex)**2
+        
+        return magnitude_squared.astype(np.float32)
