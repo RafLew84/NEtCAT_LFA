@@ -184,6 +184,9 @@ class DomainWallsAnalysisDialog(QDialog):
         sub_transform_layout.addRow("Rotation:", self.dist_sub_transform_info_label_rot)
         sub_transform_layout.addRow("Scale:", self.dist_sub_transform_info_label_scale)
         sub_transform_layout.addRow("RMSE:", self.dist_sub_transform_info_label_rmse)
+        self.apply_substrate_transform_checkbox = QCheckBox("Apply Substrate Transformation")
+        self.apply_substrate_transform_checkbox.setChecked(True)  # domyślnie włączony
+        sub_transform_layout.addRow("Apply Transform:", self.apply_substrate_transform_checkbox)
         left_controls_layout.addWidget(sub_transform_group)
         
         left_controls_layout.addStretch(1)
@@ -670,14 +673,17 @@ class DomainWallsAnalysisDialog(QDialog):
         intensity = 2*np.pi*abs(amplitude)*abs(sigma_x)*abs(sigma_y)
         max_value = np.max(roi_patch_used) if roi_patch_used.size > 0 else 0.0
         
-        corrected_spot = None
-        if self.sub_F_m2i is not None and self.sub_t_m2i is not None and apply_affine_transform:
-            try:
-                corrected_array = apply_affine_transform(np.array([raw_refined_spot]), self.sub_F_m2i, self.sub_t_m2i)
-                if corrected_array is not None:
-                    corrected_spot = tuple(corrected_array[0])
-            except Exception as e:
-                logger.error(f"Error correcting spot {raw_refined_spot}: {e}")
+        if self.apply_substrate_transform_checkbox.isChecked():
+            corrected_spot = None
+            if self.sub_F_m2i is not None and self.sub_t_m2i is not None and apply_affine_transform:
+                try:
+                    corrected_array = apply_affine_transform(np.array([raw_refined_spot]), self.sub_F_m2i, self.sub_t_m2i)
+                    if corrected_array is not None:
+                        corrected_spot = tuple(corrected_array[0])
+                except Exception as e:
+                    logger.error(f"Error correcting spot {raw_refined_spot}: {e}")
+        else:
+            corrected_spot = raw_refined_spot
         
         d_spacing_nm = None
         if corrected_spot and self.fft_data is not None and self.history_manager:
