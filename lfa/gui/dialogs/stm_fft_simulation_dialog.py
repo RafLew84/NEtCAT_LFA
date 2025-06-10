@@ -23,9 +23,10 @@ except ImportError: # pragma: no cover
 
 from ...core.history import HistoryNode
 from ...logic.history_manager import HistoryManager
+from ...analysis.peak_fitting import fit_2d_gaussian_in_roi_with_all_data, find_max_pixel_in_roi
 
 try:
-    from ...analysis.lattice import KNOWN_LATTICES
+    from ...analysis.lattice import KNOWN_LATTICES, get_reciprocal_points, convert_g_vector_px_to_nm_inv, get_reciprocal_vectors
     from ...analysis.fft_engine import calculate_fft
 except ImportError:
     KNOWN_LATTICES = {"Error": {"type": "hexagonal", "a_surf": 0.3}}
@@ -212,6 +213,18 @@ class StmFftSimulationDialog(QDialog):
         self.resolution_multiplier_combo.addItems(["1x (Match Experiment)", "2x", "4x"])
         self.resolution_multiplier_combo.setToolTip("Increase simulation grid density for higher visual quality.\n1x matches experimental FFT grid for direct comparison.")
         vis_form.addRow("Resolution Multiplier:", self.resolution_multiplier_combo)
+
+        auto_analysis_group = QGroupBox("Automated Analysis")
+        auto_analysis_layout=QVBoxLayout(auto_analysis_group)
+        self.analyze_sim_button = QPushButton("Analyze Simulated Peaks")
+        auto_analysis_layout.addWidget(self.analyze_sim_button)
+        self.auto_main_label = QLabel("Main Peak: -")
+        self.auto_sat_label = QLabel("Satellite Peak: -")
+        auto_analysis_layout.addWidget(self.auto_main_label)
+        auto_analysis_layout.addWidget(self.auto_sat_label)
+        self.auto_ratio_label = QLabel("Ratios (Sat/Main): -")
+        auto_analysis_layout.addWidget(self.auto_ratio_label)
+        vis_fft_layout.addWidget(auto_analysis_group)
 
         controls_main_layout.addLayout(lattice_layout)
         controls_main_layout.addLayout(domain_layout)
@@ -476,9 +489,163 @@ class StmFftSimulationDialog(QDialog):
         self.ads_size_slider.valueChanged.connect(self._update_simulation)
         self.fft_window_combo.currentTextChanged.connect(self._update_simulation)
         self.load_to_lfa_button.clicked.connect(self._on_load_to_lfa_clicked)
+        self.analyze_sim_button.clicked.connect(self._on_analyze_simulated_peaks_clicked)
 
         self.resolution_multiplier_combo.currentTextChanged.connect(self._update_simulation)
 
+    @pyqtSlot()
+    def _on_analyze_simulated_peaks_clicked(self):
+        """Uruchamia automatyczną analizę symulowanego obrazu FFT."""
+        params = self._get_current_simulation_parameters()
+        sim_fft_data = self._calculate_fft(self._generate_image(params), params)
+        if sim_fft_data is None: return
+
+        peak_positions = self._calculate_theoretical_peak_positions(params)
+        if not peak_positions:
+            QMessageBox.warning(self, "Analysis Error", "Could not calculate theoretical peak positions."); return
+            
+        main_peak_pos_px, satellite_peak_pos_px = peak_positions
+        
+        logger.info(f"Analyzing theoretical main peak at ~{main_peak_pos_px}")
+        main_analysis = self._analyze_peak_at_coords(sim_fft_data, main_peak_pos_px)
+        
+        logger.info(f"Analyzing theoretical satellite peak at ~{satellite_peak_pos_px}")
+        satellite_analysis = self._analyze_peak_at_coords(sim_fft_data, satellite_peak_pos_px)
+
+        self._display_automated_analysis_results(main_analysis, satellite_analysis)
+
+    def _calculate_theoretical_peak_positions(self, params: Dict[str, Any]) -> Optional[Tuple[Tuple[float, float], Tuple[float, float]]]:
+        """
+        Calculates the theoretical positions of the main commensurate peak and the
+        first satellite peak based on simulation parameters.
+
+        Returns:
+            A tuple containing two tuples: (main_peak_coords_px, satellite_peak_coords_px),
+            or (None, None) if calculation is not possible.
+        """
+        substrate_info = KNOWN_LATTICES.get(params.get('substrate_name'))
+        if not (substrate_info and get_reciprocal_vectors):
+            logger.warning("Cannot calculate theoretical positions: substrate info or get_reciprocal_vectors missing.")
+            return None, None
+
+        # Krok 1: Oblicz wektory sieci rzeczywistej i odwrotnej dla symulowanego adsorbatu
+        a_sub_nm = substrate_info['a_surf']
+        sub_a1 = np.array([a_sub_nm, 0])
+        sub_a2 = np.array([a_sub_nm / 2, a_sub_nm * np.sqrt(3) / 2])
+        ads_ideal_a1 = sub_a1 + sub_a2
+        ads_ideal_a2 = -sub_a1 + 2 * sub_a2
+        
+        T = np.array([[params.get('compression', 1.0), 0], [0, 1]])
+        a1_prime = T @ ads_ideal_a1
+        a2_prime = T @ ads_ideal_a2
+
+        area_i = abs(np.cross(a1_prime, a2_prime))
+        if area_i < 1e-9: return None, None
+        
+        b1_prime = 2 * np.pi * np.array([a2_prime[1], -a2_prime[0]]) / area_i
+        b2_prime = 2 * np.pi * np.array([-a1_prime[1], a1_prime[0]]) / area_i
+
+        # Pozycja piku głównego w przestrzeni k (nm⁻¹)
+        main_peak_k_space = b1_prime
+
+        # Krok 2: Oblicz wektor rozszczepienia (splitting vector)
+        l = params.get('stripe_width', 5.0)
+        if l < 1e-9: return None, None
+        
+        # Zgodnie z artykułem, epsilon = 4*pi / (3*l)
+        epsilon_magnitude = (4 * np.pi) / (3 * l)
+        
+        if params.get('symmetry') == 'Striped':
+            # Dla prążków, wewnętrzny tryplet jest w epsilon/2
+            split_magnitude = epsilon_magnitude / 2.0
+        else: # Hexagonal
+            split_magnitude = epsilon_magnitude
+            
+        # Kierunek rozszczepienia jest wzdłuż wektora sieci odwrotnej
+        direction_vector = main_peak_k_space / np.linalg.norm(main_peak_k_space)
+        epsilon_vec_k_space = direction_vector * split_magnitude
+
+        satellite_peak_k_space = main_peak_k_space + epsilon_vec_k_space
+
+        # Krok 3: Konwersja z nm⁻¹ na piksele
+        fft_Ny, fft_Nx = params['px_y'], params['px_x']
+        Lx, Ly = params['nm_x'], params['nm_y']
+        
+        # Skalowanie z przestrzeni k (z 2pi) do pikseli
+        # Zakres k od -pi/dx do +pi/dx, gdzie dx = Lx/Nx
+        # kx_px = (kx * Lx / (2*pi)) + Nx/2
+        main_kx_px = (main_peak_k_space[0] * Lx / (2*np.pi)) + fft_Nx/2
+        main_ky_px = (main_peak_k_space[1] * Ly / (2*np.pi)) + fft_Ny/2
+        
+        sat_kx_px = (satellite_peak_k_space[0] * Lx / (2*np.pi)) + fft_Nx/2
+        sat_ky_px = (satellite_peak_k_space[1] * Ly / (2*np.pi)) + fft_Ny/2
+
+        return (main_kx_px, main_ky_px), (sat_kx_px, sat_ky_px)
+
+    def _analyze_peak_at_coords(self, fft_image: np.ndarray, coords_px: Tuple[float, float]) -> Optional[Dict[str, float]]:
+        """
+        Wykonuje szczegółową analizę małego regionu wokół podanych współrzędnych na obrazie FFT.
+        """
+        center_kx, center_ky = coords_px
+        roi_radius = 3 # Użyjmy małego, stałego ROI 7x7 dla analizy
+        
+        if not (fit_2d_gaussian_in_roi_with_all_data and callable(fit_2d_gaussian_in_roi_with_all_data)):
+            return None
+            
+        fit_res = fit_2d_gaussian_in_roi_with_all_data(fft_image, (int(round(center_ky)), int(round(center_kx))), roi_radius)
+        if not fit_res:
+            logger.warning(f"Automated Gaussian fit failed for coordinates {coords_px}.")
+            # Fallback: uśrednienie 3x3
+            y_start, x_start = int(round(center_ky))-1, int(round(center_kx))-1
+            patch = fft_image[y_start:y_start+3, x_start:x_start+3]
+            return {
+                "intensity_volume": np.sum(patch),
+                "amplitude": np.max(patch),
+                "max_value": np.max(patch)
+            }
+
+        popt_fit, (fky_abs, fkx_abs), roi_patch_used = fit_res
+        
+        amplitude, _, _, sigma_y, sigma_x, _, _ = popt_fit
+        intensity_volume = 2 * np.pi * abs(amplitude) * abs(sigma_x) * abs(sigma_y)
+        max_value = amplitude # Max value z dopasowania
+        
+        return {
+            "intensity_volume": intensity_volume,
+            "amplitude": abs(amplitude),
+            "max_value": max_value
+        }
+
+    def _display_automated_analysis_results(self, main_results: Optional[Dict[str, float]], sat_results: Optional[Dict[str, float]]):
+        """Wyświetla wyniki automatycznej analizy w UI."""
+        if not main_results:
+            self.auto_main_label.setText("Main Peak: Analysis failed")
+            return
+        
+        main_intensity = main_results['intensity_volume']
+        main_amplitude = main_results['amplitude']
+        main_max_val = main_results['max_value']
+        self.auto_main_label.setText(f"Main Peak: I={main_intensity:.2e}, A={main_amplitude:.2e}, Max={main_max_val:.2e}")
+
+        if not sat_results:
+            self.auto_sat_label.setText("Satellite Peak: Analysis failed")
+            self.auto_ratio_label.setText("Ratios (Sat/Main): N/A")
+            return
+
+        sat_intensity = sat_results['intensity_volume']
+        sat_amplitude = sat_results['amplitude']
+        sat_max_val = sat_results['max_value']
+        self.auto_sat_label.setText(f"Satellite Peak: I={sat_intensity:.2e}, A={sat_amplitude:.2e}, Max={sat_max_val:.2e}")
+
+        # Obliczanie i wyświetlanie stosunków
+        intensity_ratio = sat_intensity / main_intensity if main_intensity > 1e-9 else float('inf')
+        amplitude_ratio = sat_amplitude / main_amplitude if main_amplitude > 1e-9 else float('inf')
+        max_value_ratio = sat_max_val / main_max_val if main_max_val > 1e-9 else float('inf')
+
+        ratios_text = (f"Intensity: {intensity_ratio:.3f} | "
+                       f"Amplitude: {amplitude_ratio:.3f} | "
+                       f"Max Value: {max_value_ratio:.3f}")
+        self.auto_ratio_label.setText(f"Ratios (Sat/Main): {ratios_text}")
 
     def _get_current_simulation_parameters(self) -> Dict[str, Any]:
         """Zbiera wszystkie aktualne parametry z kontrolek UI."""
