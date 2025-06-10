@@ -42,6 +42,9 @@ class StmFftSimulationDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("STM/FFT Simulation & Comparison")
         self.setMinimumSize(1400, 800)
+        current_flags=self.windowFlags()
+        self.setWindowFlags(current_flags | Qt.WindowType.WindowMinimizeButtonHint | Qt.WindowType.WindowMaximizeButtonHint)
+
 
         self.experimental_fft_image = experimental_fft_image
         self.experimental_data = experimental_data
@@ -152,6 +155,11 @@ class StmFftSimulationDialog(QDialog):
         lattice_form.addRow("Substrate:", self.substrate_combo)
         lattice_form.addRow("Adsorbate:", self.adsorbate_combo)
         lattice_layout.addWidget(lattice_group)
+
+        sim_results_group = QGroupBox("Simulation Analysis")
+        self.sim_results_layout = QFormLayout(sim_results_group)
+        lattice_layout.addWidget(sim_results_group)
+
         lattice_layout.addStretch()
         
         domain_layout = QVBoxLayout()
@@ -186,14 +194,14 @@ class StmFftSimulationDialog(QDialog):
         vis_fft_layout.addWidget(fft_group)
         vis_fft_layout.addStretch()
 
+        # sim_results_group = QGroupBox("Simulation Analysis")
+        # self.sim_results_layout = QFormLayout(sim_results_group)
+        # vis_fft_layout.addWidget(sim_results_group)
+
         self.resolution_multiplier_combo = QComboBox()
         self.resolution_multiplier_combo.addItems(["1x (Match Experiment)", "2x", "4x"])
         self.resolution_multiplier_combo.setToolTip("Increase simulation grid density for higher visual quality.\n1x matches experimental FFT grid for direct comparison.")
         vis_form.addRow("Resolution Multiplier:", self.resolution_multiplier_combo)
-
-        sim_results_group = QGroupBox("Simulation Analysis")
-        self.sim_results_layout = QFormLayout(sim_results_group)
-        vis_fft_layout.addWidget(sim_results_group)
 
         controls_main_layout.addLayout(lattice_layout)
         controls_main_layout.addLayout(domain_layout)
