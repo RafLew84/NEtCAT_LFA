@@ -186,6 +186,11 @@ class StmFftSimulationDialog(QDialog):
         vis_fft_layout.addWidget(fft_group)
         vis_fft_layout.addStretch()
 
+        self.resolution_multiplier_combo = QComboBox()
+        self.resolution_multiplier_combo.addItems(["1x (Match Experiment)", "2x", "4x"])
+        self.resolution_multiplier_combo.setToolTip("Increase simulation grid density for higher visual quality.\n1x matches experimental FFT grid for direct comparison.")
+        vis_form.addRow("Resolution Multiplier:", self.resolution_multiplier_combo)
+
         controls_main_layout.addLayout(lattice_layout)
         controls_main_layout.addLayout(domain_layout)
         controls_main_layout.addLayout(vis_fft_layout)
@@ -449,11 +454,18 @@ class StmFftSimulationDialog(QDialog):
         self.ads_size_slider.valueChanged.connect(self._update_simulation)
         self.fft_window_combo.currentTextChanged.connect(self._update_simulation)
 
+        self.resolution_multiplier_combo.currentTextChanged.connect(self._update_simulation)
+
 
     def _get_current_simulation_parameters(self) -> Dict[str, Any]:
         """Zbiera wszystkie aktualne parametry z kontrolek UI."""
         params = self.sim_params.copy() # Start with px_x, px_y, nm_x, nm_y
+
+        multiplier_text = self.resolution_multiplier_combo.currentText() # "1x", "2x", "4x"
+        multiplier = int(multiplier_text.split('x')[0])
         
+        params['px_x'] = self.sim_params['px_x'] * multiplier
+        params['px_y'] = self.sim_params['px_y'] * multiplier
         params['substrate_name'] = self.substrate_combo.currentText()
         params['adsorbate_name'] = self.adsorbate_combo.currentText()
         params['compression'] = self.compression_slider.value() / 100.0
