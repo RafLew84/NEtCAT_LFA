@@ -497,10 +497,20 @@ class MainWindow(QMainWindow):
             experimental_fft_image=experimental_fft_image,
             experimental_data=experimental_data,
             simulation_params=simulation_params,
+            history_manager=self.history_manager,
+            current_node_id=node_id,
             parent=self
         )
+        dialog.simulation_accepted.connect(self._on_simulation_accepted)
         dialog.exec()
         logger.info("STM/FFT Simulation dialog closed.")
+
+    @pyqtSlot(HistoryNode)
+    def _on_simulation_accepted(self, new_fft_node: HistoryNode):
+        """Odbiera nowy węzeł z dialogu symulacji i dodaje go do historii."""
+        if self.app_controller:
+            logger.info(f"Received new simulated FFT node ({new_fft_node.operation_name}) to be added to history.")
+            self.app_controller.add_new_node_to_history(new_fft_node)
     
     @pyqtSlot(object) 
     def _on_domain_wall_results_updated(self, results: Optional[Dict[str, Any]]):

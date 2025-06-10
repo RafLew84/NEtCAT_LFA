@@ -679,6 +679,17 @@ class AppController(QObject):
         logger.info(f"AppController: Updated domain wall analysis results: {results}")
         self.domain_wall_results_updated.emit(self.domain_wall_analysis_results)
 
+    def add_new_node_to_history(self, new_node: HistoryNode):
+        """
+        Dodaje nowy, gotowy węzeł do historii i ustawia go jako bieżący.
+        Używane np. przez dialog symulacji.
+        """
+        if self.history_manager:
+            self.history_manager.add_node(new_node)
+            # Ustaw nowo dodany węzeł jako aktywny
+            self.history_manager.set_current_node_by_id(new_node.node_id)
+            logger.info(f"AppController: Added new node '{new_node.operation_name}' to history.")
+
     def add_new_adsorbate_set(self):
         """Adds a new, empty adsorbate spot set and sets it as current."""
         self.adsorbate_spot_sets.append([])

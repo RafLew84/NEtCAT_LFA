@@ -3,13 +3,14 @@ import logging
 import numpy as np
 from typing import Optional, Dict, Any, Tuple
 
-from PyQt6.QtCore import Qt, pyqtSlot
+from PyQt6.QtCore import Qt, pyqtSlot, pyqtSignal
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget,
     QVBoxLayout, QHBoxLayout, QGroupBox,
     QCheckBox, QLabel, QFormLayout, QPushButton,
     QSlider, QGroupBox,
-    QComboBox, QDialog, QSplitter, QDialogButtonBox
+    QComboBox, QDialog, QSplitter, QDialogButtonBox,
+    QMessageBox
 )
 
 try:
@@ -19,6 +20,9 @@ try:
 except ImportError: # pragma: no cover
     pg = None; GraphicsLayoutWidget = None; ImageItem = None; PYQTGRAPH_AVAILABLE = False
     logging.error("StmFftSimulationDialog: PyQtGraph not found.")
+
+from ...core.history import HistoryNode
+from ...logic.history_manager import HistoryManager
 
 try:
     from ...analysis.lattice import KNOWN_LATTICES
@@ -34,10 +38,14 @@ class StmFftSimulationDialog(QDialog):
     """
     Dialog for creating simulated STM/FFT data based on user-defined parameters.
     """
+    simulation_accepted = pyqtSignal(HistoryNode)
+
     def __init__(self, 
                  experimental_fft_image: np.ndarray,
                  experimental_data: Dict[str, Any],
                  simulation_params: Dict[str, Any],
+                 history_manager: HistoryManager,
+                 current_node_id: str,
                  parent=None):
         super().__init__(parent)
         self.setWindowTitle("STM/FFT Simulation & Comparison")
@@ -49,6 +57,8 @@ class StmFftSimulationDialog(QDialog):
         self.experimental_fft_image = experimental_fft_image
         self.experimental_data = experimental_data
         self.sim_params = simulation_params
+        self.history_manager = history_manager
+        self.current_node_id = current_node_id
         # self.sim_params = simulation_params
 
         self.substrate_name = "Au(111)"
@@ -465,6 +475,7 @@ class StmFftSimulationDialog(QDialog):
         self.sub_size_slider.valueChanged.connect(self._update_simulation)
         self.ads_size_slider.valueChanged.connect(self._update_simulation)
         self.fft_window_combo.currentTextChanged.connect(self._update_simulation)
+        self.load_to_lfa_button.clicked.connect(self._on_load_to_lfa_clicked)
 
         self.resolution_multiplier_combo.currentTextChanged.connect(self._update_simulation)
 
@@ -612,6 +623,48 @@ class StmFftSimulationDialog(QDialog):
         self.sim_fft_plot.setRange(xRange=(0,fft_Nx), yRange=(0,fft_Ny))
 
         self._update_simulation_results_display(params)
+
+    @pyqtSlot()
+    def _on_load_to_lfa_clicked(self):
+        """
+        Gdy użytkownik kliknie "Load...", generuje finalne dane, tworzy
+        HistoryNode i emituje go sygnałem.
+        """
+        logger.info("'Load Simulation to Main Window' clicked.")
+        
+        # 1. Zbierz aktualne parametry i wygeneruj dane
+        params = self._get_current_simulation_parameters()
+        stm_image = self._generate_image(params)
+        if stm_image is None:
+            QMessageBox.critical(self, "Error", "Failed to generate simulated STM image."); return
+
+        # Oblicz finalne FFT (w skali mocy, |F|^2)
+        fft_power_spectrum = self._calculate_fft(stm_image, params)
+        if fft_power_spectrum is None:
+            QMessageBox.critical(self, "Error", "Failed to calculate simulated FFT."); return
+
+        # 2. Znajdź rodzica w historii (oryginalny obraz eksperymentalny)
+        # current_fft_node_id został przekazany w konstruktorze
+        root_node = self.history_manager.get_root_node_for_node(self.current_node_id)
+        if not root_node:
+            QMessageBox.critical(self, "Error", "Could not find the original image in history to attach the simulation to."); return
+            
+        # 3. Stwórz nowy HistoryNode
+        # Ważne: dodaj 'scaling_mode': 'power' do parametrów
+        simulation_and_fft_params = params.copy()
+        simulation_and_fft_params['scaling_mode'] = 'power'
+
+        new_node = HistoryNode(
+            parent_id=root_node.node_id,
+            operation_name="Simulated FFT",
+            parameters=simulation_and_fft_params,
+            image_data=fft_power_spectrum, # Zapisz dane |F|^2
+            data_type="FFT"
+        )
+
+        # 4. Wyemituj sygnał z nowym węzłem i zamknij dialog
+        self.simulation_accepted.emit(new_node)
+        self.accept()
     
     def _update_simulation_results_display(self, params: Dict[str, Any]):
         """Oblicza i wyświetla parametry sieci dla symulacji."""
