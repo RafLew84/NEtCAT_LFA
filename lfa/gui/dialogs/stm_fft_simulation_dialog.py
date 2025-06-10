@@ -191,6 +191,10 @@ class StmFftSimulationDialog(QDialog):
         self.resolution_multiplier_combo.setToolTip("Increase simulation grid density for higher visual quality.\n1x matches experimental FFT grid for direct comparison.")
         vis_form.addRow("Resolution Multiplier:", self.resolution_multiplier_combo)
 
+        sim_results_group = QGroupBox("Simulation Analysis")
+        self.sim_results_layout = QFormLayout(sim_results_group)
+        vis_fft_layout.addWidget(sim_results_group)
+
         controls_main_layout.addLayout(lattice_layout)
         controls_main_layout.addLayout(domain_layout)
         controls_main_layout.addLayout(vis_fft_layout)
@@ -598,6 +602,47 @@ class StmFftSimulationDialog(QDialog):
         # k_range = np.pi / (px_x/params['px_x']) # Zakres k od -k_max do k_max
         fft_Ny, fft_Nx = fft_image.shape
         self.sim_fft_plot.setRange(xRange=(0,fft_Nx), yRange=(0,fft_Ny))
+
+        self._update_simulation_results_display(params)
+    
+    def _update_simulation_results_display(self, params: Dict[str, Any]):
+        """Oblicza i wyświetla parametry sieci dla symulacji."""
+        # Wyczyść poprzednie wyniki
+        while self.sim_results_layout.count():
+            self.sim_results_layout.takeAt(0).widget().deleteLater()
+
+        # Obliczenia dla Substratu
+        sub_info = KNOWN_LATTICES.get(params['substrate_name'])
+        if sub_info:
+            a = sub_info['a_surf']
+            if sub_info['type'] == 'hexagonal':
+                self.sim_results_layout.addRow(QLabel("<b>Substrate (Hexagonal):</b>"))
+                self.sim_results_layout.addRow(QLabel(f"  |a1|=|a2| = {a:.3f} nm, α=120°"))
+            elif sub_info['type'] == 'square':
+                self.sim_results_layout.addRow(QLabel("<b>Substrate (Square):</b>"))
+                self.sim_results_layout.addRow(QLabel(f"  |a1|=|a2| = {a:.3f} nm, α=90°"))
+
+        # Obliczenia dla Adsorbatu
+        if params['adsorbate_name'] != "None" and sub_info and sub_info['type'] == 'hexagonal':
+            sub_a1 = np.array([sub_info['a_surf'], 0])
+            sub_a2 = np.array([sub_info['a_surf']/2, sub_info['a_surf']*np.sqrt(3)/2])
+            ads_ideal_a1 = sub_a1 + sub_a2
+            ads_ideal_a2 = -sub_a1 + 2 * sub_a2
+            T = np.array([[params.get('compression', 1.0), 0], [0, 1]])
+            a1_prime = T @ ads_ideal_a1
+            a2_prime = T @ ads_ideal_a2
+
+            cos_alpha = np.dot(a1_prime, a2_prime) / (np.linalg.norm(a1_prime) * np.linalg.norm(a2_prime))
+            alpha_deg = np.degrees(np.arccos(np.clip(cos_alpha, -1.0, 1.0)))
+            
+            self.sim_results_layout.addRow(QWidget()) # separator
+            self.sim_results_layout.addRow(QLabel("<b>Adsorbate (Simulated):</b>"))
+            self.sim_results_layout.addRow("a1' vector:", QLabel(f"({a1_prime[0]:.3f}, {a1_prime[1]:.3f}) nm"))
+            self.sim_results_layout.addRow("a2' vector:", QLabel(f"({a2_prime[0]:.3f}, {a2_prime[1]:.3f}) nm"))
+            self.sim_results_layout.addRow("Resulting |a1'|:", QLabel(f"{np.linalg.norm(a1_prime):.3f} nm"))
+            self.sim_results_layout.addRow("Resulting |a2'|:", QLabel(f"{np.linalg.norm(a2_prime):.3f} nm"))
+            self.sim_results_layout.addRow("Resulting Angle α':", QLabel(f"{alpha_deg:.2f}°"))
+
 
     def _get_substrate_coords(self, params: Dict[str, Any]) -> Optional[np.ndarray]:
         """Uogólniona metoda do generowania koordynatów substratu."""
