@@ -177,7 +177,7 @@ class StmFftSimulationDialog(QDialog):
         domain_group = QGroupBox("Domain & Misfit")
         domain_form = QFormLayout(domain_group)
         self.compression_slider, self.compression_label = self._create_slider("Compression:", 50, 150, int(self.compression*100))
-        self.stripe_width_slider, self.stripe_width_label = self._create_slider("Stripe Width (nm):", 100, 2000, int(self.stripe_width*100))
+        self.stripe_width_slider, self.stripe_width_label = self._create_slider("Stripe Width (nm):", 10, 2000, int(self.stripe_width*100))
         self.relax_width_slider, self.relax_width_label = self._create_slider("Relax Width (nm):", 1, 1000, int(self.relax_width*100))
         self.domain_type_combo = QComboBox(); self.domain_type_combo.addItems(['Heavy','Super Heavy','Light','Super Light'])
         self.symmetry_combo = QComboBox(); self.symmetry_combo.addItems(['Striped','Hexagonal'])

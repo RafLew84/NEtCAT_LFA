@@ -149,6 +149,16 @@ class MenuActionManager:
         analysis_menu.addAction(simulation_action)
         setattr(self.main_window, "stm_fft_simulation_action", simulation_action)
 
+        # analysis_menu.addSeparator()
+        reconstruction_action = self._create_action(
+            text="Real Space Reconstruction...",
+            status_tip="Reconstruct real space image from masked FFT",
+            triggered_slot=self.main_window.open_real_space_reconstruction_dialog, # Nowy slot
+            enabled=False # Włączane, gdy aktywny jest obraz FFT
+        )
+        analysis_menu.addAction(reconstruction_action)
+        setattr(self.main_window, "real_space_reconstruction_action", reconstruction_action)
+
 
     def _create_view_menu(self):
         """Creates the View menu."""

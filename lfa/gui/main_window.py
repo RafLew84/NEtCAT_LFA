@@ -61,6 +61,13 @@ except ImportError:
     PEAK_FITTING_AVAILABLE = False
 
 try:
+    from .dialogs.real_space_reconstruction_dialog import RealSpaceReconstructionDialog
+    RECONSTRUCTION_DIALOG_AVAILABLE = True
+except ImportError as e: # pragma: no cover
+    RealSpaceReconstructionDialog = None; RECONSTRUCTION_DIALOG_AVAILABLE = False
+    logging.warning(f"Could not import RealSpaceReconstructionDialog: {e}")
+
+try:
     from .dialogs.substrate_spot_dialog import SubstrateSpotSelectionDialog
     from .dialogs.adsorbate_spot_dialog import AdsorbateSpotSelectionDialog
     SPOT_SELECTION_DIALOGS_AVAILABLE = True
@@ -399,6 +406,14 @@ class MainWindow(QMainWindow):
         if hasattr(self, 'visualize_real_space_action'):
             self.visualize_real_space_action.setEnabled(True)
 
+        # is_fft_data = (hasattr(self, 'history_manager') and 
+        #         self.history_manager.get_current_node() and
+        #         self.history_manager.get_current_node().data_type == "FFT")
+
+        if hasattr(self, 'real_space_reconstruction_action'):
+            self.real_space_reconstruction_action.setEnabled(True)
+        
+
         if hasattr(self, 'fft_analysis_panel_widget') and self.fft_analysis_panel_widget:
             panel = self.fft_analysis_panel_widget
             
@@ -518,6 +533,23 @@ class MainWindow(QMainWindow):
         if hasattr(self, 'fft_analysis_panel_widget') and self.fft_analysis_panel_widget:
             logger.debug(f"MainWindow: Received domain wall results update: {results}")
             self.fft_analysis_panel_widget.update_domain_wall_results_display(results)
+
+    @pyqtSlot()
+    def open_real_space_reconstruction_dialog(self):
+        """Otwiera dialog do rekonstrukcji obrazu z FFT."""
+        logger.info("MainWindow: Opening Real Space Reconstruction dialog...")
+        
+        if not RECONSTRUCTION_DIALOG_AVAILABLE:
+            QMessageBox.critical(self, "Dialog Error", "RealSpaceReconstructionDialog is not available."); return
+            
+        current_node = self.history_manager.get_current_node()
+        if not (current_node and current_node.data_type == "FFT"):
+            QMessageBox.warning(self, "Incorrect Data", "This feature requires an active FFT image."); return
+
+        # W przyszłości będziemy tu przekazywać dane FFT do dialogu
+        dialog = RealSpaceReconstructionDialog(parent=self)
+        dialog.exec()
+        logger.info("Real Space Reconstruction dialog closed.")
 
     @pyqtSlot()
     def open_real_space_fft_visualizer(self):
