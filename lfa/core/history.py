@@ -41,6 +41,7 @@ class HistoryNode:
     # Stores the actual data: float32 for STM, scaled magnitude float32 for FFT
     image_data: Optional[np.ndarray] = field(repr=False, default=None)
     data_type: Literal["STM", "FFT"] = "STM" # Type of data in image_data
+    complex_fft_data: Optional[np.ndarray] = field(repr=False, default=None)
     # Stores the source ROI slice if operation resulted from ROI
     source_roi_slice: Optional[Tuple[slice, slice]] = field(repr=False, default=None)
 

@@ -547,7 +547,12 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Incorrect Data", "This feature requires an active FFT image."); return
 
         # W przyszłości będziemy tu przekazywać dane FFT do dialogu
-        dialog = RealSpaceReconstructionDialog(parent=self)
+        # dialog = RealSpaceReconstructionDialog(parent=self)
+        dialog = RealSpaceReconstructionDialog(
+            magnitude_fft_data=current_node.image_data,
+            complex_fft_data=current_node.complex_fft_data,
+            parent=self
+        )
         dialog.exec()
         logger.info("Real Space Reconstruction dialog closed.")
 

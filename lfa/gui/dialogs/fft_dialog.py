@@ -83,6 +83,7 @@ class FFTDialog(QDialog):
         self._final_processed_data: Optional[np.ndarray] = None
         self._final_params: Dict[str, Any] = {}
         self._final_source_roi_slice: Optional[Tuple[slice, slice]] = None
+        self._final_complex_fft_data: Optional[np.ndarray] = None
 
         self.setWindowTitle(self.operation_name)
         self.setMinimumSize(950, 550)
@@ -464,10 +465,17 @@ class FFTDialog(QDialog):
              QMessageBox.critical(self, "Error", "Input data for FFT is empty."); super().reject(); return
 
         try:
+            complex_fft_result = calculate_fft(
+                input_for_calc,
+                apply_window=params.get('apply_window', False),
+                window_type=params.get('window_type', 'hann'),
+                pad_to_shape=(self.input_data.shape if is_roi else None)
+            )
             # Calculate the final SCALED MAGNITUDE using the helper
             self._final_processed_data = self._calculate_scaled_fft_magnitude(input_for_calc, params)
             if self._final_processed_data is None:
                 raise ValueError("FFT calculation or scaling failed.")
+            self._final_complex_fft_data = complex_fft_result
 
             # No need to check allclose for FFT
             logger.info("Final scaled FFT magnitude calculated successfully.")
@@ -489,6 +497,10 @@ class FFTDialog(QDialog):
         self._final_processed_data = None
         self._final_source_roi_slice = None
         super().reject()
+    
+    def get_complex_fft_data(self) -> Optional[np.ndarray]:
+        """Returns the final calculated complex FFT result."""
+        return self._final_complex_fft_data.copy() if self._final_complex_fft_data is not None else None
 
     def was_roi_applied_only(self) -> bool:
         """
