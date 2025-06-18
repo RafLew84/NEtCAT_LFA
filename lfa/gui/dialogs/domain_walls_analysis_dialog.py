@@ -117,6 +117,9 @@ class DomainWallsAnalysisDialog(QDialog):
 
         self.setWindowTitle("Domain Wall Analysis")
         self.setMinimumSize(1200, 700)
+        current_flags=self.windowFlags()
+        self.setWindowFlags(current_flags | Qt.WindowType.WindowMinimizeButtonHint | Qt.WindowType.WindowMaximizeButtonHint)
+
 
         self._selection_mode: Optional[str] = None
         self.main_peak_raw_refined_px: Optional[Tuple[float, float]] = None

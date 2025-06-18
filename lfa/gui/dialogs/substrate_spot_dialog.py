@@ -101,6 +101,9 @@ class SubstrateSpotSelectionDialog(QDialog):
 
         self.setWindowTitle("Select Substrate Spots")
         self.setMinimumSize(1200, 750)
+        current_flags=self.windowFlags()
+        self.setWindowFlags(current_flags | Qt.WindowType.WindowMinimizeButtonHint | Qt.WindowType.WindowMaximizeButtonHint)
+
 
         self.fft_data = fft_image_data
         self.history_manager = history_manager

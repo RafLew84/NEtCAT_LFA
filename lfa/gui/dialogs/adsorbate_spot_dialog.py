@@ -132,6 +132,9 @@ class AdsorbateSpotSelectionDialog(QDialog):
 
         self.setWindowTitle(f"Select Adsorbate Spots (Set {adsorbate_set_index + 1})")
         self.setMinimumSize(1200, 750)
+        current_flags=self.windowFlags()
+        self.setWindowFlags(current_flags | Qt.WindowType.WindowMinimizeButtonHint | Qt.WindowType.WindowMaximizeButtonHint)
+
 
         # Store input parameters
         self.fft_data = fft_image_data

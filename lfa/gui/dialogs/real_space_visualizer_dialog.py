@@ -100,6 +100,9 @@ class RealSpaceFFTVisualizerDialog(QDialog):
 
         self.setWindowTitle("Real Space & FFT Visualization")
         self.setMinimumSize(1300, 750)
+        current_flags=self.windowFlags()
+        self.setWindowFlags(current_flags | Qt.WindowType.WindowMinimizeButtonHint | Qt.WindowType.WindowMaximizeButtonHint)
+
 
         self.g_substrate_vector_lines: List[PlotItem] = []
         self.g_adsorbate_vector_lines: List[PlotItem] = []
