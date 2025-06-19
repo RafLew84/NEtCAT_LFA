@@ -70,7 +70,7 @@ Po zatwierdzeniu ustawień przyciskiem `Apply` FFT, w panelu History pojawi się
 W grupie `Ideal Lattice Overlay` na panelu `FFT Analysis Tools` możesz nałożyć teoretyczną, idealną siatkę dyfrakcyjną dla wybranego substratu na eksperymentalny obraz FFT. Na liście rozwijanej `Substrate` ostatnią opcją jest `<Custom Define...>`, jest to opcja, która otwiera dodatkowe okno dialogowe (`CustomLatticeDialog`), gdzie użytkownik może zdefiniować własny substrat, podając jego nazwę, typ sieci oraz stałą sieciową `a_surf`.
 
 ### 2. Analiza Substratu i Korekcja Dryftu (Transformacja F, t)
-1. Zaznacz obraz FFT na liście `History` na oknie głównym i kliknij przycisk `Select/Edit Substrate Spots...`.
+1. Zaznacz obraz FFT na liście `History` na oknie głównym i kliknij przycisk `Analysis/Select Substrate Spots...`.
 2. W nowym oknie wybierz typ sieci (heksagonalna lub kwadratowa) i stałą sieciową (dostępną na liście rozwijanej). ostatnią opcją jest `<Custom Define...>`, która otwiera dodatkowe okno dialogowe (`CustomLatticeDialog`), gdzie użytkownik może zdefiniować własny substrat, podając jego nazwę, typ sieci oraz stałą sieciową `a_surf`.
 3. Zaznacz wymaganą liczbę pików Bragga (6 dla sieci heksagonalnej, 4 dla kwadratowej), korzystając z opcji dopasowania dla uzyskania subpikselowej dokładności. Aby rozpocząć zaznaczanie, kliknij w dowolnym miejscu obrazu - pojawi się ROI, które można przesuwać przez *drag & drop*, oraz zmieniać jego rozmiar poprzez przeciągnięcie niewielkiego znacznika w narożniku ROI. Aby zakończyć zaznaczanie piku, kliknij przycisk `Add/Update Spot from ROI`. Możliwe metody dopasowania piku:
     * **Direct Click**: Najprostsza metoda. Pozycja piku jest zapisywana dokładnie w miejscu kliknięcia myszą na obrazie FFT.
@@ -90,12 +90,41 @@ Program obliczy i wyświetli macierz transformacji `F`, wektor `t` oraz wynikaj�
 Po powrocie do okna głównego w grupie `Spot Selection` na panelu `FFT Analysis Tools` pokazane są obliczone parametry transformacji. W grupie `Real Space Lattice Parameters -> Substrate` aktywny jest przycisk `Calculate Substrate Parameters` - naciskając go program obliczy parametry substratu na podstawie wyznaczonych pików (długości wektorów $|a_1|, |a_2|$, oraz kąt $\alpha$ pomiędzy tymi wektorami)
 
 ### 3. Analiza Adsorbatu
-Wróć do głównego okna. W panelu FFT Analysis Tools przełącz tryb na Adsorbate i utwórz nowy zestaw (Set 1).
-Kliknij Select/Edit Current Set Spots....
-W nowym oknie zaznacz piki pochodzące od adsorbatu.
-Kliknij przycisk Apply Substrate Correction to Adsorbate Spots. Program użyje zapisanej wcześniej transformacji (F, t) do przekształcenia współrzędnych pików adsorbatu do idealnego, nieskorygowanego układu współrzędnych substratu.
-Po powrocie do okna głównego, kliknij Calculate Adsorbate Parameters. Program obliczy rzeczywiste parametry sieci adsorbatu (|a1|, |a2|, α).
-1. Wizualizacja w Przestrzeni Rzeczywistej
+1. Z poziomu głównego okna. W panelu `FFT Analysis Tools` (grupa `Spot Selection`) przełącz tryb na `Adsorbate` i utwórz nowy zestaw (Set 1 jest automatycznie tworzony) - aby utworzyć nowy zestaw rozwiń menu `Current Set` i wybierz `<Add New Set ...>`
+2. Następnie z menu `Expected Adsorbate Type` wybierz typ sieci, którego spodziewasz się dla analizowanej warstwy adsorbatu. Wybór ten można zmienić w dowolnym momencie (po przejściu do okna analizy adsorbatu ten wybór można zmienić), nawet po zaznaczeniu punktów, aby zobaczyć, jak wpływa to na wyniki. Jest to kluczowa opcja informująca aplikację, w jaki sposób ma zinterpretować zaznaczone piki adsorbatu w celu obliczenia jego wektorów bazowych sieci odwrotnej ($g_1^∗, g_2^∗$). Wybór odpowiedniego typu pozwala na zastosowanie bardziej precyzyjnych i odpornych na błędy algorytmów. 
+
+Logika obliczeniowa zależy bezpośrednio od wyboru, oraz od liczby zaznaczonych punktów:
+  * #### Opcja: `Unknown`
+  **Kiedy używać**: Gdy sieć adsorbatu jest nieznana, ma niską symetrię (np. prostokątną skośną) lub gdy chcesz w pełni manualnie zdefiniować wektory bazowe.
+
+  **Jak działa**: Program sortuje wszystkie zaznaczone przez Ciebie punkty według ich odległości od centrum obrazu FFT. Najkrótszy wektor (najbliższy pik) jest wybierany jako pierwszy wektor bazowy $g_1^*$. Następnie program przeszukuje pozostałe wektory (w kolejności od najkrótszego) i wybiera pierwszy, który nie jest współliniowy z $g_1^*$. Ten wektor staje się drugim wektorem bazowym $g_2^*$.
+
+  *Wskazówka*: Dla tej opcji najprościej jest zaznaczyć tylko dwa punkty, które mają być wektorami bazowymi. Program potraktuje je bezpośrednio jako $g_1^*$ i $g_2^*$.
+
+  * #### Opcja: `Hexagonal`
+  **Kiedy używać**: Gdy spodziewasz się, że sieć adsorbatu ma symetrię heksagonalną.
+
+  **Jak działa (dla 6 punktów)**: Jest to najbardziej precyzyjna metoda dla sieci heksagonalnych. Jeśli zaznaczysz 6 pików tworzących sześciokąt, program zastosuje zaawansowaną metodę uśredniania w celu minimalizacji błędów i korekcji ewentualnej anizotropii (rozciągnięcia sieci):
+  1.  Identyfikuje 6 wektorów o najmniejszej długości.
+  2.  Uśrednia przeciwległe pary, aby znaleźć trzy główne osie symetrii sześciokąta.
+  3.  Wybiera dwie z tych uśrednionych osi, które tworzą kąt najbliższy 60°, jako ostateczne wektory bazowe $g_1^*$ i $g_2^*$.
+
+  **Jak działa (dla 2-5 punktów)**: Jeśli zaznaczysz mniej niż 6 punktów, algorytm nie może skorzystać z uśredniania symetrii i w tej sytuacji obliczenia są traktowane tak jak dla opcji `Unknown`.
+
+  * #### Opcja: `Square`
+  **Kiedy używać**: Gdy spodziewasz się sieci kwadratowej lub prostokątnej.
+
+  **Jak działa (dla 4 punktów)**: Podobnie jak w przypadku sieci heksagonalnej, zaznaczenie 4 pików tworzących prostokąt/kwadrat pozwala na uśrednienie przeciwległych par w celu precyzyjnego wyznaczenia dwóch, w przybliżeniu prostopadłych, wektorów bazowych.
+
+  **Jak działa (dla 2-3 punktów)**: Przy mniejszej liczbie punktów, stosowana jest prostsza metoda opisana w opcji `Unknown`.
+
+Po wyznaczeniu wektorów $g_1^*$ i $g_2^*$ tymi metodami, są one używane do obliczenia finalnych parametrów sieci adsorbatu w przestrzeni rzeczywistej.
+3. Kliknij `Anylysis/Select Adsorbate Spots...`. W nowym oknie zaznacz piki pochodzące od adsorbatu (tak samo jak w Analizie Substratu).
+4. Aby mieć referencję możesz dodać do obrazu piki teoretycznej sieci idealnej i/lub dofitowane piki substratu za pomocą kontrolek po prawej stronie okna w grupie `Display Options (REference Spots)`.
+5. Kliknij przycisk `Apply Substrate Correction to Adsorbate Spots`(Przycisk aktywuje siępo wybraniu minimalnej liczby spotów). Program użyje zapisanej wcześniej transformacji ($F$, $t$) do przekształcenia współrzędnych pików adsorbatu do idealnego, nieskorygowanego układu współrzędnych substratu.
+Po powrocie do okna głównego, kliknij `Calculate Adsorbate Parameters`. Program obliczy rzeczywiste parametry sieci adsorbatu ($|a1|, |a2|, \alpha$).
+
+### 4. Wizualizacja w Przestrzeni Rzeczywistej
 W menu Analysis wybierz Visualize Real Space....
 Otwarte zostanie okno, które po lewej stronie pokaże obraz FFT, a po prawej zwizualizuje obliczone wektory sieciowe w przestrzeni rzeczywistej dla substratu i aktywnych zestawów adsorbatu.
 W tym oknie można również obliczyć kąt względny między siecią substratu a siecią adsorbatu.
