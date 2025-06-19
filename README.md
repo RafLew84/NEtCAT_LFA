@@ -77,9 +77,10 @@ W grupie `Ideal Lattice Overlay` na panelu `FFT Analysis Tools` możesz nałoży
     * **Max Pixel**: Bardziej precyzyjna metoda. Po kliknięciu na obrazie pojawia się obszar zainteresowania (ROI). Program automatycznie znajduje piksel o najwyższej intensywności wewnątrz tego ROI i to jego współrzędne są traktowane jako pozycja piku.
     * **2D Gaussian Fit**: Najdokładniejsza metoda, pozwalająca na uzyskanie subpikselowej precyzji. Podobnie jak wyżej, program analizuje dane wewnątrz ROI, ale tym razem dopasowuje do nich dwuwymiarową funkcję Gaussa. Centrum tej funkcji staje się pozycją piku. Jest to zalecana metoda dla precyzyjnych obliczeń.
   
-  Podczas korzystania z metod `Max Pixel` lub `2D Gaussian Fit`, w oknie dialogowym aktywne stają się podglądy na żywo (`Live Previews`), które pomagają w ocenie wybranego piku:
-    * **Podgląd ROI (2D i 3D)**: Pokazuje surowe dane pikseli z wnętrza obszaru ROI w formie obrazu 2D oraz interaktywnego wykresu powierzchniowego 3D.
-    * **Podgląd Dopasowania Gaussa (2D i 3D)**: Dostępny tylko w trybie 2D Gaussian Fit. Wyświetla teoretyczny, idealny kształt piku po dopasowaniu funkcji Gaussa. Porównanie tego podglądu z podglądem surowych danych pozwala ocenić jakość dopasowania. **UWAGA** Jeżeli podgląd dopasowania i podgląd ROI są dokładnie takie same (włącznie z tłem) to dopasowanie gaussa zostało zakończone niepowodzeniem - przesuń lub zmień rozmiar ROI.
+Podczas korzystania z metod `Max Pixel` lub `2D Gaussian Fit`, w oknie dialogowym aktywne stają się podglądy na żywo (`Live Previews`), które pomagają w ocenie wybranego piku:
+  * **Podgląd ROI (2D i 3D)**: Pokazuje surowe dane pikseli z wnętrza obszaru ROI w formie obrazu 2D oraz interaktywnego wykresu powierzchniowego 3D.
+  * **Podgląd Dopasowania Gaussa (2D i 3D)**: Dostępny tylko w trybie 2D Gaussian Fit. Wyświetla teoretyczny, idealny kształt piku po dopasowaniu funkcji Gaussa. Porównanie tego podglądu z podglądem surowych danych pozwala ocenić jakość dopasowania. **UWAGA** Jeżeli podgląd dopasowania i podgląd ROI są dokładnie takie same (włącznie z tłem) to dopasowanie gaussa zostało zakończone niepowodzeniem - przesuń lub zmień rozmiar ROI.
+  
 1. Po zaznaczeniu pik pojawi się na liście `Selected Spot Management` - zaznaczając pik na liście możesz go usunąć poprzez kliknięcie `Remove Selected`. Drugą opcją jest usunięcie wszystkich pików przez kliknięcie `Clear All`.
 2. Po zaznaczeniu wszystkich punktów, kliknij przycisk `Calculate Transformation`.
 Program obliczy i wyświetli macierz transformacji `F`, wektor `t` oraz wynikające z nich parametry fizyczne: kąt rotacji, współczynniki rozciągnięcia i błąd RMSE dopasowania.
