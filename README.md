@@ -112,16 +112,16 @@ Logika obliczeniowa zależy bezpośrednio od wyboru, oraz od liczby zaznaczonych
   **Jak działa (dla 2-5 punktów)**: Jeśli zaznaczysz mniej niż 6 punktów, algorytm nie może skorzystać z uśredniania symetrii i w tej sytuacji obliczenia są traktowane tak jak dla opcji `Unknown`.
 
   * #### Opcja: `Square`
-  **Kiedy używać**: Gdy spodziewasz się sieci kwadratowej lub prostokątnej.
+  **Kiedy używać**: Gdy spodziewasz się sieci kwadratowej.
 
   **Jak działa (dla 4 punktów)**: Podobnie jak w przypadku sieci heksagonalnej, zaznaczenie 4 pików tworzących prostokąt/kwadrat pozwala na uśrednienie przeciwległych par w celu precyzyjnego wyznaczenia dwóch, w przybliżeniu prostopadłych, wektorów bazowych.
 
   **Jak działa (dla 2-3 punktów)**: Przy mniejszej liczbie punktów, stosowana jest prostsza metoda opisana w opcji `Unknown`.
 
 Po wyznaczeniu wektorów $g_1^*$ i $g_2^*$ tymi metodami, są one używane do obliczenia finalnych parametrów sieci adsorbatu w przestrzeni rzeczywistej.
-3. Kliknij `Anylysis/Select Adsorbate Spots...`. W nowym oknie zaznacz piki pochodzące od adsorbatu (tak samo jak w Analizie Substratu).
-4. Aby mieć referencję możesz dodać do obrazu piki teoretycznej sieci idealnej i/lub dofitowane piki substratu za pomocą kontrolek po prawej stronie okna w grupie `Display Options (REference Spots)`.
-5. Kliknij przycisk `Apply Substrate Correction to Adsorbate Spots`(Przycisk aktywuje siępo wybraniu minimalnej liczby spotów). Program użyje zapisanej wcześniej transformacji ($F$, $t$) do przekształcenia współrzędnych pików adsorbatu do idealnego, nieskorygowanego układu współrzędnych substratu.
+1. Kliknij `Anylysis/Select Adsorbate Spots...`. W nowym oknie zaznacz piki pochodzące od adsorbatu (tak samo jak w Analizie Substratu).
+2. Aby mieć referencję możesz dodać do obrazu piki teoretycznej sieci idealnej i/lub dofitowane piki substratu za pomocą kontrolek po prawej stronie okna w grupie `Display Options (REference Spots)`.
+3. Kliknij przycisk `Apply Substrate Correction to Adsorbate Spots`(Przycisk aktywuje siępo wybraniu minimalnej liczby spotów). Program użyje zapisanej wcześniej transformacji ($F$, $t$) do przekształcenia współrzędnych pików adsorbatu do idealnego, nieskorygowanego układu współrzędnych substratu.
 Po powrocie do okna głównego, kliknij `Calculate Adsorbate Parameters`. Program obliczy rzeczywiste parametry sieci adsorbatu ($|a1|, |a2|, \alpha$).
 
 ### 4. Wizualizacja w Przestrzeni Rzeczywistej
