@@ -550,7 +550,6 @@ class MainWindow(QMainWindow):
         # dialog = RealSpaceReconstructionDialog(parent=self)
         dialog = RealSpaceReconstructionDialog(
             magnitude_fft_data=current_node.image_data,
-            complex_fft_data=current_node.complex_fft_data,
             parent=self
         )
         dialog.exec()
