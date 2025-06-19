@@ -55,11 +55,11 @@ Typowa sesja analityczna w LFA przebiega następująco:
 
 W oknie tym masz do dyspozycji następujące opcje:
 
-* **Obliczenia na fragmencie (ROI)**: Możesz obliczyć FFT dla całego obrazu lub tylko dla zaznaczonego fragmentu. Aby aktywować ten tryb, zaznacz opcję Calculate FFT only for ROI area. Na obrazie po lewej stronie pojawi się prostokąt, który możesz przesuwać i skalować, aby wybrać interesujący Cię obszar. Jest to przydatne, gdy chcesz przeanalizować lokalne właściwości sieci krystalicznej.
+* **Obliczenia na fragmencie (ROI)**: Możesz obliczyć FFT dla całego obrazu lub tylko dla zaznaczonego fragmentu. Aby aktywować ten tryb, zaznacz opcję `Calculate FFT only for ROI`. Na obrazie po lewej stronie pojawi się prostokąt, który możesz przesuwać i skalować, aby wybrać interesujący Cię obszar.
 
-* **Funkcja Okna (Window Function)**: Przed obliczeniem transformaty możesz zastosować funkcję okna (np. hann, hamming), aby zredukować artefakty spektralne (tzw. wyciek widma), które mogą pojawić się na krawędziach obrazu lub zaznaczonego ROI.
+* **Funkcja Okna (Window Function)**: Przed obliczeniem transformaty możesz zastosować funkcję okna (np. `hann`, `hamming`), aby zredukować artefakty spektralne (tzw. *wyciek widma*), które mogą pojawić się na krawędziach obrazu lub zaznaczonego ROI.
 
-* **Skalowanie Wyświetlania (Display Scaling)**: Możesz wybrać sposób wizualizacji widma mocy FFT. Opcja ta ma wpływ tylko na podgląd i ostateczny zapisany obraz, a nie na dane zespolone używane w tle. Dostępne tryby to:
+* **Skalowanie Wyświetlania (Display Scaling)**: Możesz wybrać sposób wizualizacji widma mocy FFT. Dostępne tryby to:
   * **Log Magnitude**: Skala logarytmiczna, najlepsza do uwidocznienia słabych pików obok bardzo intensywnych.
   * **Power Spectrum**: Skala kwadratowa ($∣F∣^2$), która reprezentuje fizyczną intensywność (moc) sygnału. Jest to wymagane ustawienie do analizy intensywności przy badaniu ścian domenowych.
   * **Linear Magnitude**: Skala liniowa ($∣F∣$), bezpośrednia amplituda.
@@ -67,15 +67,25 @@ W oknie tym masz do dyspozycji następujące opcje:
 
 Po zatwierdzeniu ustawień przyciskiem `Apply` FFT, w panelu History pojawi się nowy element FFT, a po prawej stronie ukaże się panel `FFT Analysis Tools` gotowy do dalszej analizy.
 
-W grupie `Ideal Lattice Overlay` na panelu `FFT Analysis Tools` możesz nałożyć teoretyczną, idealną siatkę dyfrakcyjną dla wybranego substratu na eksperymentalny obraz FFT.
+W grupie `Ideal Lattice Overlay` na panelu `FFT Analysis Tools` możesz nałożyć teoretyczną, idealną siatkę dyfrakcyjną dla wybranego substratu na eksperymentalny obraz FFT. Na liście rozwijanej `Substrate` ostatnią opcją jest `<Custom Define...>`, jest to opcja, która otwiera dodatkowe okno dialogowe (`CustomLatticeDialog`), gdzie użytkownik może zdefiniować własny substrat, podając jego nazwę, typ sieci oraz stałą sieciową `a_surf`.
 
 ### 2. Analiza Substratu i Korekcja Dryftu (Transformacja F, t)
-W panelu FFT Analysis Tools wybierz z listy Substrate typ analizowanej sieci (np. Au(111)) lub zdefiniuj własną (<Custom Define...>), podając stałą sieciową a_surf.
-Kliknij przycisk Select/Edit Substrate Spots....
-W nowym oknie, zaznacz wymaganą liczbę pików Bragga (6 dla sieci heksagonalnej, 4 dla kwadratowej), korzystając z opcji dopasowania (np. 2D Gaussian Fit) dla uzyskania subpikselowej dokładności.
-Po zaznaczeniu wszystkich punktów, kliknij przycisk Calculate Transformation.
-Program obliczy i wyświetli macierz transformacji F, wektor t oraz wynikające z nich parametry fizyczne: kąt rotacji, współczynniki rozciągnięcia i błąd RMSE dopasowania.
-1. Analiza Adsorbatu
+1. Zaznacz obraz FFT na liście `History` na oknie głównym i kliknij przycisk `Select/Edit Substrate Spots...`.
+2. W nowym oknie wybierz typ sieci (heksagonalna lub kwadratowa) i stałą sieciową (dostępną na liście rozwijanej). ostatnią opcją jest `<Custom Define...>`, która otwiera dodatkowe okno dialogowe (`CustomLatticeDialog`), gdzie użytkownik może zdefiniować własny substrat, podając jego nazwę, typ sieci oraz stałą sieciową `a_surf`.
+3. Zaznacz wymaganą liczbę pików Bragga (6 dla sieci heksagonalnej, 4 dla kwadratowej), korzystając z opcji dopasowania dla uzyskania subpikselowej dokładności. Aby rozpocząć zaznaczanie, kliknij w dowolnym miejscu obrazu - pojawi się ROI, które można przesuwać przez *drag & drop*, oraz zmieniać jego rozmiar poprzez przeciągnięcie niewielkiego znacznika w narożniku ROI. Aby zakończyć zaznaczanie piku, kliknij przycisk `Add/Update Spot from ROI`. Możliwe metody dopasowania piku:
+  * **Direct Click**: Najprostsza metoda. Pozycja piku jest zapisywana dokładnie w miejscu kliknięcia myszą na obrazie FFT.
+  * **Max Pixel**: Bardziej precyzyjna metoda. Po kliknięciu na obrazie pojawia się obszar zainteresowania (ROI). Program automatycznie znajduje piksel o najwyższej intensywności wewnątrz tego ROI i to jego współrzędne są traktowane jako pozycja piku.
+  * **2D Gaussian Fit**: Najdokładniejsza metoda, pozwalająca na uzyskanie subpikselowej precyzji. Podobnie jak wyżej, program analizuje dane wewnątrz ROI, ale tym razem dopasowuje do nich dwuwymiarową funkcję Gaussa. Centrum tej funkcji staje się pozycją piku. Jest to zalecana metoda dla precyzyjnych obliczeń.
+Podczas korzystania z metod `Max Pixel` lub `2D Gaussian Fit`, w oknie dialogowym aktywne stają się podglądy na żywo (`Live Previews`), które pomagają w ocenie wybranego piku:
+  * **Podgląd ROI (2D i 3D)**: Pokazuje surowe dane pikseli z wnętrza obszaru ROI w formie obrazu 2D oraz interaktywnego wykresu powierzchniowego 3D.
+  * **Podgląd Dopasowania Gaussa (2D i 3D)**: Dostępny tylko w trybie 2D Gaussian Fit. Wyświetla teoretyczny, idealny kształt piku po dopasowaniu funkcji Gaussa. Porównanie tego podglądu z podglądem surowych danych pozwala ocenić jakość dopasowania. **UWAGA** Jeżeli podgląd dopasowania i podgląd ROI są dokładnie takie same (włącznie z tłem) to dopasowanie gaussa zostało zakończone niepowodzeniem - przesuń lub zmień rozmiar ROI.
+4. Po zaznaczeniu pik pojawi się na liście `Selected Spot Management` - zaznaczając pik na liście możesz go usunąć poprzez kliknięcie `Remove Selected`. Drugą opcją jest usunięcie wszystkich pików przez kliknięcie `Clear All`.
+5. Po zaznaczeniu wszystkich punktów, kliknij przycisk `Calculate Transformation`.
+Program obliczy i wyświetli macierz transformacji `F`, wektor `t` oraz wynikające z nich parametry fizyczne: kąt rotacji, współczynniki rozciągnięcia i błąd RMSE dopasowania.
+6. Kliknięcie `OK` zamknie okno i powrócisz do okna głównego aplikacji, gdzie zaznaczone piki substratu powinny być widoczne na obrazie.
+**UWAGA** wyznaczyć piki substratu (i adsorbatu) możesz raz dla wszystkich obrazów FFT znajdujących się na liście `History` - po zmianie obrazu piki będą automatycznie nałożone.
+
+### 3. Analiza Adsorbatu
 Wróć do głównego okna. W panelu FFT Analysis Tools przełącz tryb na Adsorbate i utwórz nowy zestaw (Set 1).
 Kliknij Select/Edit Current Set Spots....
 W nowym oknie zaznacz piki pochodzące od adsorbatu.
