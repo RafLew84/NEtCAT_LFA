@@ -27,21 +27,9 @@ python -m lfa.main
 ## Opis Aplikacji i Możliwości Obliczeniowe
 LFA to interaktywne narzędzie, które prowadzi użytkownika przez cały proces analizy – od surowego obrazu STM po ilościowe wyniki.
 
-Główne możliwości obliczeniowe:
+### Główne możliwości obliczeniowe:
 
-Parametry Sieci Rzeczywistej: Obliczanie wektorów sieciowych (a 
-1
-​
- ,a 
-2
-​
- ), ich długości (∣a 
-1
-​
- ∣,∣a 
-2
-​
- ∣) oraz kąta (α) między nimi dla substratu i warstw adsorbatu.
+* **Parametry Sieci Rzeczywistej**: Obliczanie wektorów sieciowych ($a_1, a_2$), ich długości ($|a_1|, |a_2|$) oraz kąta ($\alpha$) między nimi dla substratu i warstw adsorbatu.
 Korekcja Dryftu i Zniekształceń: Wyznaczanie macierzy transformacji afinicznej (F) i wektora translacji (t), które opisują zniekształcenia obrazu (rotację, rozciąganie/ścisk).
 Analiza Dopasowania Sieci: Ilościowe określenie jakości dopasowania zmierzonych pików do idealnej siatki za pomocą błędu średniokwadratowego (RMSE).
 Analiza Ścian Domenowych: Obliczanie okresowości w przestrzeni rzeczywistej oraz stosunków intensywności/amplitudy pików satelitarnych, co pozwala na charakteryzację nadstruktur.
