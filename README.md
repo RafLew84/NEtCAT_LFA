@@ -47,12 +47,29 @@ Przed główną analizą, jakość obrazu można poprawić za pomocą następuj�
 ## Przewodnik Analityczny Krok po Kroku
 Typowa sesja analityczna w LFA przebiega następująco:
 
-1. Obliczanie FFT
-Wczytaj plik z danymi STM (.stp, .s94) poprzez menu File > Open....
-(Opcjonalnie) Zastosuj wybrane operacje preprocessingu. Każda operacja tworzy nowy element w panelu History, z którego można w każdej chwili skorzystać.
-Wybierz w panelu History obraz, dla którego chcesz policzyć FFT.
-Wybierz z menu Analysis > Calculate FFT.... W oknie dialogowym możesz wybrać funkcję okna (np. hann, aby zredukować artefakty) oraz sposób skalowania widma. Po zatwierdzeniu, w panelu History pojawi się nowy element FFT, a po prawej stronie ukaże się panel FFT Analysis Tools.
-1. Analiza Substratu i Korekcja Dryftu (Transformacja F, t)
+### 1. Obliczanie FFT
+1. Wczytaj plik z danymi STM (`.stp`, `.s94`) poprzez menu `File > Open...`.
+2. (Opcjonalnie) Zastosuj wybrane operacje preprocessingu. Każda operacja tworzy nowy element w panelu `History`, z którego można w każdej chwili skorzystać.
+3. Wybierz w panelu `History` obraz, dla którego chcesz policzyć FFT.
+4. Wybierz z menu `Analysis > Calculate FFT...`. Otworzy się okno dialogowe, które oferuje podgląd na żywo. Po lewej stronie znajduje się oryginalny obraz, a po prawej - wynik transformaty Fouriera.
+
+W oknie tym masz do dyspozycji następujące opcje:
+
+* **Obliczenia na fragmencie (ROI)**: Możesz obliczyć FFT dla całego obrazu lub tylko dla zaznaczonego fragmentu. Aby aktywować ten tryb, zaznacz opcję Calculate FFT only for ROI area. Na obrazie po lewej stronie pojawi się prostokąt, który możesz przesuwać i skalować, aby wybrać interesujący Cię obszar. Jest to przydatne, gdy chcesz przeanalizować lokalne właściwości sieci krystalicznej.
+
+* **Funkcja Okna (Window Function)**: Przed obliczeniem transformaty możesz zastosować funkcję okna (np. hann, hamming), aby zredukować artefakty spektralne (tzw. wyciek widma), które mogą pojawić się na krawędziach obrazu lub zaznaczonego ROI.
+
+* **Skalowanie Wyświetlania (Display Scaling)**: Możesz wybrać sposób wizualizacji widma mocy FFT. Opcja ta ma wpływ tylko na podgląd i ostateczny zapisany obraz, a nie na dane zespolone używane w tle. Dostępne tryby to:
+  * **Log Magnitude**: Skala logarytmiczna, najlepsza do uwidocznienia słabych pików obok bardzo intensywnych.
+  * **Power Spectrum**: Skala kwadratowa ($∣F∣^2$), która reprezentuje fizyczną intensywność (moc) sygnału. Jest to wymagane ustawienie do analizy intensywności przy badaniu ścian domenowych.
+  * **Linear Magnitude**: Skala liniowa ($∣F∣$), bezpośrednia amplituda.
+  * **Sqrt Magnitude**: Skala pierwiastkowa ($∣F∣$), kompromis między skalą liniową a logarytmiczną.
+
+Po zatwierdzeniu ustawień przyciskiem `Apply` FFT, w panelu History pojawi się nowy element FFT, a po prawej stronie ukaże się panel `FFT Analysis Tools` gotowy do dalszej analizy.
+
+W grupie `Ideal Lattice Overlay` na panelu `FFT Analysis Tools` możesz nałożyć teoretyczną, idealną siatkę dyfrakcyjną dla wybranego substratu na eksperymentalny obraz FFT.
+
+### 2. Analiza Substratu i Korekcja Dryftu (Transformacja F, t)
 W panelu FFT Analysis Tools wybierz z listy Substrate typ analizowanej sieci (np. Au(111)) lub zdefiniuj własną (<Custom Define...>), podając stałą sieciową a_surf.
 Kliknij przycisk Select/Edit Substrate Spots....
 W nowym oknie, zaznacz wymaganą liczbę pików Bragga (6 dla sieci heksagonalnej, 4 dla kwadratowej), korzystając z opcji dopasowania (np. 2D Gaussian Fit) dla uzyskania subpikselowej dokładności.
