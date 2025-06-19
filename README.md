@@ -30,10 +30,11 @@ LFA to interaktywne narzędzie, które prowadzi użytkownika przez cały proces 
 ### Główne możliwości obliczeniowe:
 
 * **Parametry Sieci Rzeczywistej**: Obliczanie wektorów sieciowych ($a_1, a_2$), ich długości ($|a_1|, |a_2|$) oraz kąta ($\alpha$) między nimi dla substratu i warstw adsorbatu.
-Korekcja Dryftu i Zniekształceń: Wyznaczanie macierzy transformacji afinicznej (F) i wektora translacji (t), które opisują zniekształcenia obrazu (rotację, rozciąganie/ścisk).
-Analiza Dopasowania Sieci: Ilościowe określenie jakości dopasowania zmierzonych pików do idealnej siatki za pomocą błędu średniokwadratowego (RMSE).
-Analiza Ścian Domenowych: Obliczanie okresowości w przestrzeni rzeczywistej oraz stosunków intensywności/amplitudy pików satelitarnych, co pozwala na charakteryzację nadstruktur.
-Autokorelacja (Mapa Pattersona): Generowanie mapy autokorelacji z widma mocy FFT w celu wizualizacji wektorów sieciowych w przestrzeni rzeczywistej.
+* **Korekcja Dryftu i Zniekształceń**: Wyznaczanie macierzy transformacji afinicznej ($F$) i wektora translacji ($t$), które opisują zniekształcenia obrazu (rotację, rozciąganie/ścisk).
+* **Analiza Dopasowania Sieci**: Ilościowe określenie jakości dopasowania zmierzonych pików do idealnej siatki za pomocą błędu średniokwadratowego (RMSE).
+* **Analiza Ścian Domenowych**: Obliczanie okresowości w przestrzeni rzeczywistej oraz stosunków intensywności/amplitudy pików satelitarnych, co pozwala na charakteryzację nadstruktur.
+* **Autokorelacja (Mapa Pattersona)**: Generowanie mapy autokorelacji z widma mocy FFT w celu wizualizacji wektorów sieciowych w przestrzeni rzeczywistej.
+
 Dostępne Opcje Preprocessingu
 Przed główną analizą, jakość obrazu można poprawić za pomocą następujących narzędzi dostępnych w menu Preprocessing:
 
