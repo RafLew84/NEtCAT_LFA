@@ -87,6 +87,8 @@ Program obliczy i wyświetli macierz transformacji `F`, wektor `t` oraz wynikaj�
 6. Kliknięcie `OK` zamknie okno i powrócisz do okna głównego aplikacji, gdzie zaznaczone piki substratu powinny być widoczne na obrazie.
 **UWAGA** wyznaczyć piki substratu (i adsorbatu) możesz raz dla wszystkich obrazów FFT znajdujących się na liście `History` - po zmianie obrazu piki będą automatycznie nałożone.
 
+Po powrocie do okna głównego w grupie `Spot Selection` na panelu `FFT Analysis Tools` pokazane są obliczone parametry transformacji. W grupie `Real Space Lattice Parameters -> Substrate` aktywny jest przycisk `Calculate Substrate Parameters` - naciskając go program obliczy parametry substratu na podstawie wyznaczonych pików (długości wektorów $|a_1|, |a_2|$, oraz kąt $\alpha$ pomiędzy tymi wektorami)
+
 ### 3. Analiza Adsorbatu
 Wróć do głównego okna. W panelu FFT Analysis Tools przełącz tryb na Adsorbate i utwórz nowy zestaw (Set 1).
 Kliknij Select/Edit Current Set Spots....
