@@ -97,9 +97,9 @@ Logika obliczeniowa zależy bezpośrednio od wyboru, oraz od liczby zaznaczonych
   * #### Opcja: `Unknown`
   **Kiedy używać**: Gdy sieć adsorbatu jest nieznana, ma niską symetrię (np. prostokątną skośną) lub gdy chcesz w pełni manualnie zdefiniować wektory bazowe.
 
-  **Jak działa**: Program sortuje wszystkie zaznaczone przez Ciebie punkty według ich odległości od centrum obrazu FFT. Najkrótszy wektor (najbliższy pik) jest wybierany jako pierwszy wektor bazowy $g_1^*$. Następnie program przeszukuje pozostałe wektory (w kolejności od najkrótszego) i wybiera pierwszy, który nie jest współliniowy z $g_1^*$. Ten wektor staje się drugim wektorem bazowym $g_2^*$.
+  **Jak działa**: Program sortuje wszystkie zaznaczone przez Ciebie punkty według ich odległości od centrum obrazu FFT. Najkrótszy wektor (najbliższy pik) jest wybierany jako pierwszy wektor bazowy $g_1^∗$. Następnie program przeszukuje pozostałe wektory (w kolejności od najkrótszego) i wybiera pierwszy, który nie jest współliniowy z $g_1^∗$. Ten wektor staje się drugim wektorem bazowym $g_2^∗$.
 
-  *Wskazówka*: Dla tej opcji najprościej jest zaznaczyć tylko dwa punkty, które mają być wektorami bazowymi. Program potraktuje je bezpośrednio jako $g_1^*$ i $g_2^*$.
+  *Wskazówka*: Dla tej opcji najprościej jest zaznaczyć tylko dwa punkty, które mają być wektorami bazowymi. Program potraktuje je bezpośrednio jako $g_1^∗$ i $g_2^∗$.
 
   * #### Opcja: `Hexagonal`
   **Kiedy używać**: Gdy spodziewasz się, że sieć adsorbatu ma symetrię heksagonalną.
@@ -107,7 +107,7 @@ Logika obliczeniowa zależy bezpośrednio od wyboru, oraz od liczby zaznaczonych
   **Jak działa (dla 6 punktów)**: Jest to najbardziej precyzyjna metoda dla sieci heksagonalnych. Jeśli zaznaczysz 6 pików tworzących sześciokąt, program zastosuje zaawansowaną metodę uśredniania w celu minimalizacji błędów i korekcji ewentualnej anizotropii (rozciągnięcia sieci):
   1.  Identyfikuje 6 wektorów o najmniejszej długości.
   2.  Uśrednia przeciwległe pary, aby znaleźć trzy główne osie symetrii sześciokąta.
-  3.  Wybiera dwie z tych uśrednionych osi, które tworzą kąt najbliższy 60°, jako ostateczne wektory bazowe $g_1^*$ i $g_2^*$.
+  3.  Wybiera dwie z tych uśrednionych osi, które tworzą kąt najbliższy 60°, jako ostateczne wektory bazowe $g_1^∗$ i $g_2^*$.
 
   **Jak działa (dla 2-5 punktów)**: Jeśli zaznaczysz mniej niż 6 punktów, algorytm nie może skorzystać z uśredniania symetrii i w tej sytuacji obliczenia są traktowane tak jak dla opcji `Unknown`.
 
