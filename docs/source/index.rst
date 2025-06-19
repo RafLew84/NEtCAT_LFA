@@ -1,18 +1,55 @@
-.. Lattice Fourier Analyzer (LFA) documentation master file, created by
-   sphinx-quickstart on Thu Jun 19 15:45:46 2025.
+.. Lattice Fourier Analyzer (LFA) documentation master file.
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
-Lattice Fourier Analyzer (LFA) documentation
-============================================
+Welcome to the Lattice Fourier Analyzer (LFA) documentation!
+================================================================
 
-Add your content using ``reStructuredText`` syntax. See the
-`reStructuredText <https://www.sphinx-doc.org/en/master/usage/restructuredtext/index.html>`_
-documentation for details.
+LFA is a desktop application designed for the scientific analysis of Scanning Tunneling Microscopy (STM) images. Its primary goal is to provide a comprehensive suite of tools for determining crystal lattice parameters from real-space images by leveraging Fast Fourier Transform (FFT) analysis. The application guides the user from raw data loading and preprocessing to advanced reciprocal space analysis, including drift correction and characterization of adsorbate overlayers.
 
+Key Features
+------------
+
+* **Data Handling**: Import common STM file formats (Omicron `.stp`, SPECS `.s94`).
+* **Image Preprocessing**: A complete set of tools to improve image quality, including plane leveling, filtering (Gaussian, Median), denoising (NL-Means, BM3D), and sharpening.
+* **FFT Analysis**: Robust FFT calculation with support for various windowing functions and scaling modes (Log, Power, Linear).
+* **Interactive Spot Selection**: Precise selection of reciprocal lattice spots with refinement methods like "Max Pixel" and "2D Gaussian Fit".
+* **Drift & Distortion Correction**: Automatic calculation of the affine transformation matrix that maps the distorted, measured lattice to an ideal one, providing quantitative data on rotation and strain.
+* **Adsorbate Lattice Analysis**: Correction of adsorbate spot positions using the calculated substrate transformation, enabling accurate analysis of overlayer structures.
+* **Advanced Tools**: Includes modules for domain wall analysis, real-space reconstruction from a masked FFT, and simulation of STM/FFT data for comparison with experimental results.
+* **History Tracking**: A non-linear history system allows users to seamlessly switch between different stages of the analysis.
+
+Core Workflow
+-------------
+
+A typical analysis session in LFA follows these steps:
+
+1.  **Load Image**: Open an STM data file (`.stp`, `.s94`) using the ``File > Open...`` menu.
+2.  **Preprocess (Optional)**: Use the tools in the ``Preprocessing`` menu to level the background, remove noise, or enhance features. Each operation creates a new state in the history panel.
+3.  **Calculate FFT**: Select a processed or original image and use ``Analysis > Calculate FFT...`` to generate the reciprocal space image.
+4.  **Analyze Substrate**:
+    * In the "FFT Analysis Tools" panel, select the substrate type (e.g., "Au(111)") or define a custom one.
+    * Open the ``Select Substrate Spots...`` dialog, select the primary Bragg peaks, and calculate the transformation matrix to correct for drift and distortion.
+5.  **Analyze Adsorbate**:
+    * In the main panel, create a new "Adsorbate Set".
+    * Open the ``Select Adsorbate Spots...`` dialog. The substrate correction is automatically applied to the selected adsorbate spots, transforming them into an ideal, undistorted coordinate system.
+6.  **Calculate Parameters**: Use the "Calculate" buttons in the "FFT Analysis Tools" panel to obtain the final real-space lattice parameters for both the substrate and the adsorbate overlayer.
+
+What You Can Calculate
+----------------------
+
+LFA allows you to quantify several physical properties of your sample:
+
+* **Lattice Vectors and Constants**: Determine the real-space lattice vectors ($a_1, a_2$), their magnitudes ($|a_1|, |a_2|$), and the angle ($\alpha$) between them for both the substrate and any adsorbate layers.
+* **Drift and Distortion Parameters**: Quantify instrumental drift and sample distortion through the affine transformation matrix ($F$). This includes:
+    * **Rotation Angle**: The angle of rotation of the measured lattice relative to the ideal one.
+    * **Principal Stretches**: The amount of stretching or compression along the principal axes of distortion.
+    * **Fit Quality**: The Root Mean Square Error (RMSE) of the transformation fit, indicating how well the measured spots match an ideal lattice.
+* **Domain Wall Periodicity**: By analyzing the splitting of satellite peaks from main Bragg peaks, you can calculate the real-space periodicity of superstructures like domain walls.
+* **Autocorrelation Map**: Generate a Patterson map from the FFT to visualize real-space periodicities and vector relationships.
 
 .. toctree::
    :maxdepth: 2
-   :caption: Contents:
+   :caption: API Reference:
 
    api/modules.rst
