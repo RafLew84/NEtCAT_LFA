@@ -35,16 +35,16 @@ LFA to interaktywne narzędzie, które prowadzi użytkownika przez cały proces 
 * **Analiza Ścian Domenowych**: Obliczanie okresowości w przestrzeni rzeczywistej oraz stosunków intensywności/amplitudy pików satelitarnych, co pozwala na charakteryzację nadstruktur.
 * **Autokorelacja (Mapa Pattersona)**: Generowanie mapy autokorelacji z widma mocy FFT w celu wizualizacji wektorów sieciowych w przestrzeni rzeczywistej.
 
-Dostępne Opcje Preprocessingu
-Przed główną analizą, jakość obrazu można poprawić za pomocą następujących narzędzi dostępnych w menu Preprocessing:
+### Dostępne Opcje Preprocessingu
+Przed główną analizą, jakość obrazu można poprawić za pomocą następujących narzędzi dostępnych w menu `Preprocessing`:
+* **Gaussian Blur**: Rozmycie gaussowskie w celu usunięcia szumu wysokoczęstotliwościowego.
+* **Gaussian Sharpening**: Wyostrzanie obrazu metodą maski nieostrości.
+* **Plane Leveling**: Korekcja nachylenia tła poprzez dopasowanie i odjęcie płaszczyzny.
+* **Median Filter**: Filtracja medianowa, skuteczna w usuwaniu szumu typu "sól i pieprz".
+* **NL-Means Denoising**: Zaawansowany algorytm odszumiania zachowujący detale obrazu.
+* **BM3D Denoising**: Wysokiej jakości, choć obliczeniowo intensywny, algorytm odszumiania.
 
-Gaussian Blur: Rozmycie gaussowskie w celu usunięcia szumu wysokoczęstotliwościowego.
-Gaussian Sharpening: Wyostrzanie obrazu metodą maski nieostrości.
-Plane Leveling: Korekcja nachylenia tła poprzez dopasowanie i odjęcie płaszczyzny.
-Median Filter: Filtracja medianowa, skuteczna w usuwaniu szumu typu "sól i pieprz".
-NL-Means Denoising: Zaawansowany algorytm odszumiania zachowujący detale obrazu.
-BM3D Denoising: Wysokiej jakości, choć obliczeniowo intensywny, algorytm odszumiania.
-Przewodnik Analityczny Krok po Kroku
+## Przewodnik Analityczny Krok po Kroku
 Typowa sesja analityczna w LFA przebiega następująco:
 
 1. Obliczanie FFT
@@ -52,23 +52,23 @@ Wczytaj plik z danymi STM (.stp, .s94) poprzez menu File > Open....
 (Opcjonalnie) Zastosuj wybrane operacje preprocessingu. Każda operacja tworzy nowy element w panelu History, z którego można w każdej chwili skorzystać.
 Wybierz w panelu History obraz, dla którego chcesz policzyć FFT.
 Wybierz z menu Analysis > Calculate FFT.... W oknie dialogowym możesz wybrać funkcję okna (np. hann, aby zredukować artefakty) oraz sposób skalowania widma. Po zatwierdzeniu, w panelu History pojawi się nowy element FFT, a po prawej stronie ukaże się panel FFT Analysis Tools.
-2. Analiza Substratu i Korekcja Dryftu (Transformacja F, t)
+1. Analiza Substratu i Korekcja Dryftu (Transformacja F, t)
 W panelu FFT Analysis Tools wybierz z listy Substrate typ analizowanej sieci (np. Au(111)) lub zdefiniuj własną (<Custom Define...>), podając stałą sieciową a_surf.
 Kliknij przycisk Select/Edit Substrate Spots....
 W nowym oknie, zaznacz wymaganą liczbę pików Bragga (6 dla sieci heksagonalnej, 4 dla kwadratowej), korzystając z opcji dopasowania (np. 2D Gaussian Fit) dla uzyskania subpikselowej dokładności.
 Po zaznaczeniu wszystkich punktów, kliknij przycisk Calculate Transformation.
 Program obliczy i wyświetli macierz transformacji F, wektor t oraz wynikające z nich parametry fizyczne: kąt rotacji, współczynniki rozciągnięcia i błąd RMSE dopasowania.
-3. Analiza Adsorbatu
+1. Analiza Adsorbatu
 Wróć do głównego okna. W panelu FFT Analysis Tools przełącz tryb na Adsorbate i utwórz nowy zestaw (Set 1).
 Kliknij Select/Edit Current Set Spots....
 W nowym oknie zaznacz piki pochodzące od adsorbatu.
 Kliknij przycisk Apply Substrate Correction to Adsorbate Spots. Program użyje zapisanej wcześniej transformacji (F, t) do przekształcenia współrzędnych pików adsorbatu do idealnego, nieskorygowanego układu współrzędnych substratu.
 Po powrocie do okna głównego, kliknij Calculate Adsorbate Parameters. Program obliczy rzeczywiste parametry sieci adsorbatu (|a1|, |a2|, α).
-4. Wizualizacja w Przestrzeni Rzeczywistej
+1. Wizualizacja w Przestrzeni Rzeczywistej
 W menu Analysis wybierz Visualize Real Space....
 Otwarte zostanie okno, które po lewej stronie pokaże obraz FFT, a po prawej zwizualizuje obliczone wektory sieciowe w przestrzeni rzeczywistej dla substratu i aktywnych zestawów adsorbatu.
 W tym oknie można również obliczyć kąt względny między siecią substratu a siecią adsorbatu.
-5. Analiza Ścian Domenowych
+1. Analiza Ścian Domenowych
 Upewnij się, że obraz FFT został obliczony w trybie Power Spectrum, co jest wymagane do analizy intensywności.
 Z menu Analysis wybierz Analyze Domain Walls....
 W oknie dialogowym zaznacz kolejno główny pik Bragga oraz jeden z jego pików satelitarnych.
