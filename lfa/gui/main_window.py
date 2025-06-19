@@ -783,6 +783,9 @@ class MainWindow(QMainWindow):
         parent_node_id, _, fft_image_data_copy = current_node_info
         
         current_set_idx = self.app_controller.current_adsorbate_set_index
+        initial_expected_type = self.app_controller.adsorbate_expected_lattice_types.get(
+            current_set_idx, ADSORBATE_LATTICE_TYPE_UNKNOWN
+        )
         current_adsorbate_spots_for_set = []
         if 0 <= current_set_idx < len(self.app_controller.adsorbate_spot_sets):
             current_adsorbate_spots_for_set = list(self.app_controller.adsorbate_spot_sets[current_set_idx])
@@ -821,6 +824,7 @@ class MainWindow(QMainWindow):
             substrate_transform_analysis=sub_analysis,
             ideal_substrate_spots_for_display_px=ideal_sub_spots_for_ads_dialog,
             fitted_substrate_spots_for_display_px=fitted_sub_spots_px,
+            initial_expected_type=initial_expected_type,
             parent=self
         )
         
@@ -833,6 +837,10 @@ class MainWindow(QMainWindow):
 
             logger.info(f"Adsorbate spots dialog (set {set_idx_from_dialog + 1}) accepted. "
                         f"Raw: {len(raw_spots_from_dialog)}, Corrected: {len(corrected_spots_from_dialog)}")
+            
+            new_expected_type = results.get("expected_type", ADSORBATE_LATTICE_TYPE_UNKNOWN)
+
+            self.app_controller.set_expected_adsorbate_lattice_type(set_idx_from_dialog, new_expected_type)
             
             self.app_controller.update_adsorbate_set_results(
                 set_index=set_idx_from_dialog,

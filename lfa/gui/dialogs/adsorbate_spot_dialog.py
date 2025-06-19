@@ -14,7 +14,7 @@ import numpy as np
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QDialogButtonBox,
     QLabel, QListWidget, QAbstractItemView, QWidget, QGroupBox,
-    QFormLayout, QRadioButton, QSpinBox, QCheckBox, QMessageBox,
+    QFormLayout, QRadioButton, QSpinBox, QCheckBox, QMessageBox, QComboBox,
     QGridLayout, QSplitter # QSplitter is used for layout management
 )
 from PyQt6.QtGui import QPen, QVector3D
@@ -66,6 +66,8 @@ except ImportError: # pragma: no cover
     def fit_2d_gaussian_in_roi(data, center, radius): return None
     def _gaussian_2d(*args, **kwargs): raise ImportError("Gaussian 2D function is not available")
 
+from ...logic.app_controller import ADSORBATE_LATTICE_TYPE_UNKNOWN, ADSORBATE_LATTICE_TYPE_HEXAGONAL, ADSORBATE_LATTICE_TYPE_SQUARE
+
 logger = logging.getLogger(__name__)
 
 REFINEMENT_DIRECT_CLICK = "Direct Click"
@@ -103,6 +105,7 @@ class AdsorbateSpotSelectionDialog(QDialog):
                  substrate_transform_analysis: Optional[Dict[str, Any]] = None,
                  ideal_substrate_spots_for_display_px: Optional[List[Tuple[float, float]]] = None,
                  fitted_substrate_spots_for_display_px: Optional[List[Tuple[float, float]]] = None,
+                 initial_expected_type: str = ADSORBATE_LATTICE_TYPE_UNKNOWN,
                  parent=None):
         """
         Initialize the dialog.
@@ -164,6 +167,7 @@ class AdsorbateSpotSelectionDialog(QDialog):
         # Set refinement parameters
         self.current_refinement_method = default_refinement_method
         self.refinement_roi_size = default_refinement_roi_size
+        self.current_expected_type = initial_expected_type
 
         # Initialize preview tracking
         self.last_preview_gauss_fit_popt: Optional[np.ndarray] = None
@@ -206,6 +210,19 @@ class AdsorbateSpotSelectionDialog(QDialog):
         left_controls_layout = QVBoxLayout(left_controls_widget)
         left_controls_widget.setMinimumWidth(300)
         left_controls_widget.setMaximumWidth(350)
+
+        expected_type_group = QGroupBox("Expected Adsorbate Type")
+        expected_type_layout = QFormLayout(expected_type_group)
+        self.expected_type_combo = QComboBox()
+        self.expected_type_combo.addItems([
+            ADSORBATE_LATTICE_TYPE_UNKNOWN,
+            ADSORBATE_LATTICE_TYPE_HEXAGONAL,
+            ADSORBATE_LATTICE_TYPE_SQUARE
+        ])
+        self.expected_type_combo.setCurrentText(self.current_expected_type) # Ustaw wartość początkową
+        expected_type_layout.addRow("Lattice Type:", self.expected_type_combo)
+        left_controls_layout.addWidget(expected_type_group) # Dodaj grupę do layoutu
+
 
         refinement_group = QGroupBox("Adsorbate Spot Refinement")
         refinement_layout = QFormLayout(refinement_group)
@@ -408,7 +425,15 @@ class AdsorbateSpotSelectionDialog(QDialog):
         self.show_fitted_substrate_checkbox.stateChanged.connect(self._redraw_all_markers_in_dialog)
         self.show_corrected_adsorbate_checkbox.stateChanged.connect(self._redraw_all_markers_in_dialog)
 
+        self.expected_type_combo.currentTextChanged.connect(self._on_expected_type_changed)
+
         logger.debug("AdsorbateSpotSelectionDialog signals connected.")
+
+    @pyqtSlot(str)
+    def _on_expected_type_changed(self, new_type: str):
+        """Update internal state after expected type change."""
+        self.current_expected_type = new_type
+        logger.debug(f"Adsorbate dialog: Expected type changed to '{new_type}'.")
 
     def _clear_last_preview_gauss_fit(self):
         self.last_preview_gauss_fit_popt = None
@@ -793,7 +818,8 @@ class AdsorbateSpotSelectionDialog(QDialog):
         return {
             "raw_adsorbate_spots": list(self.selected_adsorbate_spots_raw),
             "corrected_adsorbate_spots_in_ideal_system": list(self.corrected_adsorbate_spots_in_ideal_system),
-            "adsorbate_set_index": self.adsorbate_set_index
+            "adsorbate_set_index": self.adsorbate_set_index,
+            "expected_type": self.current_expected_type
         }
 
     def accept(self):
