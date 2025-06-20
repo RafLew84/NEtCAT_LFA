@@ -540,6 +540,7 @@ class AppController(QObject):
 
     def calculate_fft_operation(self, parent_node_id: str,
                                 processed_fft_data: np.ndarray,
+                                complex_fft_data: Optional[np.ndarray],
                                 params: Dict[str, Any],
                                 source_roi_slice: Optional[Tuple[slice, slice]] = None):
         """Calculates the FFT of the current image data and stores it in the history."""
@@ -550,7 +551,18 @@ class AppController(QObject):
             self.current_fft_data_shape = None
             logger.warning("AppController: FFT data is None, cannot store shape.")
             
-        self.add_operation_to_history(parent_node_id, "FFT", params, processed_fft_data, "FFT", source_roi_slice)
+        # self.add_operation_to_history(parent_node_id, "FFT", params, processed_fft_data, "FFT", source_roi_slice)
+        new_node = HistoryNode(
+            parent_id=parent_node_id,
+            operation_name="FFT",
+            parameters=params,
+            image_data=processed_fft_data,
+            data_type="FFT",
+            complex_fft_data=complex_fft_data,
+            source_roi_slice=source_roi_slice
+        )
+        self.history_manager.add_node(new_node)
+        self.history_manager.set_current_node_by_id(new_node.node_id)
         self.substrate_real_space_results = None
         self.substrate_real_space_params_updated.emit({})
         self.adsorbate_real_space_results.clear()

@@ -545,11 +545,17 @@ class MainWindow(QMainWindow):
         current_node = self.history_manager.get_current_node()
         if not (current_node and current_node.data_type == "FFT"):
             QMessageBox.warning(self, "Incorrect Data", "This feature requires an active FFT image."); return
+        
+        if current_node.complex_fft_data is None:
+            QMessageBox.warning(self, "Phase Data Missing", 
+                                "This history node does not contain the required phase information for a true reconstruction.")
+            return
 
         # W przyszłości będziemy tu przekazywać dane FFT do dialogu
         # dialog = RealSpaceReconstructionDialog(parent=self)
         dialog = RealSpaceReconstructionDialog(
             magnitude_fft_data=current_node.image_data,
+            complex_fft_data=current_node.complex_fft_data,
             parent=self
         )
         dialog.exec()
@@ -1185,6 +1191,7 @@ class MainWindow(QMainWindow):
         dialog = FFTDialog(image_data_copy, parent=self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             processed_fft_data = dialog.get_processed_data()
+            complex_fft_data = dialog.get_complex_fft_data()
             params = dialog.get_fft_parameters()
             was_roi_only = dialog.was_roi_applied_only()
 
@@ -1192,6 +1199,7 @@ class MainWindow(QMainWindow):
                 self.app_controller.calculate_fft_operation(
                     parent_node_id=parent_id,
                     processed_fft_data=processed_fft_data,
+                    complex_fft_data=complex_fft_data,
                     params=params,
                     source_roi_slice=dialog.get_source_roi_slice() if was_roi_only else None
                 )

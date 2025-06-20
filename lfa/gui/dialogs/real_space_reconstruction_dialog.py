@@ -49,6 +49,7 @@ class RealSpaceReconstructionDialog(QDialog):
     """
     def __init__(self,
                  magnitude_fft_data: np.ndarray,
+                 complex_fft_data: np.ndarray,
                  parent=None):
         """
         Initializes the Real Space Reconstruction dialog.
@@ -66,6 +67,7 @@ class RealSpaceReconstructionDialog(QDialog):
 
 
         self.magnitude_fft_data = magnitude_fft_data
+        self.complex_fft_data = complex_fft_data
         
         # --- Internal State ---
         self.current_mode = "autocorrelation"
@@ -469,7 +471,7 @@ class RealSpaceReconstructionDialog(QDialog):
             logger.debug("Performing reconstruction from mask.")
             
             # Apply the mask to the original FFT magnitude data
-            masked_fft_shifted = self.magnitude_fft_data * self.mask_array
+            masked_fft_shifted = self.complex_fft_data * self.mask_array
 
             # Perform a forward FFT on the masked data.
             # This is equivalent to convolving the real-space representation of the

@@ -201,5 +201,3 @@ Tworzenie Maski:
 **UWAGA**: Zaznacz opcję `Add Symmetric ROI`. Spowoduje to automatyczne dodanie lustrzanego odbicia każdego ROI względem centrum obrazu.
 * **Dla Mask with Spots**:
 Klikaj na obrazie FFT, aby umieścić małe ROI do dopasowania. Kliknij `Select Spot`, aby program precyzyjnie zlokalizował pik (metoda `2D Gaussian`) i dodał go do maski w postaci plamy Gaussa. Rozmiar tej plamy (`sigma`) możesz kontrolować za pomocą `spot_mask_size_spinbox`. W środkowym panelu `Mask Preview` na bieżąco zobaczysz, jak wygląda tworzona przez Ciebie maska. Gdy maska jest gotowa, kliknij `Reconstruct from Mask`.
-
-W panelu Reconstructed `Real Space` pojawi się obraz, który nie jest prostym odtworzeniem oryginalnego obrazu STM. Jest to autokorelacja cech geometrycznych wybranych przez maskę.

@@ -486,6 +486,7 @@ class FFTDialog(QDialog):
             QMessageBox.critical(self, "Calculation Error", f"Failed to calculate final FFT result:\n{e}")
             self._final_processed_data = None # Ensure no data returned on error
             self._final_source_roi_slice = None
+            self._final_complex_fft_data = None
             super().reject() # Close with Rejected state
 
     def reject(self):
@@ -496,6 +497,7 @@ class FFTDialog(QDialog):
         logger.info(f"{self.operation_name} dialog rejected (Cancel clicked).")
         self._final_processed_data = None
         self._final_source_roi_slice = None
+        self._final_complex_fft_data = None
         super().reject()
     
     def get_complex_fft_data(self) -> Optional[np.ndarray]:
