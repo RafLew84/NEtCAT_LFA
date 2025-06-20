@@ -122,7 +122,7 @@ Po wyznaczeniu wektorów $g_1^∗$ i $g_2^∗$ tymi metodami, są one używane d
 
 3. Kliknij `Anylysis/Select Adsorbate Spots...`. W nowym oknie zaznacz piki pochodzące od adsorbatu (tak samo jak w Analizie Substratu).
 4. Aby mieć referencję możesz dodać do obrazu piki teoretycznej sieci idealnej i/lub dofitowane piki substratu za pomocą kontrolek po prawej stronie okna w grupie `Display Options (REference Spots)`.
-5. Kliknij przycisk `Apply Substrate Correction to Adsorbate Spots`(Przycisk aktywuje siępo wybraniu minimalnej liczby spotów). Program użyje zapisanej wcześniej transformacji ($F$, $t$) do przekształcenia współrzędnych pików adsorbatu do idealnego, nieskorygowanego układu współrzędnych substratu.
+5. Kliknij przycisk `Apply Substrate Correction to Adsorbate Spots`(Przycisk aktywuje się po wybraniu minimalnej liczby spotów). Program użyje zapisanej wcześniej transformacji ($F$, $t$) do przekształcenia współrzędnych pików adsorbatu do idealnego, nieskorygowanego układu współrzędnych substratu.
 Po powrocie do okna głównego, kliknij `Calculate Adsorbate Parameters`. Program obliczy rzeczywiste parametry sieci adsorbatu ($|a1|, |a2|, \alpha$).
 
 ### 4. Wizualizacja w Przestrzeni Rzeczywistej
@@ -130,10 +130,18 @@ Po powrocie do okna głównego, kliknij `Calculate Adsorbate Parameters`. Progra
 2. Naciśnij przycisk `Calculate Sub-Ads Angle` aby obliczyć kąt względny między siecią substratu a siecią adsorbatu.
 
 ### 5. Analiza Ścian Domenowych
-Upewnij się, że obraz FFT został obliczony w trybie Power Spectrum, co jest wymagane do analizy intensywności.
-Z menu Analysis wybierz Analyze Domain Walls....
-W oknie dialogowym zaznacz kolejno główny pik Bragga oraz jeden z jego pików satelitarnych.
-Program obliczy:
+**UWAGA** Upewnij się, że obraz FFT został obliczony w trybie `Power Spectrum`, co jest wymagane do analizy intensywności.
+
+1. Z menu `Analysis` wybierz `Analyze Domain Walls...`.
+2. W oknie dialogowym zaznacz kolejno główny pik Bragga oraz jeden z jego pików satelitarnych. Do wyznaczenia pozycji piku wykorzystywana jest metoda `2D Gaussian Fit`. **UWAGA** Jeżeli jest zaznaczona opcja `Apply Substrate Tranformation`, pozycja każdego piku będzide wyznaczana po obliczeniu transformacji. Jest to odwzorowane przez `x` na obrazie FFT.
+  * Aby zaznaczyć głowny pik Bragga kliknij na obraz, co spowoduje pojawienie się ROI - kliknięcie przycisku `Add/Update Main Spot From ROI` zapisze pik główny, kliknięcie `Add Satelite Spot from ROI` zapisze pik satelicki.
+  * Po dodaniu piku program obliczy (Wyniki w grupie `Selected Peaks Information):
+    * Pozycję piku - zależnie od wybranej opcji z lub bez transformacji
+    * Amplituda (Amplitude): Wysokość dopasowanej funkcji Gaussa, reprezentująca maksymalną wartość idealnego piku.
+    * Intensywność (Intensity): Całkowita *objętość* piku, czyli całka pod powierzchnią dopasowanej funkcji Gaussa. Obliczana jest na podstawie parametrów funkcji ze wzoru: $I=2\pi\cdot∣A∣\cdot∣\sigma_x∣\cdot∣\sigma_y∣$, gdzie $A$ to amplituda, a $\sigma_x$ i $\sigma_y$ to odchylenia standardowe Gaussa w osiach x i y.
+    * Wartość Maksymalna (Max Value): Dla porównania, zapisywana jest również maksymalna wartość piksela znaleziona w surowych danych wewnątrz obszaru ROI.
+
+3. Program obliczy:
 Odległość między pikami w przestrzeni odwrotnej (Δg*).
 Okresowość ściany domenowej w przestrzeni rzeczywistej.
 Stosunek intensywności, amplitudy i maksymalnej wartości piku satelitarnego do głównego.
