@@ -151,14 +151,37 @@ Po powrocie do okna głównego, kliknij `Calculate Adsorbate Parameters`. Progra
 * Stosunek intensywności, amplitudy i maksymalnej wartości piku satelitarnego do głównego.
 
 ### 6. Symulacja Obrazów STM/FFT
-Narzędzie STM/FFT Simulation... (menu Analysis) pozwala na weryfikację modelu teoretycznego z danymi eksperymentalnymi.
+Narzędzie `STM/FFT Simulation...` (menu `Analysis`) pozwala na stworzenie wirtualnego modelu powierzchni (substrat + adsorbat + nadstruktura), wygenerowanie na jego podstawie symulowanego obrazu STM oraz jego transformaty Fouriera (FFT).
 
-Co można zasymulować?: Można wygenerować idealny obraz STM i jego FFT dla wybranego substratu i adsorbatu, uwzględniając parametry takie jak:
-Jednoosiowa kompresja sieci adsorbatu.
-Szerokość pasów i szerokość relaksacji dla nadstruktur prążkowych.
-Symetria i typ domen (np. Striped, Hexagonal; Heavy, Super Heavy).
-Co można wyznaczyć?: Dialog umożliwia automatyczną analizę wygenerowanego widma FFT. Można z niego odczytać stosunki intensywności i amplitudy symulowanych pików satelitarnych do głównych, a następnie porównać je z wartościami uzyskanymi z analizy danych eksperymentalnych.
-Rekonstrukcja z Przestrzeni Odwrotnej
+1. Po wybraniu opcji `STM/FFT Simulation...`, otwiera się okno dialogowe z trzema głównymi panelami wizualizacyjnymi:
+  * **Simulated STM**: Podgląd generowanego w czasie rzeczywistym obrazu topografii.
+  * **Simulated FFT**: Obraz FFT obliczony na podstawie symulowanego obrazu STM.
+  * **Experimental FFT**: Obraz FFT z Twoich rzeczywistych danych, wczytany jako punkt odniesienia do porównań.
+Po lewej stronie znajduje się panel `Simulation Controls`, gdzie budujesz swój model teoretyczny.
+
+2. Budowa Modelu Teoretycznego
+W panelu kontrolnym możesz dostosować wszystkie aspekty symulowanej powierzchni:
+* Definicja Sieci (Lattice):
+  * **Substrate**: Wybierz substrat, który stanowi podłoże dla Twojego modelu (np. `Au(111)`).
+  * **Adsorbate**: Wybierz typ adsorbatu. Opcja `Iodine (predefined)` używa modelu dla tej cząsteczki.
+* Definicja Nadstruktury (`Domain & Misfit`):
+Tutaj definiujesz fizyczne właściwości nadstruktury, takie jak ściany domenowe. Zmiana tych parametrów na żywo aktualizuje symulowane obrazy, pozwalając na intuicyjne "dopasowywanie" modelu.
+  * **Compression**: Symuluje jednoosiową kompresję lub rozciągnięcie sieci adsorbatu względem substratu.
+  * **Stripe Width**: Definiuje okresowość (szerokość) pasów w modelu prążkowym (`striped`).
+  * **Relax Width**: Określa szerokość obszaru przejściowego, czyli samej ściany domenowej.
+  * **Domain Type**: Pozwala wybrać typ ściany domenowej (np. `Heavy`, `Super Heavy`), który w modelu fizycznym odpowiada za konkretne przesunięcie fazowe atomów wewnątrz domeny.
+  * **Symmetry**: Umożliwia wybór ogólnej symetrii nadstruktury: `Striped` (pasy w jednym kierunku) lub `Hexagonal`.
+
+3. Analiza i Porównanie Wyników
+Gdy już zbudujesz swój model, możesz go porównać z eksperymentem na dwa sposoby:
+* **Porównanie Wizualne**: Obserwuj panel `Simulated FFT` i porównuj go z panelem `Experimental FFT`. Dostosowuj parametry (np. `Compression`, `Stripe Width`), aby pozycje, kształty i względne jasności pików w symulacji jak najlepiej odpowiadały tym w eksperymencie.
+* **Analiza Ilościowa (Quantitative Analysis)**: Kliknij przycisk `Analyze Simulated Peaks`. Program automatycznie znajdzie pozycje piku głównego i satelitarnego w symulacji i na podstawie dopasowania funkcji Gaussa obliczy dla nich parametry.
+W panelu `Automated Analysis` wyświetlone zostaną stosunki intensywności i amplitudy piku satelitarnego do głównego.
+
+4. Zapisanie Wyniku
+Jeśli chcesz zachować wygenerowane FFT do dalszej analizy (np. użyć na nim innych narzędzi LFA - możesz użyć `Analyze Domain Walls...` i manualnie wybrać piki do analizy (rekomendowane)), kliknij przycisk `Load Simulation to Main Window`. Spowoduje to dodanie symulowanego obrazu FFT jako nowego elementu w panelu History w głównym oknie aplikacji.
+
+### 7. Rekonstrukcja z Przestrzeni Odwrotnej
 Narzędzie Real Space Reconstruction... (menu Analysis) pozwala na analizę odwrotną – od obrazu FFT do przestrzeni rzeczywistej.
 
 Autokorelacja: Oblicza mapę autokorelacji (funkcję Pattersona) z widma mocy FFT. Wynikowy obraz pokazuje wektory translacji w sieci rzeczywistej, co pomaga w identyfikacji okresowości i wektorów bazowych sieci.
