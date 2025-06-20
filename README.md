@@ -126,10 +126,10 @@ Po wyznaczeniu wektorów $g_1^∗$ i $g_2^∗$ tymi metodami, są one używane d
 Po powrocie do okna głównego, kliknij `Calculate Adsorbate Parameters`. Program obliczy rzeczywiste parametry sieci adsorbatu ($|a1|, |a2|, \alpha$).
 
 ### 4. Wizualizacja w Przestrzeni Rzeczywistej
-W menu Analysis wybierz Visualize Real Space....
-Otwarte zostanie okno, które po lewej stronie pokaże obraz FFT, a po prawej zwizualizuje obliczone wektory sieciowe w przestrzeni rzeczywistej dla substratu i aktywnych zestawów adsorbatu.
-W tym oknie można również obliczyć kąt względny między siecią substratu a siecią adsorbatu.
-1. Analiza Ścian Domenowych
+1. W menu `Analysis` wybierz `Visualize Real Space...`. Otwarte zostanie okno, które po lewej stronie pokaże obraz FFT, a po prawej zwizualizuje obliczone wektory sieciowe w przestrzeni rzeczywistej dla substratu i aktywnych zestawów adsorbatu.
+2. Naciśnij przycisk `Calculate Sub-Ads Angle` aby obliczyć kąt względny między siecią substratu a siecią adsorbatu.
+
+### 5. Analiza Ścian Domenowych
 Upewnij się, że obraz FFT został obliczony w trybie Power Spectrum, co jest wymagane do analizy intensywności.
 Z menu Analysis wybierz Analyze Domain Walls....
 W oknie dialogowym zaznacz kolejno główny pik Bragga oraz jeden z jego pików satelitarnych.
@@ -137,7 +137,8 @@ Program obliczy:
 Odległość między pikami w przestrzeni odwrotnej (Δg*).
 Okresowość ściany domenowej w przestrzeni rzeczywistej.
 Stosunek intensywności, amplitudy i maksymalnej wartości piku satelitarnego do głównego.
-Symulacja Obrazów STM/FFT
+
+### 6. Symulacja Obrazów STM/FFT
 Narzędzie STM/FFT Simulation... (menu Analysis) pozwala na weryfikację modelu teoretycznego z danymi eksperymentalnymi.
 
 Co można zasymulować?: Można wygenerować idealny obraz STM i jego FFT dla wybranego substratu i adsorbatu, uwzględniając parametry takie jak:
