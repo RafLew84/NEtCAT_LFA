@@ -182,7 +182,24 @@ W panelu `Automated Analysis` wyświetlone zostaną stosunki intensywności i am
 Jeśli chcesz zachować wygenerowane FFT do dalszej analizy (np. użyć na nim innych narzędzi LFA - możesz użyć `Analyze Domain Walls...` i manualnie wybrać piki do analizy (rekomendowane)), kliknij przycisk `Load Simulation to Main Window`. Spowoduje to dodanie symulowanego obrazu FFT jako nowego elementu w panelu History w głównym oknie aplikacji.
 
 ### 7. Rekonstrukcja z Przestrzeni Odwrotnej
-Narzędzie Real Space Reconstruction... (menu Analysis) pozwala na analizę odwrotną – od obrazu FFT do przestrzeni rzeczywistej.
+Narzędzie `Real Space Reconstruction...` (dostępne w menu `Analysis`) pozwala na wykonanie analizy *odwrotnej* – czyli przejścia z obrazu FFT z powrotem do przestrzeni rzeczywistej. Celem nie jest odtworzenie oryginalnego obrazu STM (co wymagałoby zachowania fazy, którą FFT traci), ale zrozumienie, jakie cechy w przestrzeni rzeczywistej odpowiadają za konkretne elementy widma Fouriera.
+Dialog oferuje dwie główne metody analizy: Autokorelację oraz Rekonstrukcję z Maski.
 
-Autokorelacja: Oblicza mapę autokorelacji (funkcję Pattersona) z widma mocy FFT. Wynikowy obraz pokazuje wektory translacji w sieci rzeczywistej, co pomaga w identyfikacji okresowości i wektorów bazowych sieci.
-Maskowanie (ROI / Spoty): Pozwala użytkownikowi na zaznaczenie wybranych regionów lub konkretnych pików na obrazie FFT. Następnie program wykonuje odwrotną transformację, pokazując, które cechy w przestrzeni rzeczywistej odpowiadają za wybrane częstotliwości. Jest to przydatne do identyfikacji pochodzenia poszczególnych pików w widmie.
+1. Autokorelacja (Funkcja Pattersona)
+Autokorelacja to matematyczna operacja, która tworzy mapę wszystkich możliwych wektorów łączących pary punktów w oryginalnym obrazie. W kontekście analizy STM, jasne punkty na mapie autokorelacji odpowiadają najczęściej powtarzającym się wektorom w sieci krystalicznej. W praktyce, wektory łączące centrum mapy z tymi jasnymi punktami to wektory sieci rzeczywistej ($a_1$,$a_2$). 
+
+W oknie `Real Space Reconstruction` wybierz tryb `Calculate Autocorrelation`. Zaznacz opcję `Remove DC Component` jeżeli konieczne jest usunięcie centralnego, najjaśniejszego piku (0,0) z obrazu FFT przed obliczeniami. Pozostawienie go spowodowałoby powstanie bardzo jasnego tła, które zdominowałoby obraz wynikowy.
+Wybierz skalę wyświetlania (`Display Scale`), np. `Log Power`, aby lepiej uwidocznić subtelne piki na wynikowej mapie.
+
+W panelu `Reconstructed Real Space` pojawi się mapa autokorelacji. Jest ona zawsze centrosymetryczna. Poszukaj na niej jasnych punktów poza samym centrum. Wektory od centrum obrazu do tych punktów odpowiadają wektorom sieci rzeczywistej.
+
+2. Rekonstrukcja z Maski (ROI lub Spoty)
+Ta metoda pozwala na *wycięcie* z widma FFT tylko tych częstotliwości, które Cię interesują, i sprawdzenie, jakie struktury w przestrzeni rzeczywistej one tworzą. Wybór Trybu: Wybierz tryb `Mask with ROIs` (maskowanie prostokątnymi obszarami) lub `Mask with Spots` (maskowanie pojedynczymi pikami).
+
+Tworzenie Maski:
+* **Dla Mask with ROIs**: Kliknij `Add ROI`, aby dodać na obrazie FFT prostokątny obszar. Możesz go przesuwać i skalować, aby objąć interesujące Cię piki.
+**UWAGA**: Zaznacz opcję `Add Symmetric ROI`. Spowoduje to automatyczne dodanie lustrzanego odbicia każdego ROI względem centrum obrazu.
+* **Dla Mask with Spots**:
+Klikaj na obrazie FFT, aby umieścić małe ROI do dopasowania. Kliknij `Select Spot`, aby program precyzyjnie zlokalizował pik (metoda `2D Gaussian`) i dodał go do maski w postaci plamy Gaussa. Rozmiar tej plamy (`sigma`) możesz kontrolować za pomocą `spot_mask_size_spinbox`. W środkowym panelu `Mask Preview` na bieżąco zobaczysz, jak wygląda tworzona przez Ciebie maska. Gdy maska jest gotowa, kliknij `Reconstruct from Mask`.
+
+W panelu Reconstructed `Real Space` pojawi się obraz, który nie jest prostym odtworzeniem oryginalnego obrazu STM. Jest to autokorelacja cech geometrycznych wybranych przez maskę.
