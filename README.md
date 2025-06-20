@@ -136,15 +136,19 @@ Po powrocie do okna głównego, kliknij `Calculate Adsorbate Parameters`. Progra
 2. W oknie dialogowym zaznacz kolejno główny pik Bragga oraz jeden z jego pików satelitarnych. Do wyznaczenia pozycji piku wykorzystywana jest metoda `2D Gaussian Fit`. **UWAGA** Jeżeli jest zaznaczona opcja `Apply Substrate Tranformation`, pozycja każdego piku będzide wyznaczana po obliczeniu transformacji. Jest to odwzorowane przez `x` na obrazie FFT.
   * Aby zaznaczyć głowny pik Bragga kliknij na obraz, co spowoduje pojawienie się ROI - kliknięcie przycisku `Add/Update Main Spot From ROI` zapisze pik główny, kliknięcie `Add Satelite Spot from ROI` zapisze pik satelicki.
   * Po dodaniu piku program obliczy (Wyniki w grupie `Selected Peaks Information):
-    * Pozycję piku - zależnie od wybranej opcji z lub bez transformacji
-    * Amplituda (Amplitude): Wysokość dopasowanej funkcji Gaussa, reprezentująca maksymalną wartość idealnego piku.
-    * Intensywność (Intensity): Całkowita *objętość* piku, czyli całka pod powierzchnią dopasowanej funkcji Gaussa. Obliczana jest na podstawie parametrów funkcji ze wzoru: $I=2\pi\cdot∣A∣\cdot∣\sigma_x∣\cdot∣\sigma_y∣$, gdzie $A$ to amplituda, a $\sigma_x$ i $\sigma_y$ to odchylenia standardowe Gaussa w osiach x i y.
-    * Wartość Maksymalna (Max Value): Dla porównania, zapisywana jest również maksymalna wartość piksela znaleziona w surowych danych wewnątrz obszaru ROI.
+    * **Pozycję piku** - zależnie od wybranej opcji z lub bez transformacji
+    * **Amplituda (Amplitude)**: Wysokość dopasowanej funkcji Gaussa, reprezentująca maksymalną wartość idealnego piku.
+    * **Intensywność (Intensity)**: Całkowita *objętość* piku, czyli całka pod powierzchnią dopasowanej funkcji Gaussa. Obliczana jest na podstawie parametrów funkcji ze wzoru: $I=2\pi\cdot∣A∣\cdot∣\sigma_x∣\cdot∣\sigma_y∣$, gdzie $A$ to amplituda, a $\sigma_x$ i $\sigma_y$ to odchylenia standardowe Gaussa w osiach x i y.
+    * **Wartość Maksymalna (Max Value)**: Dla porównania, zapisywana jest również maksymalna wartość piksela znaleziona w surowych danych wewnątrz obszaru ROI.
+    * **Obliczenie Odległości Międzypłaszczyznowej (d-spacing)**: Przeliczane są skorygowane współrzędne pikselowe na fizyczne jednostki przestrzeni odwrotnej (`nm⁻¹`), używając do tego danych kalibracyjnych obrazu (`Lx` i `Ly` w nanometrach), które pochodzą z oryginalnego pliku STM. Oblicza długość (moduł) tego wektora w przestrzeni odwrotnej, $∣g^∗∣$. Wynikiem jest odległość międzypłaszczyznowa (`d`) w nanometrach, obliczona ze wzoru $d=\frac{1}{∣g^∗∣}$. Reprezentuje ona rzeczywistą okresowość w sieci krystalicznej, która odpowiada za dany pik dyfrakcyjny.
 
-3. Program obliczy:
-Odległość między pikami w przestrzeni odwrotnej (Δg*).
-Okresowość ściany domenowej w przestrzeni rzeczywistej.
-Stosunek intensywności, amplitudy i maksymalnej wartości piku satelitarnego do głównego.
+3. Po kliknięciu przycisku `Calculate Domain Wall Parameters` program obliczy:
+* **Odległość między pikami w przestrzeni odwrotnej ($\Delta g^∗$)**: Jest to wektorowa odległość między centrami piku głównego i satelitarnego. Proces obliczeniowy wygląda następująco:
+  * **Wektor Różnicy w Pikselach**: Program oblicza wektor łączący centrum piku głównego z centrum piku satelitarnego.
+  * **Konwersja na Jednostki Fizyczne**: Następnie, wektor ten jest przeliczany z pikseli na jednostki przestrzeni odwrotnej (`nm⁻¹`), wykorzystując dane kalibracyjne obrazu (`Lx` i `Ly`).
+  * **Obliczenie Długości**: Ostateczna wartość $\Delta g^∗$ to długość (moduł) tego wektora w jednostkach `nm⁻¹`. Jest to kluczowa wartość do dalszych obliczeń.
+* **Okresowość ściany domenowej (P) w przestrzeni rzeczywistej**: Jest to najważniejszy parametr fizyczny wynikający z tej analizy. Reprezentuje on rzeczywistą, periodyczną odległość między elementami nadstruktury (np. pasami domenowymi) na powierzchni próbki. Program oblicza go bezpośrednio z odległości w przestrzeni odwrotnej, korzystając z fundamentalnej zależności: $P=\frac{1}{\Delta g^∗}$. Wynik podawany jest w nanometrach (nm).
+* Stosunek intensywności, amplitudy i maksymalnej wartości piku satelitarnego do głównego.
 
 ### 6. Symulacja Obrazów STM/FFT
 Narzędzie STM/FFT Simulation... (menu Analysis) pozwala na weryfikację modelu teoretycznego z danymi eksperymentalnymi.
