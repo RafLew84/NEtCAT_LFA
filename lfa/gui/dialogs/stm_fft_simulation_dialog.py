@@ -77,6 +77,8 @@ class StmFftSimulationDialog(QDialog):
         self._connect_signals()
 
         self._display_experimental_data()
+
+        self._initial_update_done = False
         
         if self.exp_fft_image_item:
             self.exp_fft_image_item.setImage(self.experimental_fft_image.T)
@@ -791,18 +793,36 @@ class StmFftSimulationDialog(QDialog):
         fft_image = self._calculate_fft(stm_image, params)
         if fft_image is None: logger.error("FFT calculation failed."); return
 
-        # Wyświetl obrazy
-        self.sim_stm_image_item.setImage(stm_image.T, autoLevels=True)
-        self.sim_fft_image_item.setImage(fft_image.T, autoLevels=True) # Poziomy kontrolowane przez histogram
+        if not self._initial_update_done:
+            # Pierwsze uruchomienie: ustaw autoLevels i zakresy
+            self.sim_stm_image_item.setImage(stm_image.T, autoLevels=True)
+            self.sim_fft_image_item.setImage(fft_image.T, autoLevels=True)
+            
+            # Ustaw skalę osi dla widoków tylko raz
+            px_x, px_y = params['px_x'], params['px_y']
+            self.sim_stm_plot.setRange(xRange=(0, px_x), yRange=(0, px_y))
+            
+            fft_Ny, fft_Nx = fft_image.shape
+            self.sim_fft_plot.setRange(xRange=(0, fft_Nx), yRange=(0, fft_Ny))
+
+            self._initial_update_done = True # Ustaw flagę
+        else:
+            # Kolejne aktualizacje: podmień tylko dane, zachowaj widok
+            self.sim_stm_image_item.setImage(stm_image.T, autoLevels=False)
+            self.sim_fft_image_item.setImage(fft_image.T, autoLevels=False)
+
+        # # Wyświetl obrazy
+        # self.sim_stm_image_item.setImage(stm_image.T, autoLevels=True)
+        # self.sim_fft_image_item.setImage(fft_image.T, autoLevels=True) # Poziomy kontrolowane przez histogram
         
-        # Ustaw skalę osi dla widoków
-        # Lx, Ly = params['nm_x'], params['nm_y']
-        px_x, px_y = params['px_x'], params['px_y']
-        self.sim_stm_plot.setRange(xRange=(0,px_x), yRange=(0,px_y))
+        # # Ustaw skalę osi dla widoków
+        # # Lx, Ly = params['nm_x'], params['nm_y']
+        # px_x, px_y = params['px_x'], params['px_y']
+        # self.sim_stm_plot.setRange(xRange=(0,px_x), yRange=(0,px_y))
         
-        # k_range = np.pi / (px_x/params['px_x']) # Zakres k od -k_max do k_max
-        fft_Ny, fft_Nx = fft_image.shape
-        self.sim_fft_plot.setRange(xRange=(0,fft_Nx), yRange=(0,fft_Ny))
+        # # k_range = np.pi / (px_x/params['px_x']) # Zakres k od -k_max do k_max
+        # fft_Ny, fft_Nx = fft_image.shape
+        # self.sim_fft_plot.setRange(xRange=(0,fft_Nx), yRange=(0,fft_Ny))
 
         self._update_simulation_results_display(params)
 
