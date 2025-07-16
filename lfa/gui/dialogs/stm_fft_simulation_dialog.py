@@ -202,6 +202,10 @@ class StmFftSimulationDialog(QDialog):
         self.ads_size_slider, self.ads_size_label = self._create_slider("Ads. Atom Size:", 10, 400, self.atom_size_ads)
         vis_form.addRow(self.sub_size_label, self.sub_size_slider)
         vis_form.addRow(self.ads_size_label, self.ads_size_slider)
+        self.show_substrate_checkbox = QCheckBox("Show Substrate Atoms")
+        self.show_substrate_checkbox.setChecked(True) # Domyślnie zaznaczony
+        self.show_substrate_checkbox.setToolTip("Toggles the visibility of the substrate atoms in the simulation.")
+        vis_form.addRow(self.show_substrate_checkbox)
         vis_fft_layout.addWidget(vis_group)
         fft_group = QGroupBox("FFT Settings")
         fft_form = QFormLayout(fft_group)
@@ -494,6 +498,7 @@ class StmFftSimulationDialog(QDialog):
         self.sub_size_slider.valueChanged.connect(self._update_simulation)
         self.ads_size_slider.valueChanged.connect(self._update_simulation)
         self.fft_window_combo.currentTextChanged.connect(self._update_simulation)
+        self.show_substrate_checkbox.stateChanged.connect(self._update_simulation)
         self.load_to_lfa_button.clicked.connect(self._on_load_to_lfa_clicked)
         self.analyze_sim_button.clicked.connect(self._on_analyze_simulated_peaks_clicked)
 
@@ -672,6 +677,7 @@ class StmFftSimulationDialog(QDialog):
         params['atom_size_sub'] = self.sub_size_slider.value()
         params['atom_size_ads'] = self.ads_size_slider.value()
         params['fft_window_type'] = self.fft_window_combo.currentText()
+        params['show_substrate'] = self.show_substrate_checkbox.isChecked()
         
         return params
     
@@ -715,7 +721,10 @@ class StmFftSimulationDialog(QDialog):
             # --- KONIEC POPRAWKI ---
 
         # "Malowanie" atomów
-        splat(sub_coords, intensity=0.5)
+        # splat(sub_coords, intensity=0.5)
+        if params.get('show_substrate', True):
+            sub_coords = self._get_substrate_coords(params)
+            splat(sub_coords, intensity=0.5)
         splat(ads_coords, intensity=1.0)
         
         if not img.any():
