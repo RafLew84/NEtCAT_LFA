@@ -710,7 +710,6 @@ class StmFftSimulationDialog(QDialog):
             ix = np.round(px).astype(int)
             iy = np.round(py).astype(int)
             
-            # --- POPRAWKA: Stwórz maskę, aby odfiltrować punkty POZA granicami ---
             # Sprawdź, czy zaokrąglone indeksy mieszczą się w zakresie [0, size-1]
             mask = (ix >= 0) & (ix < img_size_x) & (iy >= 0) & (iy < img_size_y)
             
@@ -720,7 +719,6 @@ class StmFftSimulationDialog(QDialog):
             
             # Dodaj intensywność w prawidłowych lokalizacjach
             img[valid_iy, valid_ix] += intensity
-            # --- KONIEC POPRAWKI ---
 
         # "Malowanie" atomów
         # splat(sub_coords, intensity=0.5)
@@ -732,10 +730,24 @@ class StmFftSimulationDialog(QDialog):
         if not img.any():
             return img
 
-        # Rozmycie gaussowskie dla realistycznego wyglądu
-        sigma = max((params.get('atom_size_sub', 50) + params.get('atom_size_ads', 50)) / 200.0, 0.1)
-        if sigma > 0 and pg:
+        # # Rozmycie gaussowskie dla realistycznego wyglądu
+        # sigma = max((params.get('atom_size_sub', 50) + params.get('atom_size_ads', 50)) / 200.0, 0.1)
+        # if sigma > 0 and pg:
+        #      img = pg.gaussianFilter(img, (sigma, sigma))
+        
+        # return img / img.max() if img.max() > 0 else img
+
+        if params.get('show_substrate', True):
+            # Jeśli substrat jest widoczny, uśrednij oba rozmiary
+            sigma = max((params.get('atom_size_sub', 50) + params.get('atom_size_ads', 50)) / 200.0, 0.1)
+        else:
+            # Jeśli substrat jest ukryty, bazuj tylko на rozmiarze atomów adsorbatu
+            # Dzielnik 100.0 zamiast 200.0, aby zachować podobną skalę efektu
+            sigma = max(params.get('atom_size_ads', 50) / 100.0, 0.1)
+
+        if sigma > 0 and pg and img.any():
              img = pg.gaussianFilter(img, (sigma, sigma))
+        # --------------------------------------------------------
         
         return img / img.max() if img.max() > 0 else img
     
