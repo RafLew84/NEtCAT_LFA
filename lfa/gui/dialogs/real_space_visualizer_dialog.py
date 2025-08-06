@@ -4,7 +4,7 @@ import numpy as np
 from typing import Optional, List, Dict, Any, Tuple
 
 from PyQt6.QtWidgets import (
-    QDialog, QHBoxLayout, QVBoxLayout, QWidget, QGroupBox,
+    QDialog, QHBoxLayout, QVBoxLayout, QWidget, QGroupBox, QSpinBox,
     QFormLayout, QCheckBox, QLabel, QComboBox, QPushButton, QSplitter, QMessageBox
 )
 from PyQt6.QtCore import Qt, pyqtSlot, QPointF
@@ -205,6 +205,13 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         self.display_options_form.addRow(self.cb_show_g_adsorbate_fft)
         controls_panel_layout.addWidget(display_options_group)
 
+        self.supercell_size_spinbox = QSpinBox()
+        self.supercell_size_spinbox.setMinimum(1)
+        self.supercell_size_spinbox.setMaximum(50)
+        self.supercell_size_spinbox.setValue(5) # Domyślny rozmiar 5x5
+        self.supercell_size_spinbox.setToolTip("Sets the NxN size of the supercell for 3D visualization.")
+        self.display_options_form.addRow("3D Supercell Size (NxN):", self.supercell_size_spinbox)
+
         self.launch_3d_button = QPushButton("Launch Interactive 3D Viewer")
         self.launch_3d_button.setToolTip("Opens a new, interactive window with a 3D model of the lattices.")
         self.display_options_form.addRow(self.launch_3d_button)
@@ -273,8 +280,19 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         self.cb_show_g_adsorbate_fft.stateChanged.connect(self._trigger_redraw_all_visuals)
         self.ads_set_combo_vis.currentIndexChanged.connect(self._on_selected_adsorbate_set_changed_in_vis)
         self.calculate_sub_ads_angle_button.clicked.connect(self._on_calculate_sub_ads_angle_clicked)
+        self.supercell_size_spinbox.valueChanged.connect(self._on_3d_settings_changed)
         self.launch_3d_button.clicked.connect(self._launch_3d_viewer)
 
+    @pyqtSlot()
+    def _on_3d_settings_changed(self):
+        """
+        Slot called when a 3D visualization parameter (like supercell size) changes.
+        If the 3D viewer is already open, it triggers a redraw.
+        """
+        # Jeśli okno 3D jest otwarte, odśwież je
+        if self.background_plotter and self.background_plotter.app_window.isVisible():
+            logger.debug("3D settings changed, updating background plotter.")
+            # self._launch_3d_viewer()
     
     @pyqtSlot()
     def _launch_3d_viewer(self):
@@ -286,8 +304,11 @@ class RealSpaceFFTVisualizerDialog(QDialog):
             return
 
         # Utwórz plotter tylko raz; przy kolejnych kliknięciach zaktualizuj istniejący
-        if self.background_plotter is None:
+        if self.background_plotter is None or self.background_plotter._closed:
+            logger.info("Creating a new BackgroundPlotter instance.")
             self.background_plotter = BackgroundPlotter(show=True, title="Interactive 3D Lattice Viewer")
+        else:
+            logger.info("Using existing BackgroundPlotter instance.")
         
         plotter = self.background_plotter
         plotter.clear() # Wyczyść scenę przed ponownym rysowaniem
@@ -298,6 +319,9 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         plotter.add_light(pv.Light(position=(5, 5, 10), intensity=1.5))
         plotter.add_light(pv.Light(position=(-5, -5, 5), intensity=0.5))
 
+        supercell_size = self.supercell_size_spinbox.value()
+        size_tuple = (supercell_size, supercell_size)
+
         # --- Logika renderowania (taka sama jak poprzednio) ---
         # Renderowanie substratu
         if self.app_controller.substrate_real_space_results:
@@ -305,7 +329,10 @@ class RealSpaceFFTVisualizerDialog(QDialog):
             substrate_atoms = create_ase_supercell_from_2d_vectors(
                 a1_vec_nm=np.array(sub_params["a1_vec_nm"]),
                 a2_vec_nm=np.array(sub_params["a2_vec_nm"]),
-                atom_symbol='Au'
+                atom_symbol='Au',
+                size=size_tuple,
+                offset_fractional=(0.0, 0.0),
+                z_height_nm=1.0
             )
             if substrate_atoms:
                 for atom in substrate_atoms:
@@ -318,10 +345,14 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         current_set_idx = self.ads_set_combo_vis.currentData()
         ads_params = self.app_controller.adsorbate_real_space_results.get(current_set_idx)
         if ads_params:
+            fcc_hollow_offset = (0, 1/3)
             adsorbate_atoms = create_ase_supercell_from_2d_vectors(
                 a1_vec_nm=np.array(ads_params["a1_vec_nm"]),
                 a2_vec_nm=np.array(ads_params["a2_vec_nm"]),
-                atom_symbol='I'
+                atom_symbol='I',
+                size=size_tuple,
+                offset_fractional=fcc_hollow_offset,
+                z_height_nm=1.15
             )
             if adsorbate_atoms:
                 for atom in adsorbate_atoms:

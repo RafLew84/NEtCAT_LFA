@@ -826,7 +826,9 @@ def create_ase_supercell_from_2d_vectors(
     a1_vec_nm: np.ndarray, 
     a2_vec_nm: np.ndarray, 
     atom_symbol: str = 'Au', 
-    size: Tuple[int, int] = (21, 21)
+    size: Tuple[int, int] = (21, 21),
+    offset_fractional: Tuple[float, float] = (0.0, 0.0),
+    z_height_nm: float = 1.0
 ) -> Optional[Atoms]:
     """
     Creates a 3D ASE Atoms object representing a 2D surface supercell.
@@ -855,11 +857,14 @@ def create_ase_supercell_from_2d_vectors(
         # Złóż macierz komórki elementarnej
         cell_3d = np.array([a1_3d, a2_3d, a3_3d])
 
+        cell_height_nm = cell_3d[2, 2]
+        z_fractional = z_height_nm / cell_height_nm
+
         # Stwórz prymitywną komórkę z jednym atomem
         # Pozycja atomu jest w środku warstwy próżni (z=0.5)
         primitive_cell = Atoms(
             symbols=[atom_symbol],
-            scaled_positions=[(0, 0, 0.5)],
+            scaled_positions=[(offset_fractional[0], offset_fractional[1], z_fractional)],
             cell=cell_3d,
             pbc=[True, True, False]  # Okresowość tylko w płaszczyźnie XY
         )
