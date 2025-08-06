@@ -8,6 +8,9 @@ import logging
 import numpy as np
 from typing import Dict, Tuple, List, Optional, Union, Any
 
+from ase import Atoms
+from ase.build import make_supercell
+
 LATTICE_TYPE_HEXAGONAL = "hexagonal"
 LATTICE_TYPE_SQUARE = "square"
 LATTICE_TYPE_UNKNOWN = "Unknown"
@@ -817,4 +820,57 @@ def calculate_domain_wall_parameters(
         }
     except Exception as e:
         logger.error(f"Error in calculate_domain_wall_parameters: {e}")
+        return None
+    
+def create_ase_supercell_from_2d_vectors(
+    a1_vec_nm: np.ndarray, 
+    a2_vec_nm: np.ndarray, 
+    atom_symbol: str = 'Au', 
+    size: Tuple[int, int] = (21, 21)
+) -> Optional[Atoms]:
+    """
+    Creates a 3D ASE Atoms object representing a 2D surface supercell.
+
+    Args:
+        a1_vec_nm (np.ndarray): 2D real-space lattice vector a1 in nm.
+        a2_vec_nm (np.ndarray): 2D real-space lattice vector a2 in nm.
+        atom_symbol (str): Chemical symbol of the atom for the primitive cell.
+        size (Tuple[int, int]): The (N, M) size of the supercell to create.
+
+    Returns:
+        Optional[ase.Atoms]: The resulting ASE Atoms object for the supercell,
+                             or None on error.
+    """
+    if a1_vec_nm is None or a2_vec_nm is None:
+        return None
+
+    try:
+        # Rozszerz wektory 2D do 3D, dodając 0 jako współrzędną z
+        a1_3d = np.append(a1_vec_nm, 0)
+        a2_3d = np.append(a2_vec_nm, 0)
+
+        # Zdefiniuj trzeci wektor prostopadły, tworząc próżnię (2 nm = 20 Å)
+        a3_3d = np.array([0, 0, 2.0])
+
+        # Złóż macierz komórki elementarnej
+        cell_3d = np.array([a1_3d, a2_3d, a3_3d])
+
+        # Stwórz prymitywną komórkę z jednym atomem
+        # Pozycja atomu jest w środku warstwy próżni (z=0.5)
+        primitive_cell = Atoms(
+            symbols=[atom_symbol],
+            scaled_positions=[(0, 0, 0.5)],
+            cell=cell_3d,
+            pbc=[True, True, False]  # Okresowość tylko w płaszczyźnie XY
+        )
+
+        # Zbuduj superkomórkę, powielając komórkę prymitywną
+        # Macierz transformacji P dla superkomórki
+        P = np.array([[size[0], 0, 0],
+                      [0, size[1], 0],
+                      [0, 0, 1]])
+        supercell = make_supercell(primitive_cell, P)
+        return supercell
+    except Exception as e:
+        logger.error(f"Failed to create ASE structure: {e}")
         return None

@@ -563,38 +563,70 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def open_real_space_fft_visualizer(self):
-        """Opens the Real Space/FFT Visualizer dialog."""
+        """Opens the Real Space/FFT Visualizer dialog in a non-modal way."""
         logger.info("MainWindow: Opening Real Space/FFT Visualizer dialog...")
-        if not REAL_SPACE_VIS_DIALOG_AVAILABLE: # pragma: no cover
+        if not REAL_SPACE_VIS_DIALOG_AVAILABLE:
             QMessageBox.critical(self, "Error", "RealSpaceFFTVisualizerDialog is not available.")
             return
 
+        # Krok 1: Sprawdź, czy okno już istnieje i jest widoczne
+        if self.real_space_visualizer_dialog_instance is not None and self.real_space_visualizer_dialog_instance.isVisible():
+            logger.warning("RealSpaceFFTVisualizerDialog is already open.")
+            self.real_space_visualizer_dialog_instance.raise_()  # Przenieś na wierzch
+            self.real_space_visualizer_dialog_instance.activateWindow() # Aktywuj okno
+            return
+
         current_fft_node = self.history_manager.get_current_node()
-        if not (current_fft_node and current_fft_node.data_type == "FFT"): # pragma: no cover
+        if not (current_fft_node and current_fft_node.data_type == "FFT"):
             QMessageBox.warning(self, "No FFT Data", "Please calculate FFT first to use the visualizer.")
             return
 
-        if self.real_space_visualizer_dialog_instance is not None: # pragma: no cover
-            if self.real_space_visualizer_dialog_instance.isVisible():
-                 logger.warning("RealSpaceFFTVisualizerDialog is already open.")
-                 self.real_space_visualizer_dialog_instance.raise_()
-                 self.real_space_visualizer_dialog_instance.activateWindow()
-                 return
-            else:
-                 self.real_space_visualizer_dialog_instance.deleteLater()
-                 self.real_space_visualizer_dialog_instance = None
-
-
-        dialog = RealSpaceFFTVisualizerDialog(
+        # Krok 2: Stwórz nową instancję i zapisz referencję
+        self.real_space_visualizer_dialog_instance = RealSpaceFFTVisualizerDialog(
             app_controller=self.app_controller,
             history_manager=self.history_manager,
             current_fft_node_id=current_fft_node.node_id,
             parent=self
         )
-        self.real_space_visualizer_dialog_instance = dialog
-        dialog.exec()
-        self.real_space_visualizer_dialog_instance = None 
-        logger.info("RealSpaceFFTVisualizerDialog closed.")
+        
+        # Krok 3: Użyj .show() zamiast .exec()
+        self.real_space_visualizer_dialog_instance.show()
+        logger.info("RealSpaceFFTVisualizerDialog opened.")
+
+    # @pyqtSlot()
+    # def open_real_space_fft_visualizer(self):
+    #     """Opens the Real Space/FFT Visualizer dialog."""
+    #     logger.info("MainWindow: Opening Real Space/FFT Visualizer dialog...")
+    #     if not REAL_SPACE_VIS_DIALOG_AVAILABLE: # pragma: no cover
+    #         QMessageBox.critical(self, "Error", "RealSpaceFFTVisualizerDialog is not available.")
+    #         return
+
+    #     current_fft_node = self.history_manager.get_current_node()
+    #     if not (current_fft_node and current_fft_node.data_type == "FFT"): # pragma: no cover
+    #         QMessageBox.warning(self, "No FFT Data", "Please calculate FFT first to use the visualizer.")
+    #         return
+
+    #     if self.real_space_visualizer_dialog_instance is not None: # pragma: no cover
+    #         if self.real_space_visualizer_dialog_instance.isVisible():
+    #              logger.warning("RealSpaceFFTVisualizerDialog is already open.")
+    #              self.real_space_visualizer_dialog_instance.raise_()
+    #              self.real_space_visualizer_dialog_instance.activateWindow()
+    #              return
+    #         else:
+    #              self.real_space_visualizer_dialog_instance.deleteLater()
+    #              self.real_space_visualizer_dialog_instance = None
+
+
+    #     dialog = RealSpaceFFTVisualizerDialog(
+    #         app_controller=self.app_controller,
+    #         history_manager=self.history_manager,
+    #         current_fft_node_id=current_fft_node.node_id,
+    #         parent=self
+    #     )
+    #     self.real_space_visualizer_dialog_instance = dialog
+    #     dialog.exec()
+    #     self.real_space_visualizer_dialog_instance = None 
+    #     logger.info("RealSpaceFFTVisualizerDialog closed.")
 
     @pyqtSlot(int, str)
     def _handle_expected_adsorbate_type_changed_from_panel(self, set_index: int, selected_type: str):

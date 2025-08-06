@@ -26,6 +26,17 @@ except ImportError: # pragma: no cover
     PYQTGRAPH_AVAILABLE = False
     logging.error("RealSpaceFFTVisualizerDialog: PyQtGraph not found.")
 
+try:
+    import pyvista as pv
+    from pyvistaqt import QtInteractor, BackgroundPlotter
+    from ...analysis.lattice import create_ase_supercell_from_2d_vectors
+    PYVISTA_AVAILABLE = True
+except ImportError:
+    pv = None
+    QtInteractor = None
+    PYVISTA_AVAILABLE = False
+    logging.error("RealSpaceFFTVisualizerDialog: PyVista or PyVistaQT not found.")
+
 # Project imports (adjust paths if different)
 try:
     from ...logic.app_controller import AppController
@@ -97,6 +108,11 @@ class RealSpaceFFTVisualizerDialog(QDialog):
             QVBoxLayout(self).addWidget(QLabel("Critical Error: PyQtGraph or App/History Controller not available."))
             self.setWindowTitle("Error")
             return
+        
+        if PYVISTA_AVAILABLE:
+            pv.set_plot_theme("document")
+
+        self.background_plotter = None
 
         self.setWindowTitle("Real Space & FFT Visualization")
         self.setMinimumSize(1300, 750)
@@ -155,6 +171,16 @@ class RealSpaceFFTVisualizerDialog(QDialog):
             plot_item_rs.showGrid(x=True, y=True, alpha=0.3)
         main_splitter.addWidget(self.real_space_plot_widget)
 
+        # if PYVISTA_AVAILABLE:
+        #     self.plotter = QtInteractor(self)
+        #     self.plotter.set_background('white')
+        #     self.plotter.enable_anti_aliasing()
+        #     self.plotter.enable_shadows() 
+        #     main_splitter.addWidget(self.plotter.interactor)
+        # else:
+        #     # Fallback, jeśli PyVista nie jest dostępne
+        #     main_splitter.addWidget(QLabel("PyVista is not installed.\n3D visualization is unavailable."))
+
         controls_panel_widget = QWidget()
         controls_panel_layout = QVBoxLayout(controls_panel_widget)
         controls_panel_widget.setMinimumWidth(350)
@@ -178,6 +204,10 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         self.cb_show_g_adsorbate_fft.setChecked(True)
         self.display_options_form.addRow(self.cb_show_g_adsorbate_fft)
         controls_panel_layout.addWidget(display_options_group)
+
+        self.launch_3d_button = QPushButton("Launch Interactive 3D Viewer")
+        self.launch_3d_button.setToolTip("Opens a new, interactive window with a 3D model of the lattices.")
+        self.display_options_form.addRow(self.launch_3d_button)
 
         transform_info_group = QGroupBox("Substrate Transformation Info")
         transform_info_layout = QFormLayout(transform_info_group)
@@ -243,7 +273,66 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         self.cb_show_g_adsorbate_fft.stateChanged.connect(self._trigger_redraw_all_visuals)
         self.ads_set_combo_vis.currentIndexChanged.connect(self._on_selected_adsorbate_set_changed_in_vis)
         self.calculate_sub_ads_angle_button.clicked.connect(self._on_calculate_sub_ads_angle_clicked)
+        self.launch_3d_button.clicked.connect(self._launch_3d_viewer)
 
+    
+    @pyqtSlot()
+    def _launch_3d_viewer(self):
+        """
+        Launches or updates a separate, interactive 3D window using BackgroundPlotter.
+        """
+        if not PYVISTA_AVAILABLE:
+            QMessageBox.warning(self, "Dependency Error", "PyVista is not installed. 3D visualization is unavailable.")
+            return
+
+        # Utwórz plotter tylko raz; przy kolejnych kliknięciach zaktualizuj istniejący
+        if self.background_plotter is None:
+            self.background_plotter = BackgroundPlotter(show=True, title="Interactive 3D Lattice Viewer")
+        
+        plotter = self.background_plotter
+        plotter.clear() # Wyczyść scenę przed ponownym rysowaniem
+
+        # Ustaw oświetlenie i tło
+        plotter.set_background('white')
+        plotter.remove_all_lights()
+        plotter.add_light(pv.Light(position=(5, 5, 10), intensity=1.5))
+        plotter.add_light(pv.Light(position=(-5, -5, 5), intensity=0.5))
+
+        # --- Logika renderowania (taka sama jak poprzednio) ---
+        # Renderowanie substratu
+        if self.app_controller.substrate_real_space_results:
+            sub_params = self.app_controller.substrate_real_space_results
+            substrate_atoms = create_ase_supercell_from_2d_vectors(
+                a1_vec_nm=np.array(sub_params["a1_vec_nm"]),
+                a2_vec_nm=np.array(sub_params["a2_vec_nm"]),
+                atom_symbol='Au'
+            )
+            if substrate_atoms:
+                for atom in substrate_atoms:
+                    sphere = pv.Sphere(center=atom.position, radius=0.07)
+                    sphere.compute_normals(inplace=True)
+                    actor = plotter.add_mesh(sphere, color='gold', smooth_shading=True)
+                    actor.prop.metallic = 0.8; actor.prop.roughness = 0.2
+
+        # Renderowanie wybranego zestawu adsorbatu
+        current_set_idx = self.ads_set_combo_vis.currentData()
+        ads_params = self.app_controller.adsorbate_real_space_results.get(current_set_idx)
+        if ads_params:
+            adsorbate_atoms = create_ase_supercell_from_2d_vectors(
+                a1_vec_nm=np.array(ads_params["a1_vec_nm"]),
+                a2_vec_nm=np.array(ads_params["a2_vec_nm"]),
+                atom_symbol='I'
+            )
+            if adsorbate_atoms:
+                for atom in adsorbate_atoms:
+                    sphere = pv.Sphere(center=atom.position, radius=0.1)
+                    sphere.compute_normals(inplace=True)
+                    actor = plotter.add_mesh(sphere, color='purple', smooth_shading=True)
+                    actor.prop.metallic = 0.2; actor.prop.roughness = 0.6
+
+        plotter.camera_position = 'xy'
+        plotter.reset_camera()
+        plotter.app_window.show() # Upewnij się, że okno jest widoczne i aktywne
 
     @pyqtSlot()
     def _trigger_redraw_all_visuals(self):
@@ -509,7 +598,7 @@ class RealSpaceFFTVisualizerDialog(QDialog):
                                       a1_vec: np.ndarray, a2_vec: np.ndarray, 
                                       pen_color='k', symbol='o', symbol_size=8, 
                                       symbol_color='k', label_text="",
-                                      offset_factor=0.0, n_cells: int = 2):
+                                      offset_factor=0.0, n_cells: int = 10):
         """
         Draw a single real space lattice visualization.
         
@@ -685,4 +774,7 @@ class RealSpaceFFTVisualizerDialog(QDialog):
                 self.gl_gauss_surface_plot_item = None
             self.gl_gauss_view_widget.setParent(None)
             self.gl_gauss_view_widget.deleteLater()
+        if self.background_plotter:
+            self.background_plotter.close()
+            self.background_plotter = None
         super().closeEvent(event)

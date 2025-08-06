@@ -7,4 +7,8 @@ scikit-image>=0.18 # Alternative/complement for image processing
 pytest>=7.0
 pytest-qt>=5.0
 pytest-mock>=3.10
+PyOpenGL
+pyvista
+pyvistaqt
+ase
 bm3d>=3.0
