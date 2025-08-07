@@ -56,6 +56,26 @@ class MenuActionManager:
         file_menu.addAction(self.file_actions["open"])
         
         file_menu.addSeparator()
+
+        self.save_file["save_project_as"] = self._create_action(
+            text="&Save as...", 
+            status_tip="Save project",
+            triggered_slot=self.main_window.on_save_project_as,
+            shortcut="Ctrl+Shift+S"
+        )
+
+        file_menu.addAction(self.file_actions["save_project_as"])
+
+        self.save_file["save_project"] = self._create_action(
+            text="&Quicksave to last saved file...", 
+            status_tip="Save project",
+            triggered_slot=self.main_window.on_save_project,
+            shortcut="Ctrl+S"
+        )
+
+        file_menu.addAction(self.file_actions["save_project"])
+
+        file_menu.addSeparator()
         
         self.file_actions["exit"] = self._create_action(
             text="&Exit", 
@@ -63,6 +83,7 @@ class MenuActionManager:
             triggered_slot=self.main_window.close, 
             shortcut="Ctrl+Q"
         )
+
         file_menu.addAction(self.file_actions["exit"])
 
     def _create_preprocessing_menu(self):
@@ -197,3 +218,5 @@ class MenuActionManager:
             "help": self.help_actions,
         }
         return menu_map.get(menu_key, {}).get(action_key)
+    
+    

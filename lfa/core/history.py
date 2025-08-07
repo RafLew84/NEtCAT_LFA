@@ -155,4 +155,76 @@ class HistoryNode:
             isinstance(self.source_roi_slice[1], slice)
             ):
              raise TypeError("source_roi_slice must be None or Tuple[slice, slice]")
+        
+    def to_dict(self) -> Dict[str, Any]:
+        """
+        Serializes the node to a JSON-compatible dictionary.
+        Large numpy arrays (image_data, etc.) are not included directly;
+        only their future paths are referenced.
+        """
+        # Konwertuj małe tablice numpy w parametrach do list
+        serializable_params = {}
+        if self.parameters:
+            for key, value in self.parameters.items():
+                if isinstance(value, np.ndarray):
+                    serializable_params[key] = value.tolist()
+                else:
+                    serializable_params[key] = value
+
+        # Serializuj obiekt 'slice', który nie jest kompatybilny z JSON
+        serializable_roi_slice = None
+        if self.source_roi_slice:
+            s_y, s_x = self.source_roi_slice
+            serializable_roi_slice = [
+                {'start': s_y.start, 'stop': s_y.stop, 'step': s_y.step},
+                {'start': s_x.start, 'stop': s_x.stop, 'step': s_x.step}
+            ]
+
+        return {
+            'node_id': self.node_id,
+            'parent_id': self.parent_id,
+            'operation_name': self.operation_name,
+            'parameters': serializable_params,
+            'data_type': self.data_type,
+            'source_roi_slice': serializable_roi_slice,
+            # Zapisujemy tylko ścieżki, które będą użyte do zapisu plików .npy
+            'image_data_path': f'nodes/{self.node_id}_image.npy' if self.image_data is not None else None,
+            'complex_fft_data_path': f'nodes/{self.node_id}_complex.npy' if self.complex_fft_data is not None else None,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'HistoryNode':
+        """
+        Creates a HistoryNode instance from a dictionary (deserialization).
+        Large numpy arrays are not loaded here; this must be done separately.
+        """
+        # Odtwórz małe tablice numpy z list w parametrach
+        deserialized_params = {}
+        if 'parameters' in data and data['parameters']:
+            for key, value in data['parameters'].items():
+                # Można dodać bardziej specyficzne warunki, jeśli to konieczne
+                if isinstance(value, list):
+                    deserialized_params[key] = np.array(value)
+                else:
+                    deserialized_params[key] = value
+        
+        # Odtwórz obiekt 'slice' ze słownika
+        deserialized_roi_slice = None
+        if data.get('source_roi_slice'):
+            s_y_data, s_x_data = data['source_roi_slice']
+            s_y = slice(s_y_data['start'], s_y_data['stop'], s_y_data['step'])
+            s_x = slice(s_x_data['start'], s_x_data['stop'], s_x_data['step'])
+            deserialized_roi_slice = (s_y, s_x)
+
+        return cls(
+            node_id=data['node_id'],
+            parent_id=data['parent_id'],
+            operation_name=data['operation_name'],
+            parameters=deserialized_params,
+            data_type=data['data_type'],
+            source_roi_slice=deserialized_roi_slice,
+            # Pola danych zostaną wypełnione później, po wczytaniu plików .npy
+            image_data=None,
+            complex_fft_data=None
+        )
 

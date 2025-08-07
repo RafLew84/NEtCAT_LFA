@@ -7,6 +7,12 @@ import logging
 import os
 import numpy as np
 
+import json
+import tempfile
+import shutil
+import zipfile
+import os
+
 from typing import Optional, List, Tuple, Dict, Any
 
 from PyQt6.QtCore import QObject, pyqtSignal
@@ -121,6 +127,7 @@ class AppController(QObject):
         self.adsorbate_expected_lattice_types: Dict[int, str] = {0: ADSORBATE_LATTICE_TYPE_UNKNOWN}
 
         self.domain_wall_analysis_results: Optional[Dict[str, Any]] = None
+        self.current_project_path: Optional[str] = None
 
         logger.info("AppController initialized.")
 
@@ -567,6 +574,103 @@ class AppController(QObject):
         self.substrate_real_space_params_updated.emit({})
         self.adsorbate_real_space_results.clear()
         if hasattr(self, 'adsorbate_real_space_params_updated'): self.adsorbate_real_space_params_updated.emit(self.current_adsorbate_set_index, {})
+
+    def save_project(self, filepath: str) -> bool:
+        """Saves the entire application state to a .lfaproj file."""
+        logger.info(f"Saving project to {filepath}...")
+        try:
+            with tempfile.TemporaryDirectory() as temp_dir:
+                nodes_dir = os.path.join(temp_dir, 'nodes')
+                os.makedirs(nodes_dir)
+
+                # 1. Zapisz dane numpy i zbierz metadane węzłów
+                history_data = []
+                for node in self.history_manager.nodes:
+                    node_dict = node.to_dict()
+                    history_data.append(node_dict)
+                    
+                    # Zapisz duże tablice numpy do plików .npy
+                    if node.image_data is not None:
+                        np.save(os.path.join(temp_dir, node_dict['image_data_path']), node.image_data)
+                    if node.complex_fft_data is not None:
+                        np.save(os.path.join(temp_dir, node_dict['complex_fft_data_path']), node.complex_fft_data)
+
+                # 2. Zbierz resztę stanu aplikacji do serializacji
+                app_state = {
+                    'version': '1.0',
+                    'history': history_data,
+                    'current_node_id': self.history_manager.get_current_node_id(),
+                    'substrate_transform_matrix': self.substrate_transform_matrix.tolist() if self.substrate_transform_matrix is not None else None,
+                    'substrate_real_space_results': self.substrate_real_space_results,
+                    'adsorbate_spot_sets': self.adsorbate_spot_sets,
+                    'corrected_adsorbate_spot_sets': self.corrected_adsorbate_spot_sets,
+                    'adsorbate_real_space_results': self.adsorbate_real_space_results,
+                    'domain_wall_results': self.domain_wall_analysis_results,
+                }
+
+                # 3. Zapisz plik JSON z metadanymi
+                json_path = os.path.join(temp_dir, 'project_data.json')
+                with open(json_path, 'w') as f:
+                    json.dump(app_state, f, indent=4)
+
+                # 4. Spakuj wszystko do pliku .lfaproj (ZIP)
+                shutil.make_archive(filepath.replace('.lfaproj', ''), 'zip', temp_dir)
+                if os.path.exists(filepath):
+                    os.remove(filepath)
+                os.rename(filepath.replace('.lfaproj', '.zip'), filepath)
+                
+            self.current_project_path = filepath
+            logger.info("Project saved successfully.")
+            return True
+        except Exception as e:
+            logger.exception(f"Failed to save project: {e}")
+            return False
+        
+    def load_project(self, filepath: str):
+        """Loads application state from a .lfaproj file."""
+        logger.info(f"Loading project from {filepath}...")
+        try:
+            # Najpierw zresetuj bieżący stan aplikacji
+            self.reset_application_state() # Musisz stworzyć tę metodę
+
+            with tempfile.TemporaryDirectory() as temp_dir:
+                # 1. Rozpakuj archiwum
+                with zipfile.ZipFile(filepath, 'r') as zipf:
+                    zipf.extractall(temp_dir)
+
+                # 2. Wczytaj plik JSON
+                json_path = os.path.join(temp_dir, 'project_data.json')
+                with open(json_path, 'r') as f:
+                    app_state = json.load(f)
+
+                # 3. Odtwórz stan
+                loaded_nodes = []
+                for node_data in app_state['history']:
+                    # Odtwórz węzeł z danych JSON
+                    node = HistoryNode.from_dict(node_data) # Musisz stworzyć metodę from_dict
+
+                    # Wczytaj dane numpy z plików .npy
+                    if node_data['image_data_path']:
+                        node.image_data = np.load(os.path.join(temp_dir, node_data['image_data_path']))
+                    if node_data['complex_fft_data_path']:
+                        node.complex_fft_data = np.load(os.path.join(temp_dir, node_data['complex_fft_data_path']))
+                    loaded_nodes.append(node)
+
+                self.history_manager.load_nodes(loaded_nodes)
+                self.history_manager.set_current_node_by_id(app_state['current_node_id'])
+
+                # Odtwórz resztę stanu
+                self.substrate_real_space_results = app_state.get('substrate_results')
+                self.adsorbate_real_space_results = app_state.get('adsorbate_results')
+                # ... odtwórz inne atrybuty
+
+            logger.info("Project loaded successfully.")
+            # Wyemituj sygnał do MainWindow, aby odświeżyło cały interfejs
+            self.state_loaded.emit() # Potrzebny nowy sygnał
+            return True
+        except Exception as e:
+            logger.exception(f"Failed to load project: {e}")
+            return False
 
     def set_spot_selection_mode(self, mode: str):
         """Sets the spot selection mode (Substrate/Adsorbate)."""
