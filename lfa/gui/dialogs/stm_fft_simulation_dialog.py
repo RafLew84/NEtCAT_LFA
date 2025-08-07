@@ -2,8 +2,9 @@
 import logging
 import numpy as np
 from typing import Optional, Dict, Any, Tuple
+from scipy.ndimage import gaussian_filter, median_filter
 
-from PyQt6.QtCore import Qt, pyqtSlot, pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSlot, pyqtSignal, QRectF
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget,
     QVBoxLayout, QHBoxLayout, QGroupBox,
@@ -684,72 +685,119 @@ class StmFftSimulationDialog(QDialog):
         return params
     
     def _generate_image(self, params: Dict[str, Any]) -> Optional[np.ndarray]:
-        """Generuje obraz topografii STM na podstawie parametrów."""
         img_size_y, img_size_x = params['px_y'], params['px_x']
-        # Używamy jednego skalowania, aby uniknąć dystorsji, jeśli piksele nie są kwadratowe
-        pixel_per_nm = params['px_x'] / params['nm_x']
+        pixel_per_nm = params['px_x'] / params['nm_x'] 
 
-        # Generuj koordynaty
-        sub_coords = self._get_substrate_coords(params)
-        ads_coords = self._get_adsorbate_coords(params)
+        sub_accumulator = np.zeros((img_size_y, img_size_x), dtype=np.float32)
+        ads_accumulator = np.zeros((img_size_y, img_size_x), dtype=np.float32)
 
-        img = np.zeros((img_size_y, img_size_x), dtype=np.float32)
-
-        def splat(coords: Optional[np.ndarray], intensity: float):
-            """
-            Helper do 'malowania' atomów. Teraz bezpiecznie obsługuje krawędzie.
-            """
+        def splat(coords: Optional[np.ndarray], accumulator: np.ndarray):
             if coords is None or coords.size == 0:
                 return
-
-            # Skaluj pozycje w nm na piksele
             px = coords[:, 0] * pixel_per_nm
             py = coords[:, 1] * pixel_per_nm
-            
-            # Zaokrąglij do najbliższych współrzędnych całkowitych
             ix = np.round(px).astype(int)
             iy = np.round(py).astype(int)
             
-            # Sprawdź, czy zaokrąglone indeksy mieszczą się w zakresie [0, size-1]
             mask = (ix >= 0) & (ix < img_size_x) & (iy >= 0) & (iy < img_size_y)
-            
-            # Użyj tylko prawidłowych indeksów
             valid_ix = ix[mask]
             valid_iy = iy[mask]
             
-            # Dodaj intensywność w prawidłowych lokalizacjach
-            img[valid_iy, valid_ix] += intensity
+            accumulator[valid_iy, valid_ix] = 1.0
 
-        # "Malowanie" atomów
-        # splat(sub_coords, intensity=0.5)
         if params.get('show_substrate', True):
             sub_coords = self._get_substrate_coords(params)
-            splat(sub_coords, intensity=0.5)
-        splat(ads_coords, intensity=1.0)
+            splat(sub_coords, sub_accumulator)
         
-        if not img.any():
-            return img
-
-        # # Rozmycie gaussowskie dla realistycznego wyglądu
-        # sigma = max((params.get('atom_size_sub', 50) + params.get('atom_size_ads', 50)) / 200.0, 0.1)
-        # if sigma > 0 and pg:
-        #      img = pg.gaussianFilter(img, (sigma, sigma))
+        ads_coords = self._get_adsorbate_coords(params)
+        splat(ads_coords, ads_accumulator)
         
-        # return img / img.max() if img.max() > 0 else img
-
-        if params.get('show_substrate', True):
-            # Jeśli substrat jest widoczny, uśrednij oba rozmiary
-            sigma = max((params.get('atom_size_sub', 50) + params.get('atom_size_ads', 50)) / 200.0, 0.1)
-        else:
-            # Jeśli substrat jest ukryty, bazuj tylko на rozmiarze atomów adsorbatu
-            # Dzielnik 100.0 zamiast 200.0, aby zachować podobną skalę efektu
-            sigma = max(params.get('atom_size_ads', 50) / 100.0, 0.1)
-
-        if sigma > 0 and pg and img.any():
-             img = pg.gaussianFilter(img, (sigma, sigma))
-        # --------------------------------------------------------
+        final_image = np.zeros((img_size_y, img_size_x), dtype=np.float32)
         
-        return img / img.max() if img.max() > 0 else img
+        if params.get('show_substrate', True) and np.any(sub_accumulator):
+            sigma_sub = max(params.get('atom_size_sub', 50) / 50.0, 0.1)
+            sub_layer = gaussian_filter(sub_accumulator, sigma=sigma_sub)
+            if sub_layer.max() > 0:
+                final_image += sub_layer / sub_layer.max()  # Normalizuj i dodaj
+
+        if np.any(ads_accumulator):
+            sigma_ads = max(params.get('atom_size_ads', 50) / 50.0, 0.1)
+            ads_layer = gaussian_filter(ads_accumulator, sigma=sigma_ads)
+            if ads_layer.max() > 0:
+                final_image += ads_layer / ads_layer.max()  # Normalizuj i dodaj
+
+        if final_image.max() > 0:
+            return final_image / final_image.max()
+            
+        return final_image
+    
+    # def _generate_image(self, params: Dict[str, Any]) -> Optional[np.ndarray]:
+    #     """Generuje obraz topografii STM na podstawie parametrów."""
+    #     img_size_y, img_size_x = params['px_y'], params['px_x']
+    #     # Używamy jednego skalowania, aby uniknąć dystorsji, jeśli piksele nie są kwadratowe
+    #     pixel_per_nm = params['px_x'] / params['nm_x']
+
+    #     # Generuj koordynaty
+    #     sub_coords = self._get_substrate_coords(params)
+    #     ads_coords = self._get_adsorbate_coords(params)
+
+    #     img = np.zeros((img_size_y, img_size_x), dtype=np.float32)
+
+    #     def splat(coords: Optional[np.ndarray], intensity: float):
+    #         """
+    #         Helper do 'malowania' atomów. Teraz bezpiecznie obsługuje krawędzie.
+    #         """
+    #         if coords is None or coords.size == 0:
+    #             return
+
+    #         # Skaluj pozycje w nm na piksele
+    #         px = coords[:, 0] * pixel_per_nm
+    #         py = coords[:, 1] * pixel_per_nm
+            
+    #         # Zaokrąglij do najbliższych współrzędnych całkowitych
+    #         ix = np.round(px).astype(int)
+    #         iy = np.round(py).astype(int)
+            
+    #         # Sprawdź, czy zaokrąglone indeksy mieszczą się w zakresie [0, size-1]
+    #         mask = (ix >= 0) & (ix < img_size_x) & (iy >= 0) & (iy < img_size_y)
+            
+    #         # Użyj tylko prawidłowych indeksów
+    #         valid_ix = ix[mask]
+    #         valid_iy = iy[mask]
+            
+    #         # Dodaj intensywność w prawidłowych lokalizacjach
+    #         img[valid_iy, valid_ix] += intensity
+
+    #     # "Malowanie" atomów
+    #     # splat(sub_coords, intensity=0.5)
+    #     if params.get('show_substrate', True):
+    #         sub_coords = self._get_substrate_coords(params)
+    #         splat(sub_coords, intensity=0.5)
+    #     splat(ads_coords, intensity=1.0)
+        
+    #     if not img.any():
+    #         return img
+
+    #     # # Rozmycie gaussowskie dla realistycznego wyglądu
+    #     # sigma = max((params.get('atom_size_sub', 50) + params.get('atom_size_ads', 50)) / 200.0, 0.1)
+    #     # if sigma > 0 and pg:
+    #     #      img = pg.gaussianFilter(img, (sigma, sigma))
+        
+    #     # return img / img.max() if img.max() > 0 else img
+
+    #     if params.get('show_substrate', True):
+    #         # Jeśli substrat jest widoczny, uśrednij oba rozmiary
+    #         sigma = max((params.get('atom_size_sub', 50) + params.get('atom_size_ads', 50)) / 200.0, 0.1)
+    #     else:
+    #         # Jeśli substrat jest ukryty, bazuj tylko на rozmiarze atomów adsorbatu
+    #         # Dzielnik 100.0 zamiast 200.0, aby zachować podobną skalę efektu
+    #         sigma = max(params.get('atom_size_ads', 50) / 100.0, 0.1)
+
+    #     if sigma > 0 and pg and img.any():
+    #          img = pg.gaussianFilter(img, (sigma, sigma))
+    #     # --------------------------------------------------------
+        
+    #     return img / img.max() if img.max() > 0 else img
     
     # def _generate_image(self, params: Dict[str, Any]) -> Optional[np.ndarray]:
     #     """Generuje obraz topografii STM na podstawie parametrów."""
@@ -805,23 +853,42 @@ class StmFftSimulationDialog(QDialog):
         fft_image = self._calculate_fft(stm_image, params)
         if fft_image is None: logger.error("FFT calculation failed."); return
 
-        if not self._initial_update_done:
-            # Pierwsze uruchomienie: ustaw autoLevels i zakresy
-            self.sim_stm_image_item.setImage(stm_image.T, autoLevels=True)
-            self.sim_fft_image_item.setImage(fft_image.T, autoLevels=True)
-            
-            # Ustaw skalę osi dla widoków tylko raz
-            px_x, px_y = params['px_x'], params['px_y']
-            self.sim_stm_plot.setRange(xRange=(0, px_x), yRange=(0, px_y))
-            
-            fft_Ny, fft_Nx = fft_image.shape
-            self.sim_fft_plot.setRange(xRange=(0, fft_Nx), yRange=(0, fft_Ny))
+        exp_h, exp_w = self.experimental_fft_image.shape
+        target_rect = QRectF(0, 0, exp_w, exp_h)
 
-            self._initial_update_done = True # Ustaw flagę
+        if not self._initial_update_done:
+            self.sim_stm_image_item.setImage(stm_image.T, autoLevels=True)
         else:
-            # Kolejne aktualizacje: podmień tylko dane, zachowaj widok
             self.sim_stm_image_item.setImage(stm_image.T, autoLevels=False)
-            self.sim_fft_image_item.setImage(fft_image.T, autoLevels=False)
+
+        if not self._initial_update_done:
+            self.exp_fft_image_item.setImage(self.experimental_fft_image.T, autoLevels=True)
+            self.sim_fft_image_item.setImage(fft_image.T, autoLevels=True, rect=target_rect)
+            
+            self.sim_fft_plot.setRange(xRange=(0, exp_w), yRange=(0, exp_h))
+            
+            self._initial_update_done = True
+        else:
+            self.exp_fft_image_item.setImage(self.experimental_fft_image.T, autoLevels=False)
+            self.sim_fft_image_item.setImage(fft_image.T, autoLevels=False, rect=target_rect)
+
+        # if not self._initial_update_done:
+        #     # Pierwsze uruchomienie: ustaw autoLevels i zakresy
+        #     self.sim_stm_image_item.setImage(stm_image.T, autoLevels=True)
+        #     self.sim_fft_image_item.setImage(fft_image.T, autoLevels=True)
+            
+        #     # Ustaw skalę osi dla widoków tylko raz
+        #     px_x, px_y = params['px_x'], params['px_y']
+        #     self.sim_stm_plot.setRange(xRange=(0, px_x), yRange=(0, px_y))
+            
+        #     fft_Ny, fft_Nx = fft_image.shape
+        #     self.sim_fft_plot.setRange(xRange=(0, fft_Nx), yRange=(0, fft_Ny))
+
+        #     self._initial_update_done = True # Ustaw flagę
+        # else:
+        #     # Kolejne aktualizacje: podmień tylko dane, zachowaj widok
+        #     self.sim_stm_image_item.setImage(stm_image.T, autoLevels=False)
+        #     self.sim_fft_image_item.setImage(fft_image.T, autoLevels=False)
 
         # # Wyświetl obrazy
         # self.sim_stm_image_item.setImage(stm_image.T, autoLevels=True)
