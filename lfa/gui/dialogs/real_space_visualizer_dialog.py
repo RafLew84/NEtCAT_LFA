@@ -103,6 +103,7 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         self.app_controller = app_controller
         self.history_manager = history_manager
         self.current_fft_node_id = current_fft_node_id
+        self.visual_alignment_angle_rad = 0.0
 
         if not PYQTGRAPH_AVAILABLE or not self.app_controller or not self.history_manager: # pragma: no cover
             QVBoxLayout(self).addWidget(QLabel("Critical Error: PyQtGraph or App/History Controller not available."))
@@ -199,6 +200,11 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         self.cb_show_g_substrate_fft = QCheckBox("Substrate g* vectors (on FFT)")
         self.cb_show_g_substrate_fft.setChecked(True)
         self.display_options_form.addRow(self.cb_show_g_substrate_fft)
+
+        self.cb_visual_align = QCheckBox("Wyrównaj wizualnie adsorbat do podłoża")
+        self.cb_visual_align.setChecked(False)
+        self.cb_visual_align.setToolTip("Obraca sieć adsorbatu tylko na wizualizacji, aby jej wektor a1 pasował do wektora a1 podłoża.")
+        self.display_options_form.addRow(self.cb_visual_align)
         
         self.cb_show_g_adsorbate_fft = QCheckBox("Adsorbate g* vectors (Current Set, on FFT)")
         self.cb_show_g_adsorbate_fft.setChecked(True)
@@ -276,6 +282,7 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         """
         self.close_button.clicked.connect(self.accept)
         self.cb_show_substrate_real_lattice.stateChanged.connect(self._trigger_redraw_all_visuals)
+        self.cb_visual_align.stateChanged.connect(self._trigger_redraw_all_visuals)
         self.cb_show_g_substrate_fft.stateChanged.connect(self._trigger_redraw_all_visuals)
         self.cb_show_g_adsorbate_fft.stateChanged.connect(self._trigger_redraw_all_visuals)
         self.ads_set_combo_vis.currentIndexChanged.connect(self._on_selected_adsorbate_set_changed_in_vis)
@@ -345,10 +352,19 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         current_set_idx = self.ads_set_combo_vis.currentData()
         ads_params = self.app_controller.adsorbate_real_space_results.get(current_set_idx)
         if ads_params:
+            a1_ads_nm = np.array(ads_params["a1_vec_nm"])
+            a2_ads_nm = np.array(ads_params["a2_vec_nm"])
+
+            if self.cb_visual_align.isChecked():
+                theta = self.visual_alignment_angle_rad
+                rotation_matrix = np.array([[np.cos(theta), -np.sin(theta)],
+                                            [np.sin(theta),  np.cos(theta)]])
+                a1_ads_nm = np.dot(rotation_matrix, a1_ads_nm)
+                a2_ads_nm = np.dot(rotation_matrix, a2_ads_nm)
             fcc_hollow_offset = (0, 1/3)
             adsorbate_atoms = create_ase_supercell_from_2d_vectors(
-                a1_vec_nm=np.array(ads_params["a1_vec_nm"]),
-                a2_vec_nm=np.array(ads_params["a2_vec_nm"]),
+                a1_vec_nm=a1_ads_nm,
+                a2_vec_nm=a2_ads_nm,
                 atom_symbol='I',
                 size=size_tuple,
                 offset_fractional=fcc_hollow_offset,
@@ -611,14 +627,22 @@ class RealSpaceFFTVisualizerDialog(QDialog):
                 if set_index is not None:
                     ads_params = self.app_controller.adsorbate_real_space_results.get(set_index)
                     if ads_params and "a1_vec_nm" in ads_params and "a2_vec_nm" in ads_params:
+                        a1_ads_vec = np.array(ads_params["a1_vec_nm"])
+                        a2_ads_vec = np.array(ads_params["a2_vec_nm"])
+                        if self.cb_visual_align.isChecked():
+                            theta = self.visual_alignment_angle_rad
+                            rotation_matrix = np.array([[np.cos(theta), -np.sin(theta)],
+                                                        [np.sin(theta),  np.cos(theta)]])
+                            a1_ads_vec = np.dot(rotation_matrix, a1_ads_vec)
+                            a2_ads_vec = np.dot(rotation_matrix, a2_ads_vec)
                         colors = ['b', 'g', 'purple', 'orange']
                         symbols = ['s', 't', 'd', 'star']
                         color = colors[i % len(colors)]
                         symbol = symbols[i % len(symbols)]
                         self._draw_single_real_space_lattice(
                             plot_item_rs,
-                            np.array(ads_params["a1_vec_nm"]),
-                            np.array(ads_params["a2_vec_nm"]),
+                            a1_ads_vec,
+                            a2_ads_vec,
                             pen_color=color, symbol=symbol, symbol_size=7, symbol_color=color, label_text=f"A{i+1}",
                             offset_factor=0.0
                         )
@@ -729,19 +753,18 @@ class RealSpaceFFTVisualizerDialog(QDialog):
             current_ads_set_idx_vis in self.app_controller.adsorbate_real_space_results and
             self.app_controller.adsorbate_real_space_results[current_ads_set_idx_vis]
         ))
-        
+
     @pyqtSlot()
     def _on_calculate_sub_ads_angle_clicked(self):
         """
-        Calculate and display the angle between substrate and adsorbate lattices.
-        
-        Note:
-            The angle is calculated between the first basis vectors (a1)
-            of the substrate and adsorbate lattices.
+        Wykonuje dwa obliczenia:
+        1. Oblicza i wyświetla bezwzględny kąt między domyślnymi wektorami a1.
+        2. Oblicza w tle i zapisuje najmniejszy kąt potrzebny do wizualnego wyrównania.
         """
-        logger.debug("Visualizer: Calculate Substrate-Adsorbate Angle clicked.")
+        logger.debug("Visualizer: Calculate Sub-Ads Angle button clicked.")
         if not self.app_controller: return
 
+        # Pobranie danych (bez zmian)
         current_ads_set_idx_vis = self.ads_set_combo_vis.currentData()
         if current_ads_set_idx_vis is None:
             QMessageBox.information(self, "Info", "Please select an adsorbate set.")
@@ -752,32 +775,205 @@ class RealSpaceFFTVisualizerDialog(QDialog):
 
         if not (sub_params and "a1_vec_nm" in sub_params and ads_params and "a1_vec_nm" in ads_params):
             self.angle_sub_ads_label.setText("N/A (Params missing)")
-            QMessageBox.warning(self, "Data Missing", "Substrate or adsorbate real space parameters not calculated yet.")
             return
 
         try:
             a1_s_vec = np.array(sub_params["a1_vec_nm"])
             a1_a_vec = np.array(ads_params["a1_vec_nm"])
+            a2_a_vec = np.array(ads_params["a2_vec_nm"])
 
+            # --- CZĘŚĆ 1: Obliczenie kąta do WYŚWIETLENIA (tak jak chciałeś) ---
             norm_s = np.linalg.norm(a1_s_vec)
             norm_a = np.linalg.norm(a1_a_vec)
-
-            if norm_s < 1e-9 or norm_a < 1e-9: # pragma: no cover
+            if norm_s > 1e-9 and norm_a > 1e-9:
+                dot_product = np.dot(a1_s_vec, a1_a_vec)
+                cos_theta = np.clip(dot_product / (norm_s * norm_a), -1.0, 1.0)
+                angle_for_display_deg = np.degrees(np.arccos(cos_theta))
+                self.angle_sub_ads_label.setText(f"{angle_for_display_deg:.3f}°")
+                logger.info(f"Wyświetlono kąt między domyślnymi a1: {angle_for_display_deg:.3f}°")
+            else:
                 self.angle_sub_ads_label.setText("N/A (Zero vector)")
-                return
-            
-            dot_product = np.dot(a1_s_vec, a1_a_vec)
-            cos_theta = np.clip(dot_product / (norm_s * norm_a), -1.0, 1.0)
-            angle_rad = np.arccos(cos_theta)
-            angle_deg = np.degrees(angle_rad)
-            
-            self.angle_sub_ads_label.setText(f"{angle_deg:.2f} °")
-            logger.info(f"Calculated angle between substrate a1 and adsorbate set {current_ads_set_idx_vis} a1: {angle_deg:.2f}°")
 
-        except Exception as e: # pragma: no cover
+            # --- CZĘŚĆ 2: Obliczenie kąta do WYRÓWNANIA (w tle) ---
+            y_axis_vector = np.array([0.0, 1.0])
+            
+            def find_most_vertical_vector(a1, a2):
+                candidate_vectors = [
+                    a1, a2, a1 + a2, a1 - a2, a2 - a1,
+                    2*a1 - a2, a1 - 2*a2, 2*a1 + a2, a1 + 2*a2
+                ]
+                best_vector, max_dot_product = None, -1
+                for vec in candidate_vectors:
+                    norm = np.linalg.norm(vec)
+                    if norm < 1e-9: continue
+                    dot_product = abs(np.dot(vec / norm, y_axis_vector))
+                    if dot_product > max_dot_product:
+                        max_dot_product, best_vector = dot_product, vec
+                return best_vector
+
+            vertical_sub_vec = find_most_vertical_vector(a1_s_vec, np.array(sub_params["a2_vec_nm"]))
+            vertical_ads_vec = find_most_vertical_vector(a1_a_vec, a2_a_vec)
+
+            if vertical_sub_vec is not None and vertical_ads_vec is not None:
+                angle_sub_rad = np.arctan2(vertical_sub_vec[1], vertical_sub_vec[0])
+                angle_ads_rad = np.arctan2(vertical_ads_vec[1], vertical_ads_vec[0])
+                alignment_angle_rad = angle_sub_rad - angle_ads_rad
+                
+                while alignment_angle_rad <= -np.pi: alignment_angle_rad += 2 * np.pi
+                while alignment_angle_rad > np.pi: alignment_angle_rad -= 2 * np.pi
+                
+                self.visual_alignment_angle_rad = alignment_angle_rad
+                logger.info(f"Zapisano w tle kąt do wyrównania wizualnego: {np.degrees(self.visual_alignment_angle_rad):.3f}°")
+            else:
+                # W razie błędu zerujemy kąt wyrównania
+                self.visual_alignment_angle_rad = 0.0
+            
+            # Jeśli checkbox wyrównania jest aktywny, odśwież widok z nowym kątem
+            if self.cb_visual_align.isChecked():
+                self._trigger_redraw_all_visuals()
+
+        except Exception as e:
             logger.error(f"Error calculating substrate-adsorbate angle: {e}")
             self.angle_sub_ads_label.setText("Error")
             QMessageBox.critical(self, "Calculation Error", f"Could not calculate angle: {e}")
+
+    # @pyqtSlot()
+    # def _on_calculate_sub_ads_angle_clicked(self):
+    #     """
+    #     Oblicza kąt potrzebny do wizualnego wyrównania sieci adsorbatu z siecią podłoża
+    #     wzdłuż kierunku najbardziej zbliżonego do osi Y.
+    #     """
+    #     logger.debug("Visualizer: Calculating Y-axis alignment angle.")
+    #     if not self.app_controller: return
+
+    #     # Pobranie danych (bez zmian)
+    #     current_ads_set_idx_vis = self.ads_set_combo_vis.currentData()
+    #     if current_ads_set_idx_vis is None:
+    #         QMessageBox.information(self, "Info", "Please select an adsorbate set.")
+    #         return
+
+    #     sub_params = self.app_controller.substrate_real_space_results
+    #     ads_params = self.app_controller.adsorbate_real_space_results.get(current_ads_set_idx_vis)
+
+    #     if not (sub_params and "a1_vec_nm" in sub_params and ads_params and "a1_vec_nm" in ads_params):
+    #         self.angle_sub_ads_label.setText("N/A (Params missing)")
+    #         return
+
+    #     try:
+    #         y_axis_vector = np.array([0.0, 1.0])
+
+    #         def find_most_vertical_vector(a1, a2):
+    #             candidate_vectors = [
+    #                 a1, a2, a1 + a2, a1 - a2, a2 - a1,
+    #                 2*a1 - a2, a1 - 2*a2, 2*a1 + a2, a1 + 2*a2
+    #             ]
+                
+    #             best_vector = None
+    #             max_dot_product = -1
+
+    #             for vec in candidate_vectors:
+    #                 norm = np.linalg.norm(vec)
+    #                 if norm < 1e-9: continue
+                    
+    #                 dot_product = abs(np.dot(vec / norm, y_axis_vector))
+                    
+    #                 if dot_product > max_dot_product:
+    #                     max_dot_product = dot_product
+    #                     best_vector = vec
+                
+    #             return best_vector
+
+    #         a1_s = np.array(sub_params["a1_vec_nm"])
+    #         a2_s = np.array(sub_params["a2_vec_nm"])
+    #         vertical_sub_vec = find_most_vertical_vector(a1_s, a2_s)
+
+    #         a1_a = np.array(ads_params["a1_vec_nm"])
+    #         a2_a = np.array(ads_params["a2_vec_nm"])
+    #         vertical_ads_vec = find_most_vertical_vector(a1_a, a2_a)
+
+    #         if vertical_sub_vec is None or vertical_ads_vec is None:
+    #             raise ValueError("Could not determine alignment vectors.")
+
+    #         angle_sub_rad = np.arctan2(vertical_sub_vec[1], vertical_sub_vec[0])
+    #         angle_ads_rad = np.arctan2(vertical_ads_vec[1], vertical_ads_vec[0])
+            
+    #         alignment_angle_rad = angle_sub_rad - angle_ads_rad
+            
+    #         while alignment_angle_rad <= -np.pi: alignment_angle_rad += 2 * np.pi
+    #         while alignment_angle_rad > np.pi: alignment_angle_rad -= 2 * np.pi
+            
+    #         self.visual_alignment_angle_rad = alignment_angle_rad
+    #         angle_to_display_deg = np.degrees(alignment_angle_rad)
+            
+    #         self.angle_sub_ads_label.setText(f"{angle_to_display_deg:.3f}°")
+    #         logger.info(f"Obliczono kąt do wizualnego wyrównania wzdłuż osi Y: {angle_to_display_deg:.3f}°")
+            
+    #         if self.cb_visual_align.isChecked():
+    #             self._trigger_redraw_all_visuals()
+
+    #     except Exception as e:
+    #         logger.error(f"Error calculating Y-axis alignment angle: {e}")
+    #         self.angle_sub_ads_label.setText("Error")
+    #         QMessageBox.critical(self, "Calculation Error", f"Could not calculate alignment angle: {e}")
+        
+    # @pyqtSlot()
+    # def _on_calculate_sub_ads_angle_clicked(self):
+    #     """
+    #     Calculate and display the angle between substrate and adsorbate lattices.
+        
+    #     Note:
+    #         The angle is calculated between the first basis vectors (a1)
+    #         of the substrate and adsorbate lattices.
+    #     """
+    #     logger.debug("Visualizer: Calculate Substrate-Adsorbate Angle clicked.")
+    #     if not self.app_controller: return
+
+    #     current_ads_set_idx_vis = self.ads_set_combo_vis.currentData()
+    #     if current_ads_set_idx_vis is None:
+    #         QMessageBox.information(self, "Info", "Please select an adsorbate set.")
+    #         return
+
+    #     sub_params = self.app_controller.substrate_real_space_results
+    #     ads_params = self.app_controller.adsorbate_real_space_results.get(current_ads_set_idx_vis)
+
+    #     if not (sub_params and "a1_vec_nm" in sub_params and ads_params and "a1_vec_nm" in ads_params):
+    #         self.angle_sub_ads_label.setText("N/A (Params missing)")
+    #         QMessageBox.warning(self, "Data Missing", "Substrate or adsorbate real space parameters not calculated yet.")
+    #         return
+
+    #     try:
+    #         a1_s_vec = np.array(sub_params["a1_vec_nm"])
+    #         a1_a_vec = np.array(ads_params["a1_vec_nm"])
+
+    #         norm_s = np.linalg.norm(a1_s_vec)
+    #         norm_a = np.linalg.norm(a1_a_vec)
+
+    #         if norm_s < 1e-9 or norm_a < 1e-9: # pragma: no cover
+    #             self.angle_sub_ads_label.setText("N/A (Zero vector)")
+    #             return
+            
+    #         dot_product = np.dot(a1_s_vec, a1_a_vec)
+    #         cos_theta = np.clip(dot_product / (norm_s * norm_a), -1.0, 1.0)
+    #         angle_rad = np.arccos(cos_theta)
+    #         angle_deg = np.degrees(angle_rad)
+            
+    #         self.angle_sub_ads_label.setText(f"{angle_deg:.2f} °")
+
+    #         angle_s = np.arctan2(a1_s_vec[1], a1_s_vec[0])
+    #         angle_a = np.arctan2(a1_a_vec[1], a1_a_vec[0])
+    #         self.visual_alignment_angle_rad = angle_a - angle_s 
+    #         angle_deg = np.degrees(self.visual_alignment_angle_rad)
+    #         print(f"=================={angle_deg}===========================")
+
+    #         logger.info(f"Calculated angle between substrate a1 and adsorbate set {current_ads_set_idx_vis} a1: {angle_deg:.2f}°")
+
+    #         if self.cb_visual_align.isChecked():
+    #             self._trigger_redraw_all_visuals()
+
+    #     except Exception as e: # pragma: no cover
+    #         logger.error(f"Error calculating substrate-adsorbate angle: {e}")
+    #         self.angle_sub_ads_label.setText("Error")
+    #         QMessageBox.critical(self, "Calculation Error", f"Could not calculate angle: {e}")
 
 
     def get_dialog_results(self) -> Dict[str, Any]: 
