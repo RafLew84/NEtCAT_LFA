@@ -284,6 +284,18 @@ class MainWindow(QMainWindow):
             self.fft_analysis_panel_widget.current_selection_label.setText(current_selection_status)
         self.fft_analysis_panel_widget.selected_spots_display.setPlainText("\n".join(text_output))
 
+    @pyqtSlot()
+    def save_analysis(self):
+        if self.app_controller:
+            logger.debug("Menu 'Save Analysis' clicked, calling controller.")
+            self.app_controller.save_analysis_session()
+
+    @pyqtSlot()
+    def load_analysis(self):
+        if self.app_controller:
+            logger.debug("Menu 'Load Analysis' clicked, calling controller.")
+            self.app_controller.load_analysis_session()
+
     def _helper_open_processing_dialog(self, DialogClass, op_name_in_controller: str, dialog_specific_checks=None):
         """Helper method to open processing dialogs and handle results."""
         current_node_info = self.app_controller.get_current_node_info_for_dialogs()
@@ -1045,7 +1057,17 @@ class MainWindow(QMainWindow):
     def _on_current_history_node_changed(self, current_node: Optional[HistoryNode]):
         """Handles the update of current history node in AppController."""
         logger.debug(f"MainWindow: Slot _on_current_history_node_changed received node: {current_node.node_id if current_node else 'None'}")
-        
+
+        if self.app_controller:
+            if current_node and current_node.data_type == "FFT" and current_node.image_data is not None:
+                # Jeśli wybrany jest obraz FFT, zapisz jego kształt w kontrolerze
+                self.app_controller.current_fft_data_shape = current_node.image_data.shape
+                logger.debug(f"Updated app_controller.current_fft_data_shape to {current_node.image_data.shape}")
+            else:
+                # Jeśli wybrany jest inny typ obrazu (np. STM) lub brak, wyczyść kształt
+                self.app_controller.current_fft_data_shape = None
+                logger.debug("Cleared app_controller.current_fft_data_shape (current node is not FFT).")
+            
         self._update_action_states()
 
         self.display_image_data()

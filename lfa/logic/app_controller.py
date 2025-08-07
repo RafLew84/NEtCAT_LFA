@@ -5,6 +5,7 @@ Manages application state and coordinates operations between UI and backend modu
 """
 import logging
 import os
+import pickle
 import numpy as np
 
 from typing import Optional, List, Tuple, Dict, Any
@@ -15,6 +16,10 @@ from ..core.data_models import STMImage
 from ..io.factory import load_stm_file  
 from ..core.history import HistoryNode  
 from ..gui.dialogs.substrate_spot_dialog import PREDEFINED_SUBSTRATE_NONE, PREDEFINED_SUBSTRATE_CUSTOM
+
+from PyQt6.QtWidgets import QFileDialog, QMessageBox, QListWidgetItem
+from PyQt6.QtCore import Qt
+
 
 logger = logging.getLogger(__name__)
 
@@ -123,6 +128,131 @@ class AppController(QObject):
         self.domain_wall_analysis_results: Optional[Dict[str, Any]] = None
 
         logger.info("AppController initialized.")
+
+    def save_analysis_session(self):
+        if not self.history_manager.get_current_node():
+            logger.warning("Próba zapisu pustej sesji. Anulowano.")
+            QMessageBox.information(None, "Zapis anulowany", "Nie ma żadnej aktywnej analizy do zapisania.")
+            return
+
+        if self.original_file_path:
+            base_name = os.path.basename(self.original_file_path)
+            suggested_name = os.path.splitext(base_name)[0] + ".lfa_proj"
+        else:
+            suggested_name = "analysis.lfa_proj"
+
+        file_path, _ = QFileDialog.getSaveFileName(
+            None, "Zapisz sesję analizy", suggested_name, "LFA Project Files (*.lfa_proj);;All Files (*)"
+        )
+
+        if not file_path:
+            logger.info("Zapis sesji został anulowany przez użytkownika.")
+            return
+
+        logger.debug("Rozpoczęto zbieranie danych sesji do zapisu...")
+        
+        controller_state_to_save = {
+            'original_file_path': self.original_file_path,
+            'spot_selection_mode': self.spot_selection_mode,
+            'spot_refinement_method': self.spot_refinement_method,
+            'refinement_roi_size': self.refinement_roi_size,
+            'user_selected_substrate_spots': self.user_selected_substrate_spots,
+            'substrate_lattice_type': self.substrate_lattice_type,
+            'substrate_a_surf': self.substrate_a_surf,
+            'substrate_definition_name': self.substrate_definition_name,
+            'substrate_F_m2i': self.substrate_F_m2i,
+            'substrate_t_m2i': self.substrate_t_m2i,
+            'substrate_transform_analysis_m2i': self.substrate_transform_analysis_m2i,
+            'displayable_fitted_substrate_spots_on_fft': self.displayable_fitted_substrate_spots_on_fft,
+            'substrate_real_space_results': self.substrate_real_space_results,
+            'adsorbate_spot_sets': self.adsorbate_spot_sets,
+            'corrected_adsorbate_spot_sets': self.corrected_adsorbate_spot_sets,
+            'current_adsorbate_set_index': self.current_adsorbate_set_index,
+            'adsorbate_real_space_results': self.adsorbate_real_space_results,
+            'adsorbate_expected_lattice_types': self.adsorbate_expected_lattice_types,
+            'domain_wall_analysis_results': self.domain_wall_analysis_results
+        }
+
+        session_data = {
+            "format_version": "1.0",
+            "history_data": {
+                "tree": self.history_manager.history,
+                "current_node_id": self.history_manager.current_node_id
+            },
+            "controller_state": controller_state_to_save
+        }
+
+        try:
+            with open(file_path, 'wb') as f:
+                pickle.dump(session_data, f)
+            logger.info(f"Sesja analizy pomyślnie zapisana w: {file_path}")
+            QMessageBox.information(None, "Zapisano", f"Sesja została pomyślnie zapisana w pliku:\n{os.path.basename(file_path)}")
+        except Exception as e:
+            logger.exception(f"Krytyczny błąd podczas zapisywania sesji do pliku: {e}")
+            QMessageBox.critical(None, "Błąd zapisu", f"Wystąpił błąd podczas zapisu pliku:\n{e}")
+
+    def load_analysis_session(self):
+        file_path, _ = QFileDialog.getOpenFileName(
+            None, "Wczytaj sesję analizy", "", "LFA Project Files (*.lfa_proj);;All Files (*)"
+        )
+
+        if not file_path:
+            logger.info("Wczytywanie sesji anulowane przez użytkownika.")
+            return
+
+        # 1. Wczytaj dane z pliku
+        try:
+            with open(file_path, 'rb') as f:
+                session_data = pickle.load(f)
+            
+            # Sprawdzenie wersji formatu (dobra praktyka)
+            if session_data.get("format_version") != "1.0":
+                logger.warning("Próba wczytania pliku w niekompatybilnej wersji formatu.")
+                QMessageBox.warning(None, "Błąd wersji", "Plik sesji jest w nieobsługiwanej wersji formatu.")
+                return
+
+        except Exception as e:
+            logger.exception(f"Krytyczny błąd podczas wczytywania sesji z pliku: {e}")
+            QMessageBox.critical(None, "Błąd wczytywania", f"Nie można wczytać pliku sesji:\n{e}")
+            return
+
+        logger.info("Rozpoczęto odtwarzanie stanu aplikacji z pliku...")
+
+        self.history_manager.clear_history()
+        self.clear_all_spot_data()
+
+        loaded_state = session_data.get("controller_state", {})
+        for key, value in loaded_state.items():
+            if hasattr(self, key):
+                setattr(self, key, value)
+            else:
+                logger.warning(f"Atrybut '{key}' z pliku zapisu nie istnieje już w AppController.")
+
+        history_data = session_data.get("history_data", {})
+        self.history_manager.history = history_data.get("tree", {})
+
+        self.history_manager.history_list_widget.blockSignals(True)
+        self.history_manager.history_list_widget.clear()
+
+        for node_id, node in self.history_manager.history.items():
+            item = QListWidgetItem(node.get_display_text())
+            item.setData(Qt.ItemDataRole.UserRole, node_id)
+            self.history_manager.history_list_widget.addItem(item)
+        
+        current_id = history_data.get("current_node_id")
+        self.history_manager.set_current_node_by_id(current_id, emit_signal=False)
+        
+        self.history_manager.history_list_widget.blockSignals(False)
+
+        logger.info(f"Sesja pomyślnie wczytana. Odświeżanie interfejsu użytkownika...")
+        
+        self.file_loaded_successfully.emit(os.path.basename(self.original_file_path or "Loaded Session"))
+        self.adsorbate_sets_structure_changed.emit()
+        self.substrate_definition_changed.emit()
+        self.substrate_transform_results_updated.emit()
+        self.domain_wall_results_updated.emit(self.domain_wall_analysis_results)
+        
+        self.history_manager.current_node_changed.emit(self.history_manager.get_current_node())
 
     def get_current_image_data_for_processing(self) -> Optional[Any]:
         """Gets the image data from the current history node for processing."""

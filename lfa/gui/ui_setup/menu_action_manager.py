@@ -56,6 +56,22 @@ class MenuActionManager:
         file_menu.addAction(self.file_actions["open"])
         
         file_menu.addSeparator()
+
+        self.file_actions["save_session"] = self._create_action(
+            text="Save Analysis...",
+            status_tip="Save the current analysis session to a file",
+            triggered_slot=self.main_window.save_analysis, # Ten slot dodamy w main_window
+            shortcut="Ctrl+S"
+        )
+        file_menu.addAction(self.file_actions["save_session"])
+
+        self.file_actions["load_session"] = self._create_action(
+            text="Load Analysis...",
+            status_tip="Load an analysis session from a file",
+            triggered_slot=self.main_window.load_analysis, # Ten slot dodamy w main_window
+            shortcut="Ctrl+L"
+        )
+        file_menu.addAction(self.file_actions["load_session"])
         
         self.file_actions["exit"] = self._create_action(
             text="&Exit", 

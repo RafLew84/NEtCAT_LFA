@@ -147,7 +147,7 @@ class FFTAnalysisPanel(QWidget):
         substrate_params_form.addRow("Vector 2 |a2|:", self.sub_rs_a2_label)
         substrate_params_form.addRow("Angle α (a1,a2):", self.sub_rs_alpha_label)
         self.calculate_substrate_rs_button = QPushButton("Calculate Substrate Parameters")
-        self.calculate_substrate_rs_button.setEnabled(False) # Initially disabled
+        self.calculate_substrate_rs_button.setEnabled(True) # Initially disabled
         substrate_params_form.addRow(self.calculate_substrate_rs_button)
         real_space_layout.addWidget(substrate_params_group)
 
@@ -161,7 +161,7 @@ class FFTAnalysisPanel(QWidget):
         adsorbate_params_form.addRow("Vector 2 |a2|:", self.ads_rs_a2_label)
         adsorbate_params_form.addRow("Angle α (a1,a2):", self.ads_rs_alpha_label)
         self.calculate_adsorbate_rs_button = QPushButton("Calculate Adsorbate Parameters (Current Set)")
-        self.calculate_adsorbate_rs_button.setEnabled(False) # Initially disabled
+        self.calculate_adsorbate_rs_button.setEnabled(True) # Initially disabled
         adsorbate_params_form.addRow(self.calculate_adsorbate_rs_button)
         real_space_layout.addWidget(adsorbate_params_group)
 
@@ -326,11 +326,11 @@ class FFTAnalysisPanel(QWidget):
 
     def set_calculate_substrate_rs_button_enabled(self, enabled: bool):
         if hasattr(self, 'calculate_substrate_rs_button'):
-            self.calculate_substrate_rs_button.setEnabled(enabled)
+            self.calculate_substrate_rs_button.setEnabled(True)
 
     def set_calculate_adsorbate_rs_button_enabled(self, enabled: bool):
         if hasattr(self, 'calculate_adsorbate_rs_button'):
-            self.calculate_adsorbate_rs_button.setEnabled(enabled)
+            self.calculate_adsorbate_rs_button.setEnabled(True)
 
     def update_adsorbate_real_space_display(self, params: Optional[Dict[str, Any]]):
         if hasattr(self, 'ads_rs_a1_label'):
