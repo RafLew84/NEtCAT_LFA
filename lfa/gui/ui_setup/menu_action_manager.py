@@ -72,15 +72,6 @@ class MenuActionManager:
             shortcut="Ctrl+L"
         )
         file_menu.addAction(self.file_actions["load_session"])
-
-        self.file_actions["save_as_image"] = self._create_action(
-            text="Save View as Image...",
-            status_tip="Save the currently displayed image to a standard format (PNG, JPG)",
-            triggered_slot=self.main_window.save_current_view_as_image, # Nowy slot
-            shortcut="Ctrl+E",
-            enabled=False # Będzie włączane, gdy obraz jest aktywny
-        )
-        file_menu.addAction(self.file_actions["save_as_image"])
     
         file_menu.addSeparator()
         

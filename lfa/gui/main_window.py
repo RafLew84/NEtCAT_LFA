@@ -583,7 +583,7 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def open_stm_transform_dialog(self):
-        """Opens the STM Transform dialog, passing the substrate transform matrix."""
+        """Otwiera okno do wizualizacji i eksportu transformacji STM."""
         if not STM_TRANSFORM_DIALOG_AVAILABLE:
             QMessageBox.critical(self, "Błąd okna dialogowego", "StmTransformDialog jest niedostępny.")
             return
@@ -600,22 +600,11 @@ class MainWindow(QMainWindow):
         logger.info("MainWindow: Opening STM Transform dialog...")
         dialog = StmTransformDialog(
             input_data=current_node.image_data,
-            substrate_transform_F=self.app_controller.substrate_F_m2i, # Przekazujemy macierz
+            substrate_transform_F=self.app_controller.substrate_F_m2i,
             parent=self
         )
-        
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            transformed_data = dialog.get_transformed_data()
-            params = dialog.get_parameters()
-            if transformed_data is not None:
-                self.app_controller.apply_stm_transform(
-                    parent_node_id=current_node.node_id,
-                    processed_data=transformed_data,
-                    params=params
-                )
-                self.statusBar().showMessage("Transformacja STM została zastosowana.", 3000)
-        else:
-            logger.info("STM Transform dialog closed or cancelled.")
+        dialog.exec() # Po prostu otwórz okno - nie oczekujemy już wyniku
+        logger.info("STM Transform dialog closed.")
 
     @pyqtSlot(HistoryNode)
     def _on_simulation_accepted(self, new_fft_node: HistoryNode):
