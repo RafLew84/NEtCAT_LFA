@@ -11,10 +11,11 @@ import time
 
 from PyQt6.QtWidgets import (
     QMainWindow, QVBoxLayout, QWidget, QFileDialog, QMessageBox, QApplication, 
-    QDialog, QHBoxLayout, QSplitter, QListWidget, QListWidgetItem, QDockWidget,
+    QDialog, QHBoxLayout, QSplitter, QListWidget, QListWidgetItem, QDockWidget
 )
 from PyQt6.QtGui import QAction, QIcon
 from PyQt6.QtCore import Qt, pyqtSlot, QPointF
+from PIL import Image
 
 try:
     import pyqtgraph as pg
@@ -113,6 +114,13 @@ try:
 except ImportError as e: # pragma: no cover
     StmFftSimulationDialog = None; SIMULATION_DIALOG_AVAILABLE = False
     logging.warning(f"Could not import StmFftSimulationDialog: {e}")
+
+try:
+    from .dialogs.stm_transform_dialog import StmTransformDialog
+    STM_TRANSFORM_DIALOG_AVAILABLE = True
+except ImportError as e:
+    StmTransformDialog = None; STM_TRANSFORM_DIALOG_AVAILABLE = False
+    logging.warning(f"Could not import StmTransformDialog: {e}")
 
 class MainWindow(QMainWindow):
     """
@@ -296,6 +304,41 @@ class MainWindow(QMainWindow):
             logger.debug("Menu 'Load Analysis' clicked, calling controller.")
             self.app_controller.load_analysis_session()
 
+    @pyqtSlot()
+    def save_current_view_as_image(self):
+        """Zapisuje aktualnie wyświetlany obraz do pliku graficznego."""
+        current_node = self.history_manager.get_current_node()
+        if current_node is None or current_node.image_data is None:
+            QMessageBox.warning(self, "Brak obrazu", "Nie ma aktywnego obrazu do zapisania.")
+            return
+
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "Save Image As...", "", "PNG Image (*.png);;JPEG Image (*.jpg *.jpeg);;All Files (*)"
+        )
+
+        if not file_path:
+            return
+
+        try:
+            image_data = current_node.image_data
+            
+            # Normalizuj dane do 8-bitowej skali szarości (0-255)
+            img_min = np.min(image_data)
+            img_max = np.max(image_data)
+            if img_max == img_min:
+                normalized_data = np.zeros_like(image_data, dtype=np.uint8)
+            else:
+                normalized_data = 255 * (image_data - img_min) / (img_max - img_min)
+            
+            # Utwórz obraz i zapisz
+            pil_image = Image.fromarray(normalized_data.astype(np.uint8))
+            pil_image.save(file_path)
+            self.statusBar().showMessage(f"Obraz zapisany w: {os.path.basename(file_path)}", 3000)
+
+        except Exception as e:
+            logger.exception(f"Błąd podczas zapisu obrazu: {e}")
+            QMessageBox.critical(self, "Błąd zapisu", f"Nie można było zapisać obrazu:\n{e}")
+
     def _helper_open_processing_dialog(self, DialogClass, op_name_in_controller: str, dialog_specific_checks=None):
         """Helper method to open processing dialogs and handle results."""
         current_node_info = self.app_controller.get_current_node_info_for_dialogs()
@@ -396,6 +439,12 @@ class MainWindow(QMainWindow):
         
         if hasattr(self, 'stm_fft_simulation_action'):
             self.stm_fft_simulation_action.setEnabled(SIMULATION_DIALOG_AVAILABLE)
+
+        if hasattr(self, 'stm_transform_action'):
+            self.stm_transform_action.setEnabled(is_stm_data_active and STM_TRANSFORM_DIALOG_AVAILABLE)
+        
+        # if hasattr(self.main_window, 'file_actions') and "save_as_image" in self.main_window.file_actions:
+        #     self.main_window.file_actions["save_as_image"].setEnabled(has_active_node)
 
         preprocessing_actions_enabled = has_active_node
         if hasattr(self, 'gaussian_blur_action'): self.gaussian_blur_action.setEnabled(preprocessing_actions_enabled and DIALOG_CLASSES_EXIST)
@@ -531,6 +580,42 @@ class MainWindow(QMainWindow):
         dialog.simulation_accepted.connect(self._on_simulation_accepted)
         dialog.exec()
         logger.info("STM/FFT Simulation dialog closed.")
+
+    @pyqtSlot()
+    def open_stm_transform_dialog(self):
+        """Opens the STM Transform dialog, passing the substrate transform matrix."""
+        if not STM_TRANSFORM_DIALOG_AVAILABLE:
+            QMessageBox.critical(self, "Błąd okna dialogowego", "StmTransformDialog jest niedostępny.")
+            return
+
+        current_node = self.history_manager.get_current_node()
+        if not (current_node and current_node.data_type == "STM"):
+            QMessageBox.warning(self, "Nieprawidłowe dane", "Ta funkcja wymaga aktywnego obrazu STM.")
+            return
+            
+        if self.app_controller.substrate_F_m2i is None:
+            QMessageBox.warning(self, "Brak danych", "Najpierw wykonaj analizę podłoża i oblicz transformację w oknie 'Select Substrate Spots'.")
+            return
+
+        logger.info("MainWindow: Opening STM Transform dialog...")
+        dialog = StmTransformDialog(
+            input_data=current_node.image_data,
+            substrate_transform_F=self.app_controller.substrate_F_m2i, # Przekazujemy macierz
+            parent=self
+        )
+        
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            transformed_data = dialog.get_transformed_data()
+            params = dialog.get_parameters()
+            if transformed_data is not None:
+                self.app_controller.apply_stm_transform(
+                    parent_node_id=current_node.node_id,
+                    processed_data=transformed_data,
+                    params=params
+                )
+                self.statusBar().showMessage("Transformacja STM została zastosowana.", 3000)
+        else:
+            logger.info("STM Transform dialog closed or cancelled.")
 
     @pyqtSlot(HistoryNode)
     def _on_simulation_accepted(self, new_fft_node: HistoryNode):

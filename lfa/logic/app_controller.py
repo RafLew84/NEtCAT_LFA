@@ -643,6 +643,16 @@ class AppController(QObject):
                                   processed_data: np.ndarray, params: Dict[str, Any],
                                   source_roi_slice: Optional[Tuple[slice, slice]] = None):
         self.add_operation_to_history(parent_node_id, "Gaussian Sharpening", params, processed_data, parent_data_type, source_roi_slice)
+    
+    def apply_stm_transform(self, parent_node_id: str, processed_data: np.ndarray, params: Dict[str, Any]):
+        """Dodaje przetransformowany obraz STM jako nowy krok w historii."""
+        self.add_operation_to_history(
+            parent_node_id=parent_node_id,
+            op_name="STM Transform",
+            params=params,
+            processed_data=processed_data,
+            data_type="STM" # Wynik nadal jest obrazem STM
+        )
 
     def apply_plane_leveling(self, parent_node_id: str, parent_data_type: str,
                              processed_data: np.ndarray, params: Dict[str, Any],

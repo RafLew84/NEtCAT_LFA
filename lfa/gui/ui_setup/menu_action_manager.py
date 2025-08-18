@@ -72,6 +72,17 @@ class MenuActionManager:
             shortcut="Ctrl+L"
         )
         file_menu.addAction(self.file_actions["load_session"])
+
+        self.file_actions["save_as_image"] = self._create_action(
+            text="Save View as Image...",
+            status_tip="Save the currently displayed image to a standard format (PNG, JPG)",
+            triggered_slot=self.main_window.save_current_view_as_image, # Nowy slot
+            shortcut="Ctrl+E",
+            enabled=False # Będzie włączane, gdy obraz jest aktywny
+        )
+        file_menu.addAction(self.file_actions["save_as_image"])
+    
+        file_menu.addSeparator()
         
         self.file_actions["exit"] = self._create_action(
             text="&Exit", 
@@ -169,11 +180,20 @@ class MenuActionManager:
         reconstruction_action = self._create_action(
             text="Real Space Reconstruction...",
             status_tip="Reconstruct real space image from masked FFT",
-            triggered_slot=self.main_window.open_real_space_reconstruction_dialog, # Nowy slot
+            triggered_slot=self.main_window.open_real_space_reconstruction_dialog,
             enabled=False # Włączane, gdy aktywny jest obraz FFT
         )
         analysis_menu.addAction(reconstruction_action)
         setattr(self.main_window, "real_space_reconstruction_action", reconstruction_action)
+
+        stm_transform_action = self._create_action(
+            text="STM Transform...",
+            status_tip="Perform advanced transformations on STM data",
+            triggered_slot=self.main_window.open_stm_transform_dialog,
+            enabled=False
+        )
+        analysis_menu.addAction(stm_transform_action)
+        setattr(self.main_window, "stm_transform_action", stm_transform_action)
 
 
     def _create_view_menu(self):
