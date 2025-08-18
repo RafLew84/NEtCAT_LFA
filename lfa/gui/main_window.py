@@ -304,41 +304,6 @@ class MainWindow(QMainWindow):
             logger.debug("Menu 'Load Analysis' clicked, calling controller.")
             self.app_controller.load_analysis_session()
 
-    @pyqtSlot()
-    def save_current_view_as_image(self):
-        """Zapisuje aktualnie wyświetlany obraz do pliku graficznego."""
-        current_node = self.history_manager.get_current_node()
-        if current_node is None or current_node.image_data is None:
-            QMessageBox.warning(self, "Brak obrazu", "Nie ma aktywnego obrazu do zapisania.")
-            return
-
-        file_path, _ = QFileDialog.getSaveFileName(
-            self, "Save Image As...", "", "PNG Image (*.png);;JPEG Image (*.jpg *.jpeg);;All Files (*)"
-        )
-
-        if not file_path:
-            return
-
-        try:
-            image_data = current_node.image_data
-            
-            # Normalizuj dane do 8-bitowej skali szarości (0-255)
-            img_min = np.min(image_data)
-            img_max = np.max(image_data)
-            if img_max == img_min:
-                normalized_data = np.zeros_like(image_data, dtype=np.uint8)
-            else:
-                normalized_data = 255 * (image_data - img_min) / (img_max - img_min)
-            
-            # Utwórz obraz i zapisz
-            pil_image = Image.fromarray(normalized_data.astype(np.uint8))
-            pil_image.save(file_path)
-            self.statusBar().showMessage(f"Obraz zapisany w: {os.path.basename(file_path)}", 3000)
-
-        except Exception as e:
-            logger.exception(f"Błąd podczas zapisu obrazu: {e}")
-            QMessageBox.critical(self, "Błąd zapisu", f"Nie można było zapisać obrazu:\n{e}")
-
     def _helper_open_processing_dialog(self, DialogClass, op_name_in_controller: str, dialog_specific_checks=None):
         """Helper method to open processing dialogs and handle results."""
         current_node_info = self.app_controller.get_current_node_info_for_dialogs()
