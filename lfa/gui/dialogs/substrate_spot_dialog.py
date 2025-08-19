@@ -110,7 +110,7 @@ class SubstrateSpotSelectionDialog(QDialog):
         self.current_fft_node_id = current_fft_node_id
 
         self.selected_spots: List[Tuple[float, float]] = list(current_spots) if current_spots else []
-        self.spot_markers_on_image: Optional[ScatterPlotItem] = None
+        self.spot_markers_on_image = pg.ScatterPlotItem()
 
         self.current_refinement_method = default_refinement_method
         self.refinement_roi_size = default_refinement_roi_size
@@ -133,7 +133,7 @@ class SubstrateSpotSelectionDialog(QDialog):
         self.substrate_transform_analysis: Optional[Dict[str, Any]] = None
         self.fitted_substrate_spots_px: List[Tuple[float, float]] = list(initial_fitted_spots) if initial_fitted_spots else []
         self.calculated_ideal_substrate_spots_px: List[Tuple[float, float]] = []
-        self.fitted_spot_markers_on_image: Optional[ScatterPlotItem] = None
+        self.fitted_spot_markers_on_image = pg.ScatterPlotItem()
 
         self._init_ui()
         self._connect_signals()
@@ -232,6 +232,8 @@ class SubstrateSpotSelectionDialog(QDialog):
         self.fft_view_box = self.fft_plot_widget.addViewBox(row=0, col=0, lockAspect=True, invertY=True)
         self.fft_image_item = ImageItem()
         self.fft_view_box.addItem(self.fft_image_item)
+        self.fft_view_box.addItem(self.spot_markers_on_image)
+        self.fft_view_box.addItem(self.fitted_spot_markers_on_image)
         self.fft_histogram = pg.HistogramLUTItem()
         self.fft_histogram.setImageItem(self.fft_image_item)
         self.fft_plot_widget.addItem(self.fft_histogram, row=0, col=1)
@@ -467,56 +469,81 @@ class SubstrateSpotSelectionDialog(QDialog):
         logger.debug("Cleared all substrate spots in dialog.")
 
     def _redraw_all_spot_markers(self):
-        """Removes old marker (if exists) and draws new ones based on self.selected_spots."""
-        if self.spot_markers_on_image is not None:
-            try:
-                self.fft_view_box.removeItem(self.spot_markers_on_image)
-            except RuntimeError: # pragma: no cover
-                pass
-            self.spot_markers_on_image = None
+        """Aktualizuje dane na istniejących obiektach ScatterPlotItem."""
+        logger.debug("Redrawing substrate spot markers by updating data.")
 
-        if self.fitted_spot_markers_on_image is not None:
-            try: self.fft_view_box.removeItem(self.fitted_spot_markers_on_image)
-            except RuntimeError: pass
-            self.fitted_spot_markers_on_image = None
-
+        # 1. Przygotuj dane dla zaznaczonych pików
         if self.selected_spots:
-            spots_orig_data = [{'pos': spot, 'symbol': 'o', 'size': 10, 
-                                'pen': pg.mkPen('g', width=1.5), 'brush': pg.mkBrush(50,205,50,120)} 
-                               for spot in self.selected_spots]
-            if spots_orig_data:
-                if self.spot_markers_on_image:
-                    try: self.fft_view_box.removeItem(self.spot_markers_on_image)
-                    except RuntimeError: pass
-                self.spot_markers_on_image = ScatterPlotItem(spots=spots_orig_data)
-                self.fft_view_box.addItem(self.spot_markers_on_image)
+            spots_to_draw = [{'pos': spot, 'symbol': 'o', 'size': 10, 
+                            'pen': pg.mkPen('g', width=1.5), 'brush': pg.mkBrush(50,205,50,120)} 
+                            for spot in self.selected_spots]
+            self.spot_markers_on_image.setData(spots=spots_to_draw)
+        else:
+            # Jeśli nie ma pików, po prostu wyczyść dane
+            self.spot_markers_on_image.clear()
 
-        spots_to_draw_final = [{'pos': spot, 
-                                'symbol': 'o', 
-                                'size': 10, 
-                                'pen': pg.mkPen('g', width=1.5),
-                                'brush': pg.mkBrush(50,205,50,120)}
-                               for spot in self.selected_spots]
+        # 2. Przygotuj dane dla dopasowanych pików
+        if self.fitted_substrate_spots_px:
+            spots_fitted_data = [{'pos': spot, 'symbol': 'x', 'size': 12,
+                                'pen': pg.mkPen('c', width=2.0)}
+                                for spot in self.fitted_substrate_spots_px]
+            self.fitted_spot_markers_on_image.setData(spots=spots_fitted_data)
+        else:
+            # Jeśli nie ma dopasowanych pików, wyczyść dane
+            self.fitted_spot_markers_on_image.clear()
+            self.fft_view_box.scene().update()
+
+    # def _redraw_all_spot_markers(self):
+    #     """Removes old marker (if exists) and draws new ones based on self.selected_spots."""
+    #     if self.spot_markers_on_image is not None:
+    #         try:
+    #             self.fft_view_box.removeItem(self.spot_markers_on_image)
+    #         except RuntimeError: # pragma: no cover
+    #             pass
+    #         self.spot_markers_on_image = None
+
+    #     if self.fitted_spot_markers_on_image is not None:
+    #         try: self.fft_view_box.removeItem(self.fitted_spot_markers_on_image)
+    #         except RuntimeError: pass
+    #         self.fitted_spot_markers_on_image = None
+
+    #     if self.selected_spots:
+    #         spots_orig_data = [{'pos': spot, 'symbol': 'o', 'size': 10, 
+    #                             'pen': pg.mkPen('g', width=1.5), 'brush': pg.mkBrush(50,205,50,120)} 
+    #                            for spot in self.selected_spots]
+    #         if spots_orig_data:
+    #             if self.spot_markers_on_image:
+    #                 try: self.fft_view_box.removeItem(self.spot_markers_on_image)
+    #                 except RuntimeError: pass
+    #             self.spot_markers_on_image = ScatterPlotItem(spots=spots_orig_data)
+    #             self.fft_view_box.addItem(self.spot_markers_on_image)
+
+    #     spots_to_draw_final = [{'pos': spot, 
+    #                             'symbol': 'o', 
+    #                             'size': 10, 
+    #                             'pen': pg.mkPen('g', width=1.5),
+    #                             'brush': pg.mkBrush(50,205,50,120)}
+    #                            for spot in self.selected_spots]
         
 
-        if spots_to_draw_final:
-            new_scatter_item = ScatterPlotItem()
-            new_scatter_item.setData(spots=spots_to_draw_final)
-            self.fft_view_box.addItem(new_scatter_item)
-            self.spot_markers_on_image = new_scatter_item
-            logger.debug(f"Redrawn {len(self.selected_spots)} substrate spot markers.")
-        else: # pragma: no cover
-            logger.debug("No substrate spots to draw.")
+    #     if spots_to_draw_final:
+    #         new_scatter_item = ScatterPlotItem()
+    #         new_scatter_item.setData(spots=spots_to_draw_final)
+    #         self.fft_view_box.addItem(new_scatter_item)
+    #         self.spot_markers_on_image = new_scatter_item
+    #         logger.debug(f"Redrawn {len(self.selected_spots)} substrate spot markers.")
+    #     else: # pragma: no cover
+    #         logger.debug("No substrate spots to draw.")
 
-        if self.fitted_substrate_spots_px:
+    #     if self.fitted_substrate_spots_px:
             
-            spots_fitted_data = [{'pos': spot, 'symbol': 'x', 'size': 12,
-                                   'pen': pg.mkPen('c', width=2.0)}
-                                  for spot in self.fitted_substrate_spots_px]
-            if spots_fitted_data:
-                self.fitted_spot_markers_on_image = ScatterPlotItem(spots=spots_fitted_data)
-                self.fft_view_box.addItem(self.fitted_spot_markers_on_image)
-                logger.debug(f"Redrawn {len(self.fitted_substrate_spots_px)} fitted substrate spot markers.")
+    #         spots_fitted_data = [{'pos': spot, 'symbol': 'x', 'size': 12,
+    #                                'pen': pg.mkPen('c', width=2.0)}
+    #                               for spot in self.fitted_substrate_spots_px]
+    #         if spots_fitted_data:
+    #             self.fitted_spot_markers_on_image = ScatterPlotItem(spots=spots_fitted_data)
+    #             self.fft_view_box.addItem(self.fitted_spot_markers_on_image)
+    #             logger.debug(f"Redrawn {len(self.fitted_substrate_spots_px)} fitted substrate spot markers.")
 
     @pyqtSlot(float)
     def _on_custom_a_surf_changed(self, value: float):
