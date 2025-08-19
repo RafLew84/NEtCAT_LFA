@@ -4,7 +4,7 @@ import numpy as np
 from typing import Optional, List, Dict, Any, Tuple
 
 from PyQt6.QtWidgets import (
-    QDialog, QHBoxLayout, QVBoxLayout, QWidget, QGroupBox, QSpinBox,
+    QDialog, QHBoxLayout, QVBoxLayout, QWidget, QGroupBox, QSpinBox, QScrollArea,
     QFormLayout, QCheckBox, QLabel, QComboBox, QPushButton, QSplitter, QMessageBox
 )
 from PyQt6.QtCore import Qt, pyqtSlot, QPointF
@@ -188,27 +188,58 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         controls_panel_widget.setMaximumWidth(450)
 
         display_options_group = QGroupBox("Display Options")
-        self.display_options_form = QFormLayout(display_options_group)
+        group_box_layout = QVBoxLayout(display_options_group) # Layout dla samego GroupBoxa
+
+        # 1. Stwórz QScrollArea, która zapewni możliwość przewijania
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True) # Kluczowe, aby zawartość dopasowała się do szerokości
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+
+        # 2. Stwórz widget-kontener na całą zawartość, która ma być przewijana
+        scroll_content_widget = QWidget()
+        self.display_options_form = QFormLayout(scroll_content_widget) # Ten layout będzie teraz wewnątrz kontenera
+
+        # 3. Wypełnij layout zawartością (ten kod pozostaje taki sam jak wcześniej)
         self.cb_show_substrate_real_lattice = QCheckBox("Substrate Real Lattice")
         self.cb_show_substrate_real_lattice.setChecked(True)
         self.display_options_form.addRow(self.cb_show_substrate_real_lattice)
-        
+
         self.adsorbate_display_checkbox_layout = QVBoxLayout()
         self.display_options_form.addRow(QLabel("Adsorbate Sets (Real Space):"))
         self.display_options_form.addRow(self.adsorbate_display_checkbox_layout)
-        
+
         self.cb_show_g_substrate_fft = QCheckBox("Substrate g* vectors (on FFT)")
         self.cb_show_g_substrate_fft.setChecked(True)
         self.display_options_form.addRow(self.cb_show_g_substrate_fft)
+
+        self.cb_show_g_adsorbate_fft = QCheckBox("Adsorbate g* vectors (Current Set, on FFT)")
+        self.cb_show_g_adsorbate_fft.setChecked(True)
+        self.display_options_form.addRow(self.cb_show_g_adsorbate_fft)
 
         self.cb_visual_align = QCheckBox("Wyrównaj wizualnie adsorbat do podłoża")
         self.cb_visual_align.setChecked(False)
         self.cb_visual_align.setToolTip("Obraca sieć adsorbatu tylko na wizualizacji, aby jej wektor a1 pasował do wektora a1 podłoża.")
         self.display_options_form.addRow(self.cb_visual_align)
-        
-        self.cb_show_g_adsorbate_fft = QCheckBox("Adsorbate g* vectors (Current Set, on FFT)")
-        self.cb_show_g_adsorbate_fft.setChecked(True)
-        self.display_options_form.addRow(self.cb_show_g_adsorbate_fft)
+
+        self.supercell_size_spinbox = QSpinBox()
+        self.supercell_size_spinbox.setMinimum(1)
+        self.supercell_size_spinbox.setMaximum(50)
+        self.supercell_size_spinbox.setValue(5)
+        self.supercell_size_spinbox.setToolTip("Sets the NxN size of the supercell for 3D visualization.")
+        self.display_options_form.addRow("3D Supercell Size (NxN):", self.supercell_size_spinbox)
+
+        self.launch_3d_button = QPushButton("Launch Interactive 3D Viewer")
+        self.launch_3d_button.setToolTip("Opens a new, interactive window with a 3D model of the lattices.")
+        self.display_options_form.addRow(self.launch_3d_button)
+        # --- Koniec zawartości ---
+
+        # 4. Umieść widget z zawartością wewnątrz QScrollArea
+        scroll_area.setWidget(scroll_content_widget)
+
+        # 5. Umieść QScrollArea wewnątrz naszego QGroupBox
+        group_box_layout.addWidget(scroll_area)
+
+        # 6. Dodaj gotowy QGroupBox do głównego layoutu panelu kontrolnego
         controls_panel_layout.addWidget(display_options_group)
 
         self.supercell_size_spinbox = QSpinBox()
