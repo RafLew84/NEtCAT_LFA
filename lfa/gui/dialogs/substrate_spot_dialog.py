@@ -1185,23 +1185,23 @@ def closeEvent(self, event):
     """Handle dialog close event to clean up OpenGL resources."""
     logger.debug("SubstrateSpotSelectionDialog closing. Cleaning up GL items.")
     
-    if hasattr(self, 'gl_roi_surface_plot_item') and self.gl_roi_surface_plot_item:
-        if self.gl_roi_view_widget:
-            self.gl_roi_view_widget.removeItem(self.gl_roi_surface_plot_item)
-        self.gl_roi_surface_plot_item = None
+    # if hasattr(self, 'gl_roi_surface_plot_item') and self.gl_roi_surface_plot_item:
+    #     if self.gl_roi_view_widget:
+    #         self.gl_roi_view_widget.removeItem(self.gl_roi_surface_plot_item)
+    #     self.gl_roi_surface_plot_item = None
     
-    if hasattr(self, 'gl_gauss_surface_plot_item') and self.gl_gauss_surface_plot_item:
-        if self.gl_gauss_view_widget:
-            self.gl_gauss_view_widget.removeItem(self.gl_gauss_surface_plot_item)
-        self.gl_gauss_surface_plot_item = None
+    # if hasattr(self, 'gl_gauss_surface_plot_item') and self.gl_gauss_surface_plot_item:
+    #     if self.gl_gauss_view_widget:
+    #         self.gl_gauss_view_widget.removeItem(self.gl_gauss_surface_plot_item)
+    #     self.gl_gauss_surface_plot_item = None
     
-    # Usuwanie widgetów OpenGL
-    if hasattr(self, 'gl_roi_view_widget'):
-        self.gl_roi_view_widget.deleteLater()
-        self.gl_roi_view_widget = None
+    # # Usuwanie widgetów OpenGL
+    # if hasattr(self, 'gl_roi_view_widget'):
+    #     self.gl_roi_view_widget.deleteLater()
+    #     self.gl_roi_view_widget = None
     
-    if hasattr(self, 'gl_gauss_view_widget'):
-        self.gl_gauss_view_widget.deleteLater()
-        self.gl_gauss_view_widget = None
+    # if hasattr(self, 'gl_gauss_view_widget'):
+    #     self.gl_gauss_view_widget.deleteLater()
+    #     self.gl_gauss_view_widget = None
     
     super().closeEvent(event)

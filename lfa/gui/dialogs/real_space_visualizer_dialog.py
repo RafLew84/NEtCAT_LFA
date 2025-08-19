@@ -497,25 +497,20 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         self.ads_set_combo_vis.blockSignals(False)
         if self.ads_set_combo_vis.count() > 0 :
             self._on_selected_adsorbate_set_changed_in_vis(self.ads_set_combo_vis.currentIndex())
-
-
+    
+    @pyqtSlot()
     def _redraw_fft_overlays(self):
         """
-        Redraw FFT overlays including g* vectors.
-        
-        Handles:
-        - Substrate g* vector visualization
-        - Adsorbate g* vector visualization
-        - Vector transformation between ideal and distorted systems
+        Rysuje nakładki na obrazie FFT, w tym wektory g* dla podłoża
+        oraz wektory do SKORYGOWANYCH pozycji pików adsorbatu.
         """
         logger.debug("Visualizer: Redrawing FFT overlays...")
-        
-        for item in self.g_substrate_vector_lines:
-            if item.scene() is self.fft_view_box.scene(): self.fft_view_box.removeItem(item)
-        self.g_substrate_vector_lines.clear()
+        plot_item = self.fft_view_box # Używamy bezpośrednio viewboxa
 
-        for item in self.g_adsorbate_vector_lines:
-            if item.scene() is self.fft_view_box.scene(): self.fft_view_box.removeItem(item)
+        # Czyszczenie starych wektorów
+        for item in self.g_substrate_vector_lines: plot_item.removeItem(item)
+        self.g_substrate_vector_lines.clear()
+        for item in self.g_adsorbate_vector_lines: plot_item.removeItem(item)
         self.g_adsorbate_vector_lines.clear()
 
         if not self.app_controller or self.fft_data_to_display is None: return
@@ -524,77 +519,139 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         center_kx_px = fft_cols_kx / 2.0
         center_ky_px = fft_rows_ky / 2.0
 
-        if self.cb_show_g_substrate_fft.isChecked() and \
-           self.app_controller.substrate_real_space_results and \
-           "g1_vec_px" in self.app_controller.substrate_real_space_results:
-            
-            g1s_px = self.app_controller.substrate_real_space_results.get("g1_vec_px")
-            g2s_px = self.app_controller.substrate_real_space_results.get("g2_vec_px")
-            
+        # Rysowanie wektorów podłoża (bez zmian, działało poprawnie)
+        if self.cb_show_g_substrate_fft.isChecked() and self.app_controller.substrate_real_space_results:
+            sub_params = self.app_controller.substrate_real_space_results
+            g1s_px = sub_params.get("g1_vec_px")
+            g2s_px = sub_params.get("g2_vec_px")
             if g1s_px and g2s_px:
                 pen_sub = pg.mkPen(color='r', width=2.5, style=Qt.PenStyle.SolidLine)
-                line1s = pg.PlotDataItem(
-                    x=[center_kx_px, center_kx_px + g1s_px[0]], 
-                    y=[center_ky_px, center_ky_px + g1s_px[1]], 
-                    pen=pen_sub,
-                    name="g_sub1"
-                )
-                self.fft_view_box.addItem(line1s)
-                self.g_substrate_vector_lines.append(line1s)
-                line2s = pg.PlotDataItem(
-                    x=[center_kx_px, center_kx_px + g2s_px[0]], 
-                    y=[center_ky_px, center_ky_px + g2s_px[1]], 
-                    pen=pen_sub,
-                    name="g_sub2"
-                )
-                self.fft_view_box.addItem(line2s)
-                self.g_substrate_vector_lines.append(line2s)
-                logger.debug(f"Drew substrate g-vectors: g1_px={g1s_px}, g2_px={g2s_px}")
+                line1s = pg.PlotDataItem(x=[center_kx_px, center_kx_px + g1s_px[0]], y=[center_ky_px, center_ky_px + g1s_px[1]], pen=pen_sub)
+                line2s = pg.PlotDataItem(x=[center_kx_px, center_kx_px + g2s_px[0]], y=[center_ky_px, center_ky_px + g2s_px[1]], pen=pen_sub)
+                plot_item.addItem(line1s); plot_item.addItem(line2s)
+                self.g_substrate_vector_lines.extend([line1s, line2s])
 
-        current_ads_set_idx_vis = self.ads_set_combo_vis.currentData() # Pobierz int z userData
-        
-        if self.cb_show_g_adsorbate_fft.isChecked() and \
-           current_ads_set_idx_vis is not None and \
-           self.app_controller.adsorbate_real_space_results and \
-           current_ads_set_idx_vis in self.app_controller.adsorbate_real_space_results:
+        # --- POCZĄTEK POPRAWIONEJ LOGIKI DLA ADSORBATU ---
+        current_ads_set_idx_vis = self.ads_set_combo_vis.currentData()
+        if self.cb_show_g_adsorbate_fft.isChecked() and current_ads_set_idx_vis is not None:
             
-            ads_params = self.app_controller.adsorbate_real_space_results.get(current_ads_set_idx_vis)
-            if ads_params and "g1_vec_px_ideal_sys" in ads_params:
-                g1a_ideal_px = ads_params["g1_vec_px_ideal_sys"]
-                g2a_ideal_px = ads_params["g2_vec_px_ideal_sys"]
+            # Pobieramy listę wszystkich SKORYGOWANYCH pozycji pików dla danego zestawu
+            if 0 <= current_ads_set_idx_vis < len(self.app_controller.corrected_adsorbate_spot_sets):
+                corrected_spots = self.app_controller.corrected_adsorbate_spot_sets[current_ads_set_idx_vis]
+                
+                if corrected_spots:
+                    pen_ads = pg.mkPen(color='b', width=2.5, style=Qt.PenStyle.DashLine)
+                    
+                    # Rysujemy wektor od środka do KAŻDEJ skorygowanej pozycji
+                    for spot_kx, spot_ky in corrected_spots:
+                        line_ads = pg.PlotDataItem(
+                            x=[center_kx_px, spot_kx], 
+                            y=[center_ky_px, spot_ky], 
+                            pen=pen_ads
+                        )
+                        plot_item.addItem(line_ads)
+                        self.g_adsorbate_vector_lines.append(line_ads)
+                    
+                    logger.debug(f"Narysowano {len(corrected_spots)} wektorów do skorygowanych pozycji adsorbatu.")
+        # --- KONIEC POPRAWIONEJ LOGIKI ---
 
-                if self.app_controller.substrate_F_m2i is not None and \
-                   self.app_controller.substrate_t_m2i is not None and \
-                   apply_affine_transform is not None:
-                    try:
-                        F_inv = np.linalg.inv(self.app_controller.substrate_F_m2i)
-                        g1a_distorted_px = np.dot(np.array(g1a_ideal_px), F_inv.T)
-                        g2a_distorted_px = np.dot(np.array(g2a_ideal_px), F_inv.T)
+
+    # def _redraw_fft_overlays(self):
+    #     """
+    #     Redraw FFT overlays including g* vectors.
+        
+    #     Handles:
+    #     - Substrate g* vector visualization
+    #     - Adsorbate g* vector visualization
+    #     - Vector transformation between ideal and distorted systems
+    #     """
+    #     logger.debug("Visualizer: Redrawing FFT overlays...")
+        
+    #     for item in self.g_substrate_vector_lines:
+    #         if item.scene() is self.fft_view_box.scene(): self.fft_view_box.removeItem(item)
+    #     self.g_substrate_vector_lines.clear()
+
+    #     for item in self.g_adsorbate_vector_lines:
+    #         if item.scene() is self.fft_view_box.scene(): self.fft_view_box.removeItem(item)
+    #     self.g_adsorbate_vector_lines.clear()
+
+    #     if not self.app_controller or self.fft_data_to_display is None: return
+
+    #     fft_rows_ky, fft_cols_kx = self.fft_data_to_display.shape
+    #     center_kx_px = fft_cols_kx / 2.0
+    #     center_ky_px = fft_rows_ky / 2.0
+
+    #     if self.cb_show_g_substrate_fft.isChecked() and \
+    #        self.app_controller.substrate_real_space_results and \
+    #        "g1_vec_px" in self.app_controller.substrate_real_space_results:
+            
+    #         g1s_px = self.app_controller.substrate_real_space_results.get("g1_vec_px")
+    #         g2s_px = self.app_controller.substrate_real_space_results.get("g2_vec_px")
+            
+    #         if g1s_px and g2s_px:
+    #             pen_sub = pg.mkPen(color='r', width=2.5, style=Qt.PenStyle.SolidLine)
+    #             line1s = pg.PlotDataItem(
+    #                 x=[center_kx_px, center_kx_px + g1s_px[0]], 
+    #                 y=[center_ky_px, center_ky_px + g1s_px[1]], 
+    #                 pen=pen_sub,
+    #                 name="g_sub1"
+    #             )
+    #             self.fft_view_box.addItem(line1s)
+    #             self.g_substrate_vector_lines.append(line1s)
+    #             line2s = pg.PlotDataItem(
+    #                 x=[center_kx_px, center_kx_px + g2s_px[0]], 
+    #                 y=[center_ky_px, center_ky_px + g2s_px[1]], 
+    #                 pen=pen_sub,
+    #                 name="g_sub2"
+    #             )
+    #             self.fft_view_box.addItem(line2s)
+    #             self.g_substrate_vector_lines.append(line2s)
+    #             logger.debug(f"Drew substrate g-vectors: g1_px={g1s_px}, g2_px={g2s_px}")
+
+    #     current_ads_set_idx_vis = self.ads_set_combo_vis.currentData() # Pobierz int z userData
+        
+    #     if self.cb_show_g_adsorbate_fft.isChecked() and \
+    #        current_ads_set_idx_vis is not None and \
+    #        self.app_controller.adsorbate_real_space_results and \
+    #        current_ads_set_idx_vis in self.app_controller.adsorbate_real_space_results:
+            
+    #         ads_params = self.app_controller.adsorbate_real_space_results.get(current_ads_set_idx_vis)
+    #         if ads_params and "g1_vec_px_ideal_sys" in ads_params:
+    #             g1a_ideal_px = ads_params["g1_vec_px_ideal_sys"]
+    #             g2a_ideal_px = ads_params["g2_vec_px_ideal_sys"]
+
+    #             if self.app_controller.substrate_F_m2i is not None and \
+    #                self.app_controller.substrate_t_m2i is not None and \
+    #                apply_affine_transform is not None:
+    #                 try:
+    #                     F_inv = np.linalg.inv(self.app_controller.substrate_F_m2i)
+    #                     g1a_distorted_px = np.dot(np.array(g1a_ideal_px), F_inv.T)
+    #                     g2a_distorted_px = np.dot(np.array(g2a_ideal_px), F_inv.T)
                         
-                        pen_ads = pg.mkPen(color='b', width=2.5, style=Qt.PenStyle.DashLine)
-                        line1a = pg.PlotDataItem(
-                            x=[center_kx_px, center_kx_px + g1a_distorted_px[0]], 
-                            y=[center_ky_px, center_ky_px + g1a_distorted_px[1]], 
-                            pen=pen_ads, name=f"g_ads{current_ads_set_idx_vis+1}_1"
-                        )
-                        line2a = pg.PlotDataItem(
-                            x=[center_kx_px, center_kx_px + g2a_distorted_px[0]], 
-                            y=[center_ky_px, center_ky_px + g2a_distorted_px[1]], 
-                            pen=pen_ads, name=f"g_ads{current_ads_set_idx_vis+1}_2"
-                        )
-                        self.fft_view_box.addItem(line1a)
-                        self.fft_view_box.addItem(line2a)
-                        self.g_adsorbate_vector_lines.extend([line1a, line2a])
-                        logger.debug(f"Drew adsorbate set {current_ads_set_idx_vis} g-vectors (distorted for FFT view): "
-                                     f"g1_dist_px={g1a_distorted_px}, g2_dist_px={g2a_distorted_px}")
-                    except np.linalg.LinAlgError: # pragma: no cover
-                        logger.error("LinAlgError when inverting substrate transform for adsorbate g-vector display.")
-                    except Exception as e: # pragma: no cover
-                        logger.error(f"Error transforming/drawing adsorbate g-vectors: {e}")
-            else: # pragma: no cover
-                logger.debug(f"No adsorbate g-vector data for set {current_ads_set_idx_vis} or transform missing.")
-        else:
-            logger.debug("Not drawing adsorbate g-vectors (checkbox off or no data).")
+    #                     pen_ads = pg.mkPen(color='b', width=2.5, style=Qt.PenStyle.DashLine)
+    #                     line1a = pg.PlotDataItem(
+    #                         x=[center_kx_px, center_kx_px + g1a_distorted_px[0]], 
+    #                         y=[center_ky_px, center_ky_px + g1a_distorted_px[1]], 
+    #                         pen=pen_ads, name=f"g_ads{current_ads_set_idx_vis+1}_1"
+    #                     )
+    #                     line2a = pg.PlotDataItem(
+    #                         x=[center_kx_px, center_kx_px + g2a_distorted_px[0]], 
+    #                         y=[center_ky_px, center_ky_px + g2a_distorted_px[1]], 
+    #                         pen=pen_ads, name=f"g_ads{current_ads_set_idx_vis+1}_2"
+    #                     )
+    #                     self.fft_view_box.addItem(line1a)
+    #                     self.fft_view_box.addItem(line2a)
+    #                     self.g_adsorbate_vector_lines.extend([line1a, line2a])
+    #                     logger.debug(f"Drew adsorbate set {current_ads_set_idx_vis} g-vectors (distorted for FFT view): "
+    #                                  f"g1_dist_px={g1a_distorted_px}, g2_dist_px={g2a_distorted_px}")
+    #                 except np.linalg.LinAlgError: # pragma: no cover
+    #                     logger.error("LinAlgError when inverting substrate transform for adsorbate g-vector display.")
+    #                 except Exception as e: # pragma: no cover
+    #                     logger.error(f"Error transforming/drawing adsorbate g-vectors: {e}")
+    #         else: # pragma: no cover
+    #             logger.debug(f"No adsorbate g-vector data for set {current_ads_set_idx_vis} or transform missing.")
+    #     else:
+    #         logger.debug("Not drawing adsorbate g-vectors (checkbox off or no data).")
 
     def _redraw_real_space_lattices(self):
         """
