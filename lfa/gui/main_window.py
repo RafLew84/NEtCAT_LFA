@@ -562,13 +562,19 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Brak danych", "Najpierw wykonaj analizę podłoża i oblicz transformację w oknie 'Select Substrate Spots'.")
             return
 
+        root_node = self.history_manager.get_root_node_for_node(current_node.node_id)
+        if not (root_node and root_node.operation_name == "Original"):
+            QMessageBox.warning(self, "Brak Danych", "Nie można odnaleźć oryginalnych metadanych obrazu w historii.")
+            return
+
         logger.info("MainWindow: Opening STM Transform dialog...")
         dialog = StmTransformDialog(
             input_data=current_node.image_data,
+            original_node=root_node, # NOWY PARAMETR: Przekazujemy cały oryginalny węzeł
             substrate_transform_F=self.app_controller.substrate_F_m2i,
             parent=self
         )
-        dialog.exec() # Po prostu otwórz okno - nie oczekujemy już wyniku
+        dialog.exec()
         logger.info("STM Transform dialog closed.")
 
     @pyqtSlot(HistoryNode)

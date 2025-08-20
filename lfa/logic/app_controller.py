@@ -299,14 +299,12 @@ class AppController(QObject):
                 if hasattr(self, 'adsorbate_expected_type_updated'): self.adsorbate_expected_type_updated.emit(0, ADSORBATE_LATTICE_TYPE_UNKNOWN)
 
                 root_params = {
+                    "raw_header": stm_image_obj.raw_header,
                     "filename": os.path.basename(file_path),
                     "pixels_x": stm_image_obj.pixels_x,
                     "pixels_y": stm_image_obj.pixels_y,
                     "size_nm_x": stm_image_obj.size_nm_x,
                     "size_nm_y": stm_image_obj.size_nm_y,
-                    "bias_v": stm_image_obj.bias_v,
-                    "setpoint_a": stm_image_obj.setpoint_a,
-                    "scan_angle_deg": stm_image_obj.scan_angle_deg,
                 }
 
                 root_node = HistoryNode(
