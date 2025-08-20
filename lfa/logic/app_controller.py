@@ -272,6 +272,41 @@ class AppController(QObject):
             return current_node.node_id, current_node.data_type, current_node.image_data.copy()
         return None
     
+    def load_metadata_into_session(self):
+        """
+        Wczytuje metadane z wybranego pliku .stp i dołącza je do
+        głównego węzła w aktywnej historii, aby umożliwić późniejszy zapis.
+        """
+        root_node = self.history_manager.get_root_node_for_node(self.history_manager.current_node_id)
+        if not root_node:
+            QMessageBox.warning(None, "Błąd", "Nie można znaleźć głównego węzła w aktywnej historii.")
+            return
+
+        file_path, _ = QFileDialog.getOpenFileName(
+            None, "Wybierz oryginalny plik STP w celu wczytania metadanych", "", "Omicron STP Files (*.stp)"
+        )
+        if not file_path:
+            return
+
+        try:
+            # Używamy naszego czytnika, ale interesuje nas tylko nagłówek
+            temp_stm_image = load_stm_file(file_path)
+            if temp_stm_image and temp_stm_image.raw_header:
+                # Aktualizujemy `raw_header` w parametrach głównego węzła
+                root_node.parameters["raw_header"] = temp_stm_image.raw_header
+                # Aktualizujemy też podstawowe dane, jeśli ich brakowało
+                if "size_nm_x" not in root_node.parameters:
+                    root_node.parameters["size_nm_x"] = temp_stm_image.size_nm_x
+                    root_node.parameters["size_nm_y"] = temp_stm_image.size_nm_y
+
+                logger.info(f"Pomyślnie wczytano i dołączono metadane z pliku: {os.path.basename(file_path)}")
+                QMessageBox.information(None, "Sukces", "Metadane zostały wczytane. Można teraz zapisać plik .stp.")
+            else:
+                raise ValueError("Plik nie zawierał poprawnych metadanych.")
+        except Exception as e:
+            logger.exception(f"Błąd podczas wczytywania metadanych: {e}")
+            QMessageBox.critical(None, "Błąd", f"Nie udało się wczytać metadanych:\n{e}")
+    
     def load_file(self, file_path: str):
         """
         Loads an STM file, creates an initial history node, and updates the application state.

@@ -373,6 +373,16 @@ class MainWindow(QMainWindow):
         can_clear_current_adsorbate_set_from_panel = False
         can_clear_all_adsorbate_sets_from_panel = False
 
+        can_load_metadata = False
+        if has_active_node:
+            root_node = self.history_manager.get_root_node_for_node(current_hist_node.node_id)
+            # Sprawdź, czy główny węzeł istnieje, ale nie ma w nim `raw_header`
+            if root_node and "raw_header" not in root_node.parameters:
+                can_load_metadata = True
+
+        if hasattr(self, 'file_actions') and "load_metadata" in self.file_actions:
+            self.file_actions["load_metadata"].setEnabled(can_load_metadata)
+
 
         current_hist_node: Optional[HistoryNode] = None
         if self.history_manager:
@@ -576,6 +586,12 @@ class MainWindow(QMainWindow):
         )
         dialog.exec()
         logger.info("STM Transform dialog closed.")
+
+    @pyqtSlot()
+    def load_metadata_for_session(self):
+        """Slot pośredniczący, który wywołuje logikę wczytywania metadanych."""
+        if self.app_controller:
+            self.app_controller.load_metadata_into_session()
 
     @pyqtSlot(HistoryNode)
     def _on_simulation_accepted(self, new_fft_node: HistoryNode):

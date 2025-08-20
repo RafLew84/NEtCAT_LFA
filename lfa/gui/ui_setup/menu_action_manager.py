@@ -72,6 +72,14 @@ class MenuActionManager:
             shortcut="Ctrl+L"
         )
         file_menu.addAction(self.file_actions["load_session"])
+
+        self.file_actions["load_metadata"] = self._create_action(
+            text="Load Metadata for Save...",
+            status_tip="Load metadata from an original STP file to enable saving",
+            triggered_slot=self.main_window.load_metadata_for_session, # Nowy slot
+            enabled=True # Będzie włączane dynamicznie
+        )
+        file_menu.addAction(self.file_actions["load_metadata"])
     
         file_menu.addSeparator()
         

@@ -108,11 +108,9 @@ class StmTransformDialog(QDialog):
             if self.cb_apply_stretch.isChecked(): F_eff_xy = self.U_matrix_apply @ F_eff_xy
             if self.cb_apply_rotation.isChecked(): F_eff_xy = self.R_matrix_apply @ F_eff_xy
             
-            # --- NOWY, KLUCZOWY KROK ---
             # Konwertujemy macierz z systemu (x, y) na system (rząd, kolumna) używany przez Scipy
             F_eff_rc = np.array([[F_eff_xy[1,1], F_eff_xy[1,0]],
                                 [F_eff_xy[0,1], F_eff_xy[0,0]]])
-            # --- KONIEC NOWEGO KROKU ---
 
             # Krok 2: Oblicz wymiary wyjściowe używając już poprawnej macierzy
             h, w = self.input_data.shape
