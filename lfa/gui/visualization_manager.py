@@ -55,7 +55,7 @@ class VisualizationManager(QObject):
         self.substrate_spot_markers: Optional[pg.ScatterPlotItem] = None
         self.adsorbate_spot_set_markers: List[pg.ScatterPlotItem] = []
 
-        self._current_fft_mouse_click_connection = None # Do zarządzania połączeniem sygnału kliknięcia na FFT
+        self._current_fft_mouse_click_connection = None 
 
         logger.info("VisualizationManager initialized successfully.")
 
