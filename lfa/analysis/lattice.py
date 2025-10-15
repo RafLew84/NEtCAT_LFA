@@ -67,7 +67,7 @@ KNOWN_LATTICES: Dict[str, Dict] = {
     },
     "Au(100)": {
         "type": "square",
-        "a_bulk": 0.408,  # nm (stała sieciowa)
+        "a_bulk": 0.408,  # nm (lattice constant)
         "a_surf": 0.408 / np.sqrt(2),  # ~0.288 nm
         "source": "Approx. bulk value"
     },
@@ -307,47 +307,46 @@ def select_reciprocal_lattice_basis_vectors(
     elif lattice_type == LATTICE_TYPE_SQUARE:
         if len(g_vectors_relative_px) < 4:
             logger.warning(f"Square lattice: expected 4 spots for reliable basis vector selection, got {len(g_vectors_relative_px)}.")
-            if len(g_vectors_relative_px) >= 2: # Prosty fallback
+            if len(g_vectors_relative_px) >= 2: # Simple fallback
                  logger.warning("Fallback: Taking first two available spots for square basis, may be incorrect.")
-                 # Sprawdź, czy są mniej więcej prostopadłe
+                 # If available, check whether the first two vectors are roughly orthogonal
                  v1 = np.array(g_vectors_relative_px[0]); v2 = np.array(g_vectors_relative_px[1])
                  norm_v1, norm_v2 = np.linalg.norm(v1), np.linalg.norm(v2)
                  if norm_v1 > 1e-6 and norm_v2 > 1e-6:
-                    if abs(np.dot(v1,v2) / (norm_v1 * norm_v2)) < 0.5: # Kąt ~90deg (+-30)
+                    if abs(np.dot(v1,v2) / (norm_v1 * norm_v2)) < 0.5: # Angle close to 90 deg (+/-30 deg tolerance)
                         return g_vectors_relative_px[0], g_vectors_relative_px[1]
             return None
 
-        # Uśrednij długości pierwszych 4 wektorów
+        # Average the lengths of the first four candidate vectors
         lengths = [np.sqrt(v[0]**2 + v[1]**2) for v in g_vectors_relative_px[:4]]
         if not lengths or any(l < 1e-6 for l in lengths):
             logger.warning("Square g-vectors have zero or near-zero length(s). Cannot determine basis.")
             return None
         avg_len_px = np.mean(lengths)
 
-        # Wybierz dwa ortogonalne wektory o uśrednionej długości.
-        # Możemy przyjąć, że jeden jest wzdłuż osi kx, a drugi wzdłuż osi ky.
-        # To jest uproszczenie; bardziej robustne byłoby znalezienie par i uśrednienie.
-        # Załóżmy, że idealne piki są już w dobrej orientacji (np. z get_nearest_reciprocal_points)
-        # i pierwsze dwa po sortowaniu (lub po odpowiednim filtrowaniu) są bazowe.
+        # Select two orthogonal vectors with the averaged length.
+        # We assume one aligns roughly with the kx axis and the other with the ky axis.
+        # This is an approximation; a more robust approach would search over vector pairs.
+        # It also assumes the ideal spots are already oriented sensibly
+        # (e.g. produced by get_nearest_reciprocal_points) so the first two can form a basis.
         
-        # Spróbuj znaleźć wektor najbliższy osi kx i najbliższy osi ky
+        # Find the vectors closest to the kx and ky axes
         g_vecs_np = np.array(g_vectors_relative_px[:4])
         
-        # Wektor najbliższy osi kx (największa składowa x, mała y)
-        # Sortuj po malejącej wartości abs(x) i rosnącej abs(y)
-        # lub prostsze: wybierz ten z najmniejszym kątem do osi X
+        # Vector closest to the kx axis (large |x|, small |y|)
+        # Sort by decreasing |x| and increasing |y|, or equivalently by angle to the x-axis
         sorted_by_angle_to_x = sorted(g_vecs_np, key=lambda v: abs(np.arctan2(v[1], v[0])))
         g1_candidate_dir = sorted_by_angle_to_x[0]
         g1_len = np.linalg.norm(g1_candidate_dir)
         if g1_len < 1e-6: logger.warning("g1 candidate zero length for square"); return None
         g1_px = tuple(g1_candidate_dir * avg_len_px / g1_len)
 
-        # Znajdź wektor najbardziej prostopadły do g1_px
+        # Choose the vector that is most orthogonal to g1_px
         g2_candidate_dir = None
         min_dot_product_abs = float('inf')
         for v_cand_np in g_vecs_np:
-            if np.allclose(v_cand_np, g1_candidate_dir): continue # Pomiń ten sam wektor
-            # Iloczyn skalarny bliski zeru oznacza prostopadłość
+            if np.allclose(v_cand_np, g1_candidate_dir): continue # Skip identical vector
+            # A dot product near zero implies perpendicularity
             dot_prod_abs = abs(np.dot(g1_px, v_cand_np))
             if dot_prod_abs < min_dot_product_abs:
                 min_dot_product_abs = dot_prod_abs
@@ -359,12 +358,12 @@ def select_reciprocal_lattice_basis_vectors(
         if g2_len < 1e-6: logger.warning("g2 candidate zero length for square"); return None
         g2_px = tuple(g2_candidate_dir * avg_len_px / g2_len)
         
-        # Sprawdź, czy są rzeczywiście (w przybliżeniu) prostopadłe
+        # Final orthogonality check (within tolerance)
         cos_angle_g1_g2 = np.dot(g1_px, g2_px) / (np.linalg.norm(g1_px) * np.linalg.norm(g2_px))
-        if abs(cos_angle_g1_g2) > 0.2: # Większe niż ~cos(80deg) lub cos(100deg) - mało prostopadłe
+        if abs(cos_angle_g1_g2) > 0.2: # Larger than ~cos(80 deg) or cos(100 deg) -> not very perpendicular
             logger.warning(f"Selected square basis vectors are not orthogonal enough (cos_angle={cos_angle_g1_g2:.2f}). Fallback.")
-            # Fallback: utwórz g2 jako obrót g1 o 90 stopni
-            g2_px = (-g1_px[1], g1_px[0]) # Obrót o +90 stopni
+            # Fallback: rotate g1 by 90 degrees to synthesize g2
+            g2_px = (-g1_px[1], g1_px[0]) # +90 degree rotation
 
         logger.info(f"Square basis: g1_px={g1_px}, g2_px={g2_px} (avg_len={avg_len_px:.2f}px)")
         return g1_px, g2_px
@@ -847,30 +846,29 @@ def create_ase_supercell_from_2d_vectors(
         return None
 
     try:
-        # Rozszerz wektory 2D do 3D, dodając 0 jako współrzędną z
+        # Lift 2D vectors into 3D by adding a zero z-component
         a1_3d = np.append(a1_vec_nm, 0)
         a2_3d = np.append(a2_vec_nm, 0)
 
-        # Zdefiniuj trzeci wektor prostopadły, tworząc próżnię (2 nm = 20 Å)
+        # Define a third vector perpendicular to the plane to introduce vacuum (2 nm ~ 20 Angstrom)
         a3_3d = np.array([0, 0, 2.0])
 
-        # Złóż macierz komórki elementarnej
+        # Assemble the unit cell matrix
         cell_3d = np.array([a1_3d, a2_3d, a3_3d])
 
         cell_height_nm = cell_3d[2, 2]
         z_fractional = z_height_nm / cell_height_nm
 
-        # Stwórz prymitywną komórkę z jednym atomem
-        # Pozycja atomu jest w środku warstwy próżni (z=0.5)
+        # Create a primitive cell with a single atom placed mid-vacuum (z=0.5)
         primitive_cell = Atoms(
             symbols=[atom_symbol],
             scaled_positions=[(offset_fractional[0], offset_fractional[1], z_fractional)],
             cell=cell_3d,
-            pbc=[True, True, False]  # Okresowość tylko w płaszczyźnie XY
+            pbc=[True, True, False]  # Periodic only within the XY plane
         )
 
-        # Zbuduj superkomórkę, powielając komórkę prymitywną
-        # Macierz transformacji P dla superkomórki
+        # Build the supercell by repeating the primitive cell
+        # Transformation matrix P for the supercell replication
         P = np.array([[size[0], 0, 0],
                       [0, size[1], 0],
                       [0, 0, 1]])

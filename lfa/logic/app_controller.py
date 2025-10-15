@@ -131,8 +131,8 @@ class AppController(QObject):
 
     def save_analysis_session(self):
         if not self.history_manager.get_current_node():
-            logger.warning("Próba zapisu pustej sesji. Anulowano.")
-            QMessageBox.information(None, "Zapis anulowany", "Nie ma żadnej aktywnej analizy do zapisania.")
+            logger.warning("Attempted to save an empty session. Aborted.")
+            QMessageBox.information(None, "Save cancelled", "No active analysis is available to save.")
             return
 
         if self.original_file_path:
@@ -142,14 +142,14 @@ class AppController(QObject):
             suggested_name = "analysis.lfa_proj"
 
         file_path, _ = QFileDialog.getSaveFileName(
-            None, "Zapisz sesję analizy", suggested_name, "LFA Project Files (*.lfa_proj);;All Files (*)"
+            None, "Save analysis session", suggested_name, "LFA Project Files (*.lfa_proj);;All Files (*)"
         )
 
         if not file_path:
-            logger.info("Zapis sesji został anulowany przez użytkownika.")
+            logger.info("Session save was cancelled by the user.")
             return
 
-        logger.debug("Rozpoczęto zbieranie danych sesji do zapisu...")
+        logger.debug("Collecting session data for serialization...")
         
         controller_state_to_save = {
             'original_file_path': self.original_file_path,
@@ -185,38 +185,37 @@ class AppController(QObject):
         try:
             with open(file_path, 'wb') as f:
                 pickle.dump(session_data, f)
-            logger.info(f"Sesja analizy pomyślnie zapisana w: {file_path}")
-            QMessageBox.information(None, "Zapisano", f"Sesja została pomyślnie zapisana w pliku:\n{os.path.basename(file_path)}")
+            logger.info(f"Analysis session saved successfully at: {file_path}")
+            QMessageBox.information(None, "Saved", f"Sesja została pomyślnie zapisana w pliku:\n{os.path.basename(file_path)}")
         except Exception as e:
-            logger.exception(f"Krytyczny błąd podczas zapisywania sesji do pliku: {e}")
-            QMessageBox.critical(None, "Błąd zapisu", f"Wystąpił błąd podczas zapisu pliku:\n{e}")
+            logger.exception(f"Critical error while saving the session file: {e}")
+            QMessageBox.critical(None, "Save error", f"Wystąpił błąd podczas zapisu pliku:\n{e}")
 
     def load_analysis_session(self):
         file_path, _ = QFileDialog.getOpenFileName(
-            None, "Wczytaj sesję analizy", "", "LFA Project Files (*.lfa_proj);;All Files (*)"
+            None, "Load analysis session", "", "LFA Project Files (*.lfa_proj);;All Files (*)"
         )
 
         if not file_path:
-            logger.info("Wczytywanie sesji anulowane przez użytkownika.")
+            logger.info("Session load was cancelled by the user.")
             return
 
-        # 1. Wczytaj dane z pliku
+        # 1. Load session data from file
         try:
             with open(file_path, 'rb') as f:
                 session_data = pickle.load(f)
             
-            # Sprawdzenie wersji formatu (dobra praktyka)
+            # Validate the format version (best practice)
             if session_data.get("format_version") != "1.0":
-                logger.warning("Próba wczytania pliku w niekompatybilnej wersji formatu.")
-                QMessageBox.warning(None, "Błąd wersji", "Plik sesji jest w nieobsługiwanej wersji formatu.")
+                logger.warning("Attempted to load a session file with an incompatible format version.")
+                QMessageBox.warning(None, "Version error", "The session file uses an unsupported format version.")
                 return
 
         except Exception as e:
-            logger.exception(f"Krytyczny błąd podczas wczytywania sesji z pliku: {e}")
-            QMessageBox.critical(None, "Błąd wczytywania", f"Nie można wczytać pliku sesji:\n{e}")
+            logger.exception(f"Critical error while loading the session file: {e}")
             return
 
-        logger.info("Rozpoczęto odtwarzanie stanu aplikacji z pliku...")
+        logger.info("Restoring controller state from session file...")
 
         self.history_manager.clear_history()
         self.clear_all_spot_data()
@@ -226,7 +225,7 @@ class AppController(QObject):
             if hasattr(self, key):
                 setattr(self, key, value)
             else:
-                logger.warning(f"Atrybut '{key}' z pliku zapisu nie istnieje już w AppController.")
+                logger.warning(f"Attribute '{key}' from the session file no longer exists on AppController.")
 
         history_data = session_data.get("history_data", {})
         self.history_manager.history = history_data.get("tree", {})
@@ -244,7 +243,7 @@ class AppController(QObject):
         
         self.history_manager.history_list_widget.blockSignals(False)
 
-        logger.info(f"Sesja pomyślnie wczytana. Odświeżanie interfejsu użytkownika...")
+        logger.info(f"Session loaded successfully. Refreshing user interface...")
         
         self.file_loaded_successfully.emit(os.path.basename(self.original_file_path or "Loaded Session"))
         self.adsorbate_sets_structure_changed.emit()
@@ -274,38 +273,38 @@ class AppController(QObject):
     
     def load_metadata_into_session(self):
         """
-        Wczytuje metadane z wybranego pliku .stp i dołącza je do
-        głównego węzła w aktywnej historii, aby umożliwić późniejszy zapis.
+        Load metadata from a selected .stp file and attach it to the
+        root history node so that a later save is possible.
         """
         root_node = self.history_manager.get_root_node_for_node(self.history_manager.current_node_id)
         if not root_node:
-            QMessageBox.warning(None, "Błąd", "Nie można znaleźć głównego węzła w aktywnej historii.")
+            QMessageBox.warning(None, "Error", "Could not find the root node in the active history.")
             return
 
         file_path, _ = QFileDialog.getOpenFileName(
-            None, "Wybierz oryginalny plik STP w celu wczytania metadanych", "", "Omicron STP Files (*.stp)"
+            None, "Select the original STP file to load metadata", "", "Omicron STP Files (*.stp)"
         )
         if not file_path:
             return
 
         try:
-            # Używamy naszego czytnika, ale interesuje nas tylko nagłówek
+            # Use the reader but only extract the header
             temp_stm_image = load_stm_file(file_path)
             if temp_stm_image and temp_stm_image.raw_header:
-                # Aktualizujemy `raw_header` w parametrach głównego węzła
+                # Update the `raw_header` within the root node parameters
                 root_node.parameters["raw_header"] = temp_stm_image.raw_header
-                # Aktualizujemy też podstawowe dane, jeśli ich brakowało
+                # Update core fields if they were missing
                 if "size_nm_x" not in root_node.parameters:
                     root_node.parameters["size_nm_x"] = temp_stm_image.size_nm_x
                     root_node.parameters["size_nm_y"] = temp_stm_image.size_nm_y
 
-                logger.info(f"Pomyślnie wczytano i dołączono metadane z pliku: {os.path.basename(file_path)}")
-                QMessageBox.information(None, "Sukces", "Metadane zostały wczytane. Można teraz zapisać plik .stp.")
+                logger.info(f"Successfully loaded and attached metadata from file: {os.path.basename(file_path)}")
+                QMessageBox.information(None, "Success", "Metadata has been loaded. You can now save an .stp file.")
             else:
-                raise ValueError("Plik nie zawierał poprawnych metadanych.")
+                raise ValueError("The selected file did not contain valid metadata.")
         except Exception as e:
-            logger.exception(f"Błąd podczas wczytywania metadanych: {e}")
-            QMessageBox.critical(None, "Błąd", f"Nie udało się wczytać metadanych:\n{e}")
+            logger.exception(f"Error while loading metadata: {e}")
+            QMessageBox.critical(None, "Error", f"Couldnt load metadata:\n{e}")
     
     def load_file(self, file_path: str):
         """
@@ -678,13 +677,13 @@ class AppController(QObject):
         self.add_operation_to_history(parent_node_id, "Gaussian Sharpening", params, processed_data, parent_data_type, source_roi_slice)
     
     def apply_stm_transform(self, parent_node_id: str, processed_data: np.ndarray, params: Dict[str, Any]):
-        """Dodaje przetransformowany obraz STM jako nowy krok w historii."""
+        """Add the transformed STM image as a new step in history."""
         self.add_operation_to_history(
             parent_node_id=parent_node_id,
             op_name="STM Transform",
             params=params,
             processed_data=processed_data,
-            data_type="STM" # Wynik nadal jest obrazem STM
+            data_type="STM" # Result remains an STM image
         )
 
     def apply_plane_leveling(self, parent_node_id: str, parent_data_type: str,
@@ -763,7 +762,7 @@ class AppController(QObject):
 
     def set_refinement_roi_size(self, size: int):
         """Sets the ROI size for spot refinement."""
-        if isinstance(size, int) and 3 <= size <= 21 and size % 2 != 0: # Przykładowa walidacja
+        if isinstance(size, int) and 3 <= size <= 21 and size % 2 != 0: # Example validation
             if self.refinement_roi_size != size:
                 self.refinement_roi_size = size
                 logger.info(f"Refinement ROI size set to: {self.refinement_roi_size}")
@@ -866,12 +865,12 @@ class AppController(QObject):
 
     def add_new_node_to_history(self, new_node: HistoryNode):
         """
-        Dodaje nowy, gotowy węzeł do historii i ustawia go jako bieżący.
-        Używane np. przez dialog symulacji.
+        Add a prepared history node and make it the current entry.
+        Used, for example, by the simulation dialog.
         """
         if self.history_manager:
             self.history_manager.add_node(new_node)
-            # Ustaw nowo dodany węzeł jako aktywny
+            # Promote the newly added node to active
             self.history_manager.set_current_node_by_id(new_node.node_id)
             logger.info(f"AppController: Added new node '{new_node.operation_name}' to history.")
 

@@ -61,7 +61,7 @@ class FFTAnalysisPanel(QWidget):
         super().__init__(parent)
         self.current_selected_expected_adsorbate_type = ADSORBATE_LATTICE_TYPE_UNKNOWN
         self._init_ui()
-        self._connect_internal_signals() # Dedykowana metoda do podłączania wewnętrznych sygnałów
+        self._connect_internal_signals() # Dedicated method for wiring internal signals
 
     def _init_ui(self):
         """Initializes the user interface of the panel."""
@@ -119,7 +119,7 @@ class FFTAnalysisPanel(QWidget):
         layout.addRow("Max Value Ratio (Sat/Main):", self.dw_max_value_ratio_label)
         
         parent_layout.addWidget(self.domain_wall_results_group)
-        self.domain_wall_results_group.setVisible(False) # Widoczny tylko, gdy są wyniki
+        self.domain_wall_results_group.setVisible(False) # Visible only when domain-wall results exist
 
     def update_domain_wall_results_display(self, results: Optional[Dict[str, Any]]):
         """Updates the labels with the domain wall analysis results."""
@@ -137,7 +137,7 @@ class FFTAnalysisPanel(QWidget):
         self.real_space_group = QGroupBox("Real Space Lattice Parameters")
         real_space_layout = QVBoxLayout(self.real_space_group)
 
-        # Sekcja Substratu
+        # Substrate section
         substrate_params_group = QGroupBox("Substrate")
         substrate_params_form = QFormLayout(substrate_params_group)
         self.sub_rs_a1_label = QLabel("a1: - nm")
@@ -151,7 +151,7 @@ class FFTAnalysisPanel(QWidget):
         substrate_params_form.addRow(self.calculate_substrate_rs_button)
         real_space_layout.addWidget(substrate_params_group)
 
-        # Sekcja Adsorbatu (dla bieżącego zestawu)
+        # Adsorbate section (for the current set)
         adsorbate_params_group = QGroupBox("Adsorbate (Current Set)")
         adsorbate_params_form = QFormLayout(adsorbate_params_group)
         self.ads_rs_a1_label = QLabel("a1: - nm")
@@ -314,7 +314,7 @@ class FFTAnalysisPanel(QWidget):
 
 
     def update_substrate_real_space_display(self, params: Optional[Dict[str, Any]]):
-        if hasattr(self, 'sub_rs_a1_label'): # Sprawdź, czy UI jest zainicjalizowane
+        if hasattr(self, 'sub_rs_a1_label'): # Ensure UI has been initialized
             if params and "a1_nm" in params:
                 self.sub_rs_a1_label.setText(f"{params['a1_nm']:.3f} nm")
                 self.sub_rs_a2_label.setText(f"{params.get('a2_nm', 'N/A'):.3f} nm")

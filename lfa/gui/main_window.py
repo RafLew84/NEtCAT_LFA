@@ -132,8 +132,8 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Lattice Fourier Analyzer (LFA)")
         self.resize(1250, 800)
 
-        self._setup_main_layout() # Tworzy m.in. self.history_list_widget
-        self.metadata_widget = MetadataWidget(self) # Tworzymy widgety zawartości
+        self._setup_main_layout() 
+        self.metadata_widget = MetadataWidget(self) # Create content widgets
         self.fft_analysis_panel_widget = FFTAnalysisPanel(self)
 
         # 2. Managery logiki
@@ -324,7 +324,7 @@ class MainWindow(QMainWindow):
         dialog = DialogClass(image_data_copy, parent=self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             processed_data = dialog.get_processed_data()
-            params = dialog.get_parameters() # Dialog powinien zwracać słownik parametrów
+            params = dialog.get_parameters() # Dialog should return a dictionary of parameters
             was_roi_only = dialog.was_roi_applied_only()
 
             if processed_data is not None:
@@ -376,7 +376,7 @@ class MainWindow(QMainWindow):
         can_load_metadata = False
         if has_active_node:
             root_node = self.history_manager.get_root_node_for_node(current_hist_node.node_id)
-            # Sprawdź, czy główny węzeł istnieje, ale nie ma w nim `raw_header`
+            # Ensure the root node exists and provide its `raw_header` if missing
             if root_node and "raw_header" not in root_node.parameters:
                 can_load_metadata = True
 
@@ -517,7 +517,7 @@ class MainWindow(QMainWindow):
     
     @pyqtSlot()
     def open_stm_fft_simulation_dialog(self):
-        """Otwiera dialog do symulacji i porównania z danymi eksperymentalnymi."""
+        """Open the simulation dialog to compare against experimental data."""
         logger.info("MainWindow: Opening STM/FFT Simulation dialog...")
         
         if not SIMULATION_DIALOG_AVAILABLE: 
@@ -558,29 +558,29 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def open_stm_transform_dialog(self):
-        """Otwiera okno do wizualizacji i eksportu transformacji STM."""
+        """Open the window for STM transform visualization and export."""
         if not STM_TRANSFORM_DIALOG_AVAILABLE:
-            QMessageBox.critical(self, "Błąd okna dialogowego", "StmTransformDialog jest niedostępny.")
+            QMessageBox.critical(self, "Dialog Error", "StmTransformDialog is unavailable.")
             return
 
         current_node = self.history_manager.get_current_node()
         if not (current_node and current_node.data_type == "STM"):
-            QMessageBox.warning(self, "Nieprawidłowe dane", "Ta funkcja wymaga aktywnego obrazu STM.")
+            QMessageBox.warning(self, "Invalid Data", "This feature requires an active STM image.")
             return
             
         if self.app_controller.substrate_F_m2i is None:
-            QMessageBox.warning(self, "Brak danych", "Najpierw wykonaj analizę podłoża i oblicz transformację w oknie 'Select Substrate Spots'.")
+            QMessageBox.warning(self, "Missing Data", "Please analyze the substrate and compute the transform in the "Select Substrate Spots" dialog first.")
             return
 
         root_node = self.history_manager.get_root_node_for_node(current_node.node_id)
         if not (root_node and root_node.operation_name == "Original"):
-            QMessageBox.warning(self, "Brak Danych", "Nie można odnaleźć oryginalnych metadanych obrazu w historii.")
+            QMessageBox.warning(self, "Missing Data", "Original image metadata could not be found in history.")
             return
 
         logger.info("MainWindow: Opening STM Transform dialog...")
         dialog = StmTransformDialog(
             input_data=current_node.image_data,
-            original_node=root_node, # NOWY PARAMETR: Przekazujemy cały oryginalny węzeł
+            original_node=root_node, # Pass along the entire original history node
             substrate_transform_F=self.app_controller.substrate_F_m2i,
             parent=self
         )
@@ -589,13 +589,13 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def load_metadata_for_session(self):
-        """Slot pośredniczący, który wywołuje logikę wczytywania metadanych."""
+        """Intermediate slot that triggers metadata loading logic."""
         if self.app_controller:
             self.app_controller.load_metadata_into_session()
 
     @pyqtSlot(HistoryNode)
     def _on_simulation_accepted(self, new_fft_node: HistoryNode):
-        """Odbiera nowy węzeł z dialogu symulacji i dodaje go do historii."""
+        """Receive the new node from the simulation dialog and append it to history."""
         if self.app_controller:
             logger.info(f"Received new simulated FFT node ({new_fft_node.operation_name}) to be added to history.")
             self.app_controller.add_new_node_to_history(new_fft_node)
@@ -609,7 +609,7 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def open_real_space_reconstruction_dialog(self):
-        """Otwiera dialog do rekonstrukcji obrazu z FFT."""
+        """Open the dialog for reconstructing an image from FFT data."""
         logger.info("MainWindow: Opening Real Space Reconstruction dialog...")
         
         if not RECONSTRUCTION_DIALOG_AVAILABLE:
@@ -624,7 +624,7 @@ class MainWindow(QMainWindow):
                                 "This history node does not contain the required phase information for a true reconstruction.")
             return
 
-        # W przyszłości będziemy tu przekazywać dane FFT do dialogu
+        # Future work: pass FFT data into the dialog
         # dialog = RealSpaceReconstructionDialog(parent=self)
         dialog = RealSpaceReconstructionDialog(
             magnitude_fft_data=current_node.image_data,
@@ -642,10 +642,10 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Error", "RealSpaceFFTVisualizerDialog is not available.")
             return
 
-        # Krok 1: Sprawdź, czy okno już istnieje i jest widoczne
+        # Step 1: Check whether the window already exists and is visible
         if self.real_space_visualizer_dialog_instance is not None and self.real_space_visualizer_dialog_instance.isVisible():
             logger.warning("RealSpaceFFTVisualizerDialog is already open.")
-            self.real_space_visualizer_dialog_instance.raise_()  # Przenieś na wierzch
+            self.real_space_visualizer_dialog_instance.raise_()  # Bring the window to the foreground
             self.real_space_visualizer_dialog_instance.activateWindow() # Aktywuj okno
             return
 
@@ -654,7 +654,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "No FFT Data", "Please calculate FFT first to use the visualizer.")
             return
 
-        # Krok 2: Stwórz nową instancję i zapisz referencję
+        # Step 2: Create a new instance and store the reference
         self.real_space_visualizer_dialog_instance = RealSpaceFFTVisualizerDialog(
             app_controller=self.app_controller,
             history_manager=self.history_manager,
@@ -662,7 +662,7 @@ class MainWindow(QMainWindow):
             parent=self
         )
         
-        # Krok 3: Użyj .show() zamiast .exec()
+        # Step 3: Use .show() instead of .exec()
         self.real_space_visualizer_dialog_instance.show()
         logger.info("RealSpaceFFTVisualizerDialog opened.")
 
@@ -1121,11 +1121,11 @@ class MainWindow(QMainWindow):
 
         if self.app_controller:
             if current_node and current_node.data_type == "FFT" and current_node.image_data is not None:
-                # Jeśli wybrany jest obraz FFT, zapisz jego kształt w kontrolerze
+                # If the selected node contains FFT data, record its shape in the controller
                 self.app_controller.current_fft_data_shape = current_node.image_data.shape
                 logger.debug(f"Updated app_controller.current_fft_data_shape to {current_node.image_data.shape}")
             else:
-                # Jeśli wybrany jest inny typ obrazu (np. STM) lub brak, wyczyść kształt
+                # Otherwise clear the cached FFT shape
                 self.app_controller.current_fft_data_shape = None
                 logger.debug("Cleared app_controller.current_fft_data_shape (current node is not FFT).")
             
@@ -1150,7 +1150,7 @@ class MainWindow(QMainWindow):
                 self.fft_analysis_panel_widget.update_adsorbate_real_space_display(ads_params)
                 
                 expected_type = self.app_controller.adsorbate_expected_lattice_types.get(
-                    current_ads_idx, ADSORBATE_LATTICE_TYPE_UNKNOWN # Zaimportuj lub zdefiniuj stałą
+                    current_ads_idx, ADSORBATE_LATTICE_TYPE_UNKNOWN # Imported constant
                 )
                 self.fft_analysis_panel_widget.set_expected_adsorbate_type(expected_type)
     @pyqtSlot()
@@ -1206,7 +1206,7 @@ class MainWindow(QMainWindow):
             self.spot_selection_mode = "Adsorbate"
             self.adsorbate_set_panel.setVisible(True)
             self.substrate_set_panel.setVisible(False)
-            self._points_for_current_adsorbate_set = [] # Wyczyść przy zmianie na adsorbat
+            self._points_for_current_adsorbate_set = [] # Clear when switching to a different adsorbate set
             if self.current_adsorbate_set_index < len(self.adsorbate_spot_sets):
                  self._points_for_current_adsorbate_set = list(self.adsorbate_spot_sets[self.current_adsorbate_set_index])
             logger.debug(f"Spot selection mode: Adsorbate, Set Index: {self.current_adsorbate_set_index}")
@@ -1237,8 +1237,8 @@ class MainWindow(QMainWindow):
         """Clears points for the current adsorbate set to allow re-selection."""
         if self.current_adsorbate_set_index >= 0 and self.current_adsorbate_set_index < len(self.adsorbate_spot_sets):
             logger.info(f"Reselecting points for adsorbate set {self.current_adsorbate_set_index + 1}")
-            self.adsorbate_spot_sets[self.current_adsorbate_set_index] = [] # Wyczyść zapisane punkty
-            self._points_for_current_adsorbate_set = [] # Wyczyść punkty tymczasowe
+            self.adsorbate_spot_sets[self.current_adsorbate_set_index] = [] # Clear stored points
+            self._points_for_current_adsorbate_set = [] # Clear temporary points
         else:
             logger.warning("No valid adsorbate set selected to reselect.")
 
@@ -1356,7 +1356,7 @@ class MainWindow(QMainWindow):
         """Slot called when the selection in the history list changes."""
         if current_item:
             node_id = current_item.data(Qt.ItemDataRole.UserRole)
-            if self.history_manager and node_id != self.history_manager.current_node_id: # Dodatkowy warunek, aby uniknąć zbędnych wywołań
+            if self.history_manager and node_id != self.history_manager.current_node_id: # Additional condition to avoid unnecessary callbacks
                 logger.info(f"MainWindow: History item selected: {current_item.text()}, delegating to HistoryManager.")
                 self.history_manager.set_current_node_by_id(node_id, emit_signal=True)
 
@@ -1391,7 +1391,7 @@ class MainWindow(QMainWindow):
 
         current_node = self.history_manager.get_current_node()
         show_ideal_lattice = False
-        selected_substrate = "None" # Domyślna wartość
+        selected_substrate = "None" # Default value
         panel_custom_text = ""
 
         substrate_spots_to_draw = self.app_controller.displayable_fitted_substrate_spots_on_fft
@@ -1449,7 +1449,7 @@ class MainWindow(QMainWindow):
                 fit_result = fit_2d_gaussian_in_roi(original_fft_data, center_yx_for_refinement, current_refinement_radius)
                 if fit_result:
                     refined_ky_float, refined_kx_float = fit_result
-                    refined_kx, refined_ky = int(round(refined_kx_float)), int(round(refined_ky_float)) # Używamy zaokrąglonych intów dla spójności
+                    refined_kx, refined_ky = int(round(refined_kx_float)), int(round(refined_ky_float)) # Use rounded integers for consistency
                     logger.info(f"2D Gaussian Fit refined: -> (ref_kx_float={refined_kx_float:.2f}, ref_ky_float={refined_ky_float:.2f}) -> int({refined_kx},{refined_ky})")
                 else: # pragma: no cover
                     logger.warning("2D Gaussian Fit failed. Using rounded click position.")

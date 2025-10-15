@@ -1433,7 +1433,7 @@ class MedianFilterDialog(QDialog):
         self._final_is_roi_applied_only: bool = False
 
         self.setWindowTitle(f"{self.operation_name} Settings")
-        self.setMinimumSize(900, 550) # Nieco wyższe dla dodatkowych kontrolek
+        self.setMinimumSize(900, 550) # Slightly taller to accommodate added controls
         current_flags=self.windowFlags(); self.setWindowFlags(current_flags | Qt.WindowType.WindowMinimizeButtonHint | Qt.WindowType.WindowMaximizeButtonHint)
 
         # --- Layouts ---
@@ -1459,7 +1459,7 @@ class MedianFilterDialog(QDialog):
         controls_panel = QWidget(); controls_panel.setMaximumWidth(250); controls_panel.setLayout(controls_area_layout)
         parameter_widget_container = QWidget()
         specific_param_layout = QVBoxLayout(parameter_widget_container); specific_param_layout.setContentsMargins(0,0,0,0)
-        self._create_parameter_controls(specific_param_layout) # Wywołanie metody tworzącej kontrolki
+        self._create_parameter_controls(specific_param_layout) # Build parameter controls
         controls_area_layout.addWidget(parameter_widget_container)
 
         controls_area_layout.addWidget(QFrame(frameShape=QFrame.Shape.HLine, frameShadow=QFrame.Shadow.Sunken))
@@ -1603,7 +1603,7 @@ class MedianFilterDialog(QDialog):
             return None
 
     # --- Sloty i Metody skopiowane/zaadaptowane (jak w GaussianBlurDialog) ---
-    # Te metody są teraz częścią tej klasy, nie dziedziczone
+    # These methods now live on this class (were previously inherited)
     @pyqtSlot()
     def _on_parameter_or_preview_changed(self):
         is_roi_mode = self.apply_to_roi_only_checkbox.isChecked()

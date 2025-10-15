@@ -179,7 +179,7 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         #     self.plotter.enable_shadows() 
         #     main_splitter.addWidget(self.plotter.interactor)
         # else:
-        #     # Fallback, jeśli PyVista nie jest dostępne
+        #     # Fallback if PyVista is unavailable
         #     main_splitter.addWidget(QLabel("PyVista is not installed.\n3D visualization is unavailable."))
 
         controls_panel_widget = QWidget()
@@ -188,18 +188,18 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         controls_panel_widget.setMaximumWidth(450)
 
         display_options_group = QGroupBox("Display Options")
-        group_box_layout = QVBoxLayout(display_options_group) # Layout dla samego GroupBoxa
+        group_box_layout = QVBoxLayout(display_options_group) # Layout for this group box itself
 
-        # 1. Stwórz QScrollArea, która zapewni możliwość przewijania
+        # 1. Create a QScrollArea to provide scrolling
         scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True) # Kluczowe, aby zawartość dopasowała się do szerokości
+        scroll_area.setWidgetResizable(True) # Critical so the content adapts to the width
         scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
 
-        # 2. Stwórz widget-kontener na całą zawartość, która ma być przewijana
+        # 2. Create a container widget for the scrollable content
         scroll_content_widget = QWidget()
-        self.display_options_form = QFormLayout(scroll_content_widget) # Ten layout będzie teraz wewnątrz kontenera
+        self.display_options_form = QFormLayout(scroll_content_widget) # Layout now lives inside the container
 
-        # 3. Wypełnij layout zawartością (ten kod pozostaje taki sam jak wcześniej)
+        # 3. Populate the layout (logic unchanged)
         self.cb_show_substrate_real_lattice = QCheckBox("Substrate Real Lattice")
         self.cb_show_substrate_real_lattice.setChecked(True)
         self.display_options_form.addRow(self.cb_show_substrate_real_lattice)
@@ -216,9 +216,9 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         self.cb_show_g_adsorbate_fft.setChecked(True)
         self.display_options_form.addRow(self.cb_show_g_adsorbate_fft)
 
-        self.cb_visual_align = QCheckBox("Wyrównaj wizualnie adsorbat do podłoża")
+        self.cb_visual_align = QCheckBox("Visually align adsorbate lattice to substrate")
         self.cb_visual_align.setChecked(False)
-        self.cb_visual_align.setToolTip("Obraca sieć adsorbatu tylko na wizualizacji, aby jej wektor a1 pasował do wektora a1 podłoża.")
+        self.cb_visual_align.setToolTip("Rotates only the visualization so the adsorbate a1 vector matches the substrate a1 vector.")
         self.display_options_form.addRow(self.cb_visual_align)
 
         self.supercell_size_spinbox = QSpinBox()
@@ -231,21 +231,21 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         self.launch_3d_button = QPushButton("Launch Interactive 3D Viewer")
         self.launch_3d_button.setToolTip("Opens a new, interactive window with a 3D model of the lattices.")
         self.display_options_form.addRow(self.launch_3d_button)
-        # --- Koniec zawartości ---
+        # --- End of scroll content ---
 
-        # 4. Umieść widget z zawartością wewnątrz QScrollArea
+        # 4. Place the content widget inside the QScrollArea
         scroll_area.setWidget(scroll_content_widget)
 
-        # 5. Umieść QScrollArea wewnątrz naszego QGroupBox
+        # 5. Embed the QScrollArea inside the group box
         group_box_layout.addWidget(scroll_area)
 
-        # 6. Dodaj gotowy QGroupBox do głównego layoutu panelu kontrolnego
+        # 6. Add the configured group box to the main control layout
         controls_panel_layout.addWidget(display_options_group)
 
         self.supercell_size_spinbox = QSpinBox()
         self.supercell_size_spinbox.setMinimum(1)
         self.supercell_size_spinbox.setMaximum(50)
-        self.supercell_size_spinbox.setValue(5) # Domyślny rozmiar 5x5
+        self.supercell_size_spinbox.setValue(5) # Default size 5x5
         self.supercell_size_spinbox.setToolTip("Sets the NxN size of the supercell for 3D visualization.")
         self.display_options_form.addRow("3D Supercell Size (NxN):", self.supercell_size_spinbox)
 
@@ -327,7 +327,7 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         Slot called when a 3D visualization parameter (like supercell size) changes.
         If the 3D viewer is already open, it triggers a redraw.
         """
-        # Jeśli okno 3D jest otwarte, odśwież je
+        # Refresh the 3D window if it is already open
         if self.background_plotter and self.background_plotter.app_window.isVisible():
             logger.debug("3D settings changed, updating background plotter.")
             # self._launch_3d_viewer()
@@ -341,7 +341,7 @@ class RealSpaceFFTVisualizerDialog(QDialog):
             QMessageBox.warning(self, "Dependency Error", "PyVista is not installed. 3D visualization is unavailable.")
             return
 
-        # Utwórz plotter tylko raz; przy kolejnych kliknięciach zaktualizuj istniejący
+        # Create the plotter once; reuse it on subsequent clicks
         if self.background_plotter is None or self.background_plotter._closed:
             logger.info("Creating a new BackgroundPlotter instance.")
             self.background_plotter = BackgroundPlotter(show=True, title="Interactive 3D Lattice Viewer")
@@ -349,9 +349,9 @@ class RealSpaceFFTVisualizerDialog(QDialog):
             logger.info("Using existing BackgroundPlotter instance.")
         
         plotter = self.background_plotter
-        plotter.clear() # Wyczyść scenę przed ponownym rysowaniem
+        plotter.clear() # Clear the scene before redrawing
 
-        # Ustaw oświetlenie i tło
+        # Configure lighting and background
         plotter.set_background('white')
         plotter.remove_all_lights()
         plotter.add_light(pv.Light(position=(5, 5, 10), intensity=1.5))
@@ -410,7 +410,7 @@ class RealSpaceFFTVisualizerDialog(QDialog):
 
         plotter.camera_position = 'xy'
         plotter.reset_camera()
-        plotter.app_window.show() # Upewnij się, że okno jest widoczne i aktywne
+        plotter.app_window.show() # Ensure the window stays visible and focused
 
     @pyqtSlot()
     def _trigger_redraw_all_visuals(self):
@@ -532,13 +532,13 @@ class RealSpaceFFTVisualizerDialog(QDialog):
     @pyqtSlot()
     def _redraw_fft_overlays(self):
         """
-        Rysuje nakładki na obrazie FFT, w tym wektory g* dla podłoża
-        oraz wektory do SKORYGOWANYCH pozycji pików adsorbatu.
+        Draw overlays on the FFT, including substrate g* vectors
+        and vectors to corrected adsorbate peak positions.
         """
         logger.debug("Visualizer: Redrawing FFT overlays...")
-        plot_item = self.fft_view_box # Używamy bezpośrednio viewboxa
+        plot_item = self.fft_view_box # Use the view box directly
 
-        # Czyszczenie starych wektorów
+        # Remove old vector overlays
         for item in self.g_substrate_vector_lines: plot_item.removeItem(item)
         self.g_substrate_vector_lines.clear()
         for item in self.g_adsorbate_vector_lines: plot_item.removeItem(item)
@@ -550,7 +550,7 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         center_kx_px = fft_cols_kx / 2.0
         center_ky_px = fft_rows_ky / 2.0
 
-        # Rysowanie wektorów podłoża (bez zmian, działało poprawnie)
+        # Draw substrate vectors (unchanged)
         if self.cb_show_g_substrate_fft.isChecked() and self.app_controller.substrate_real_space_results:
             sub_params = self.app_controller.substrate_real_space_results
             g1s_px = sub_params.get("g1_vec_px")
@@ -562,18 +562,18 @@ class RealSpaceFFTVisualizerDialog(QDialog):
                 plot_item.addItem(line1s); plot_item.addItem(line2s)
                 self.g_substrate_vector_lines.extend([line1s, line2s])
 
-        # --- POCZĄTEK POPRAWIONEJ LOGIKI DLA ADSORBATU ---
+        # --- Begin improved adsorbate plotting logic ---
         current_ads_set_idx_vis = self.ads_set_combo_vis.currentData()
         if self.cb_show_g_adsorbate_fft.isChecked() and current_ads_set_idx_vis is not None:
             
-            # Pobieramy listę wszystkich SKORYGOWANYCH pozycji pików dla danego zestawu
+            # Retrieve all corrected peak positions for this set
             if 0 <= current_ads_set_idx_vis < len(self.app_controller.corrected_adsorbate_spot_sets):
                 corrected_spots = self.app_controller.corrected_adsorbate_spot_sets[current_ads_set_idx_vis]
                 
                 if corrected_spots:
                     pen_ads = pg.mkPen(color='b', width=2.5, style=Qt.PenStyle.DashLine)
                     
-                    # Rysujemy wektor od środka do KAŻDEJ skorygowanej pozycji
+                    # Draw vectors from the center to each corrected position
                     for spot_kx, spot_ky in corrected_spots:
                         line_ads = pg.PlotDataItem(
                             x=[center_kx_px, spot_kx], 
@@ -583,8 +583,8 @@ class RealSpaceFFTVisualizerDialog(QDialog):
                         plot_item.addItem(line_ads)
                         self.g_adsorbate_vector_lines.append(line_ads)
                     
-                    logger.debug(f"Narysowano {len(corrected_spots)} wektorów do skorygowanych pozycji adsorbatu.")
-        # --- KONIEC POPRAWIONEJ LOGIKI ---
+                    logger.debug(f"Drew {len(corrected_spots)} vectors to corrected adsorbate positions.")
+        # --- End of improved adsorbate plotting logic ---
 
 
     # def _redraw_fft_overlays(self):
@@ -845,9 +845,9 @@ class RealSpaceFFTVisualizerDialog(QDialog):
     @pyqtSlot()
     def _on_calculate_sub_ads_angle_clicked(self):
         """
-        Wykonuje dwa obliczenia:
-        1. Oblicza i wyświetla bezwzględny kąt między domyślnymi wektorami a1.
-        2. Oblicza w tle i zapisuje najmniejszy kąt potrzebny do wizualnego wyrównania.
+        Performs two calculations:
+        1. Calculates and displays the absolute angle between default a1 vectors.
+        2. Computes in the background the minimal angle needed for visual alignment.
         """
         logger.debug("Visualizer: Calculate Sub-Ads Angle button clicked.")
         if not self.app_controller: return
@@ -870,7 +870,7 @@ class RealSpaceFFTVisualizerDialog(QDialog):
             a1_a_vec = np.array(ads_params["a1_vec_nm"])
             a2_a_vec = np.array(ads_params["a2_vec_nm"])
 
-            # --- CZĘŚĆ 1: Obliczenie kąta do WYŚWIETLENIA (tak jak chciałeś) ---
+            # --- PART 1: Compute angle for display (existing behaviour) ---
             norm_s = np.linalg.norm(a1_s_vec)
             norm_a = np.linalg.norm(a1_a_vec)
             if norm_s > 1e-9 and norm_a > 1e-9:
@@ -878,11 +878,11 @@ class RealSpaceFFTVisualizerDialog(QDialog):
                 cos_theta = np.clip(dot_product / (norm_s * norm_a), -1.0, 1.0)
                 angle_for_display_deg = np.degrees(np.arccos(cos_theta))
                 self.angle_sub_ads_label.setText(f"{angle_for_display_deg:.3f}°")
-                logger.info(f"Wyświetlono kąt między domyślnymi a1: {angle_for_display_deg:.3f}°")
+                logger.info(f"Displayed angle between default a1 vectors: {angle_for_display_deg:.3f}°")
             else:
                 self.angle_sub_ads_label.setText("N/A (Zero vector)")
 
-            # --- CZĘŚĆ 2: Obliczenie kąta do WYRÓWNANIA (w tle) ---
+            # --- PART 2: Compute minimal alignment angle in the background ---
             y_axis_vector = np.array([0.0, 1.0])
             
             def find_most_vertical_vector(a1, a2):
@@ -911,12 +911,12 @@ class RealSpaceFFTVisualizerDialog(QDialog):
                 while alignment_angle_rad > np.pi: alignment_angle_rad -= 2 * np.pi
                 
                 self.visual_alignment_angle_rad = alignment_angle_rad
-                logger.info(f"Zapisano w tle kąt do wyrównania wizualnego: {np.degrees(self.visual_alignment_angle_rad):.3f}°")
+                logger.info(f"Stored visual alignment angle (background): {np.degrees(self.visual_alignment_angle_rad):.3f}°")
             else:
-                # W razie błędu zerujemy kąt wyrównania
+                # Reset the alignment angle on failure
                 self.visual_alignment_angle_rad = 0.0
             
-            # Jeśli checkbox wyrównania jest aktywny, odśwież widok z nowym kątem
+            # Refresh view with the new angle when alignment is enabled
             if self.cb_visual_align.isChecked():
                 self._trigger_redraw_all_visuals()
 
@@ -928,8 +928,8 @@ class RealSpaceFFTVisualizerDialog(QDialog):
     # @pyqtSlot()
     # def _on_calculate_sub_ads_angle_clicked(self):
     #     """
-    #     Oblicza kąt potrzebny do wizualnego wyrównania sieci adsorbatu z siecią podłoża
-    #     wzdłuż kierunku najbardziej zbliżonego do osi Y.
+    #     Calculates the angle needed to visually align the adsorbate lattice with the substrate lattice
+    #     along the direction closest to the Y axis.
     #     """
     #     logger.debug("Visualizer: Calculating Y-axis alignment angle.")
     #     if not self.app_controller: return
@@ -994,7 +994,7 @@ class RealSpaceFFTVisualizerDialog(QDialog):
     #         angle_to_display_deg = np.degrees(alignment_angle_rad)
             
     #         self.angle_sub_ads_label.setText(f"{angle_to_display_deg:.3f}°")
-    #         logger.info(f"Obliczono kąt do wizualnego wyrównania wzdłuż osi Y: {angle_to_display_deg:.3f}°")
+    #         logger.info(f"Computed visual alignment angle along Y axis: {angle_to_display_deg:.3f}°")
             
     #         if self.cb_visual_align.isChecked():
     #             self._trigger_redraw_all_visuals()

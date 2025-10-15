@@ -13,7 +13,7 @@ from typing import List, Tuple, Dict, Optional, Any
 
 logger = logging.getLogger(__name__)
 
-# --- Podstawowe Funkcje Transformacji Afinicznej (dostarczone wcześniej) ---
+# --- Core Affine Transformation Utilities ---
 
 def fit_affine_measured_to_ideal(
     measured_pts: np.ndarray,
@@ -175,7 +175,7 @@ def analyze_affine_transform(F: np.ndarray) -> Optional[Dict[str, Any]]:
         logger.exception(f"Error analyzing affine transform: {e}")
         return None
 
-# --- Funkcja z Algorytmem Węgierskim ---
+# --- Hungarian Matching Utility ---
 
 def match_and_fit_transform(
     measured_pts_px: np.ndarray,

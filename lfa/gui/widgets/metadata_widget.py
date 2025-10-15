@@ -90,7 +90,6 @@ class MetadataWidget(QWidget):
 
     def update_metadata(self, node: Optional['HistoryNode'], history: Dict[str, 'HistoryNode']):
         """Updates the labels with information from the given node and history."""
-        # --- POCZĄTEK ZMIANY ---
         history_dict: Optional[Dict[str, HistoryNode]] = None
         root_node: Optional[HistoryNode] = None
 

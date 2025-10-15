@@ -219,9 +219,9 @@ class AdsorbateSpotSelectionDialog(QDialog):
             ADSORBATE_LATTICE_TYPE_HEXAGONAL,
             ADSORBATE_LATTICE_TYPE_SQUARE
         ])
-        self.expected_type_combo.setCurrentText(self.current_expected_type) # Ustaw wartość początkową
+        self.expected_type_combo.setCurrentText(self.current_expected_type) # Set initial value
         expected_type_layout.addRow("Lattice Type:", self.expected_type_combo)
-        left_controls_layout.addWidget(expected_type_group) # Dodaj grupę do layoutu
+        left_controls_layout.addWidget(expected_type_group) # Add group to layout
 
 
         refinement_group = QGroupBox("Adsorbate Spot Refinement")
@@ -262,7 +262,7 @@ class AdsorbateSpotSelectionDialog(QDialog):
         corrected_spots_group = QGroupBox("Corrected Adsorbate Spots (Ideal System)")
         corrected_spots_layout = QVBoxLayout(corrected_spots_group)
         self.corrected_spots_list_widget = QListWidget()
-        self.corrected_spots_list_widget.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection) # Tylko do wyświetlania
+        self.corrected_spots_list_widget.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection) # Display only
         self.corrected_spots_list_widget.addItem("Corrected spots will appear here after applying correction.")
         corrected_spots_layout.addWidget(self.corrected_spots_list_widget)
         left_controls_layout.addWidget(corrected_spots_group)
@@ -417,13 +417,13 @@ class AdsorbateSpotSelectionDialog(QDialog):
         self.add_adsorbate_spot_button.clicked.connect(self._add_current_adsorbate_spot_from_roi)
         self.apply_correction_button.clicked.connect(self._on_apply_substrate_correction_clicked)
 
-        # Checkboxy podglądów Live
+        # Live preview checkboxes
         self.enable_2d_roi_preview_checkbox.stateChanged.connect(self._update_roi_previews)
         # self.enable_3d_roi_preview_checkbox.stateChanged.connect(self._update_roi_previews)
         self.enable_gauss_2d_preview_checkbox.stateChanged.connect(self._update_roi_previews)
         # self.enable_gauss_3d_preview_checkbox.stateChanged.connect(self._update_roi_previews)
 
-        # Checkboxy dla wyświetlania spotów referencyjnych
+        # Reference spot visibility checkboxes
         self.show_ideal_substrate_checkbox.stateChanged.connect(self._redraw_all_markers_in_dialog)
         self.show_fitted_substrate_checkbox.stateChanged.connect(self._redraw_all_markers_in_dialog)
         self.show_corrected_adsorbate_checkbox.stateChanged.connect(self._redraw_all_markers_in_dialog)

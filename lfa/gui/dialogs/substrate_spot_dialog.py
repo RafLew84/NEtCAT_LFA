@@ -469,27 +469,27 @@ class SubstrateSpotSelectionDialog(QDialog):
         logger.debug("Cleared all substrate spots in dialog.")
 
     def _redraw_all_spot_markers(self):
-        """Aktualizuje dane na istniejących obiektach ScatterPlotItem."""
+        """Update data on existing ScatterPlotItem objects."""
         logger.debug("Redrawing substrate spot markers by updating data.")
 
-        # 1. Przygotuj dane dla zaznaczonych pików
+        # 1. Prepare data for selected peaks
         if self.selected_spots:
             spots_to_draw = [{'pos': spot, 'symbol': 'o', 'size': 10, 
                             'pen': pg.mkPen('g', width=1.5), 'brush': pg.mkBrush(50,205,50,120)} 
                             for spot in self.selected_spots]
             self.spot_markers_on_image.setData(spots=spots_to_draw)
         else:
-            # Jeśli nie ma pików, po prostu wyczyść dane
+            # If no peaks are present, simply clear the data
             self.spot_markers_on_image.clear()
 
-        # 2. Przygotuj dane dla dopasowanych pików
+        # 2. Prepare data for fitted peaks
         if self.fitted_substrate_spots_px:
             spots_fitted_data = [{'pos': spot, 'symbol': 'x', 'size': 12,
                                 'pen': pg.mkPen('c', width=2.0)}
                                 for spot in self.fitted_substrate_spots_px]
             self.fitted_spot_markers_on_image.setData(spots=spots_fitted_data)
         else:
-            # Jeśli nie ma dopasowanych pików, wyczyść dane
+            # If fitted peaks are absent, clear the data
             self.fitted_spot_markers_on_image.clear()
             self.fft_view_box.scene().update()
 
@@ -555,7 +555,7 @@ class SubstrateSpotSelectionDialog(QDialog):
             self._redraw_ideal_lattice_overlay()
 
     def _update_transform_button_state(self):
-        """Włącza/wyłącza przycisk Calculate Transformation oraz aktualizuje etykietę statusu."""
+        """Enable/disable the Calculate Transformation button and update the status label."""
         if not hasattr(self, 'calculate_transform_button'):
             return
 
@@ -606,7 +606,7 @@ class SubstrateSpotSelectionDialog(QDialog):
                 self._redraw_all_spot_markers()
 
     def _handle_fft_image_click(self, event):
-        """Obsługuje kliknięcie na głównym obrazie FFT."""
+        """Handle mouse clicks on the main FFT image."""
         if event.button() == Qt.MouseButton.LeftButton:
             pos_viewbox = self.fft_view_box.mapSceneToView(event.scenePos())
             mapped_pos = self.fft_image_item.mapToData(pos_viewbox)
@@ -634,7 +634,7 @@ class SubstrateSpotSelectionDialog(QDialog):
             event.ignore() # pragma: no cover
 
     def _handle_roi_changed_finished(self):
-        """Obsługuje zakończenie zmiany ROI (przesunięcie lub zmiana rozmiaru)."""
+        """Handle ROI change completion (move/resize)."""
         if self.selection_roi.isVisible():
             self.add_spot_button.setEnabled(True)
             roi_pos = self.selection_roi.pos()
@@ -657,7 +657,7 @@ class SubstrateSpotSelectionDialog(QDialog):
 
     @pyqtSlot(object) 
     def _handle_roi_region_changing(self, roi_item: Optional[RectROI] = None):
-        """Obsługuje zmianę ROI (przesunięcie lub zmiana rozmiaru) - live update."""
+        """Handle ROI changes (move/resize) with live updates."""
         if roi_item is None:
             roi_item = self.selection_roi
 
@@ -1184,7 +1184,7 @@ class SubstrateSpotSelectionDialog(QDialog):
 
     def get_dialog_results(self) -> Dict[str, Any]:
         return {
-            "spots": list(self.selected_spots), # Oryginalne kliknięcia z dialogu
+            "spots": list(self.selected_spots), # Original clicks collected in the dialog
             "lattice_type": self.current_lattice_type,
             "a_surf": self.current_a_surf,
             "substrate_definition": self.substrate_definition_combo.currentText(),
@@ -1222,7 +1222,7 @@ def closeEvent(self, event):
     #         self.gl_gauss_view_widget.removeItem(self.gl_gauss_surface_plot_item)
     #     self.gl_gauss_surface_plot_item = None
     
-    # # Usuwanie widgetów OpenGL
+    # # Removing OpenGL widgets
     # if hasattr(self, 'gl_roi_view_widget'):
     #     self.gl_roi_view_widget.deleteLater()
     #     self.gl_roi_view_widget = None

@@ -74,7 +74,6 @@ class DockPanelManager:
         )
         if self.history_dock:
              logger.debug("History dock panel created.")
-        # HistoryManager jest tworzony i zarządzany w MainWindow
 
     def _setup_metadata_dock(self):
         """Creates and configures the metadata dock widget."""

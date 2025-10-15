@@ -60,7 +60,7 @@ class MenuActionManager:
         self.file_actions["save_session"] = self._create_action(
             text="Save Analysis...",
             status_tip="Save the current analysis session to a file",
-            triggered_slot=self.main_window.save_analysis, # Ten slot dodamy w main_window
+            triggered_slot=self.main_window.save_analysis, 
             shortcut="Ctrl+S"
         )
         file_menu.addAction(self.file_actions["save_session"])
@@ -68,7 +68,7 @@ class MenuActionManager:
         self.file_actions["load_session"] = self._create_action(
             text="Load Analysis...",
             status_tip="Load an analysis session from a file",
-            triggered_slot=self.main_window.load_analysis, # Ten slot dodamy w main_window
+            triggered_slot=self.main_window.load_analysis, 
             shortcut="Ctrl+L"
         )
         file_menu.addAction(self.file_actions["load_session"])
@@ -77,7 +77,7 @@ class MenuActionManager:
             text="Load Metadata for Save...",
             status_tip="Load metadata from an original STP file to enable saving",
             triggered_slot=self.main_window.load_metadata_for_session, # Nowy slot
-            enabled=True # Będzie włączane dynamicznie
+            enabled=True 
         )
         file_menu.addAction(self.file_actions["load_metadata"])
     
@@ -180,7 +180,7 @@ class MenuActionManager:
             text="Real Space Reconstruction...",
             status_tip="Reconstruct real space image from masked FFT",
             triggered_slot=self.main_window.open_real_space_reconstruction_dialog,
-            enabled=False # Włączane, gdy aktywny jest obraz FFT
+            enabled=False 
         )
         analysis_menu.addAction(reconstruction_action)
         setattr(self.main_window, "real_space_reconstruction_action", reconstruction_action)
@@ -220,9 +220,9 @@ class MenuActionManager:
 
     def get_action(self, menu_key: str, action_key: str) -> QAction | None:
         """
-        Pobiera QAction na podstawie klucza menu i klucza akcji.
-        Przydatne, jeśli MainWindow._update_action_states potrzebuje dostępu
-        do akcji bez bezpośredniego przechowywania ich jako atrybutów w MainWindow.
+        Retrieve a QAction using its menu key and action key.
+        Useful when MainWindow._update_action_states needs access
+        to actions without storing them directly as MainWindow attributes.
         """
         menu_map = {
             "file": self.file_actions,

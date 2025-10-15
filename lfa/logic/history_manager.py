@@ -1,10 +1,10 @@
 # lfa/logic/history_manager.py
 import logging
-from typing import Dict, Optional, Any # 'Any' może być potrzebne później dla parametrów
+from typing import Dict, Optional, Any # 'Any' may later be needed for parameters
 from PyQt6.QtWidgets import QListWidget, QListWidgetItem # Dodaj potrzebne importy Qt
 from PyQt6.QtCore import Qt, pyqtSignal, QObject
-# Użyj ścieżki względnej, jeśli HistoryNode jest w lfa.core
-# Zakładając, że history_manager.py jest w lfa/gui/, a HistoryNode w lfa/core/
+# Use the relative path if HistoryNode resides in lfa.core
+# Assuming history_manager.py is in lfa/gui/ and HistoryNode in lfa/core/
 from ..core.history import HistoryNode
 
 logger = logging.getLogger(__name__)
@@ -14,8 +14,8 @@ class HistoryManager(QObject):
     Manages the history of operations, including adding nodes,
     tracking the current node, and interacting with the history list widget.
     """
-    # Sygnał emitowany, gdy zmieni się bieżący węzeł historii.
-    # Przekazuje nowy bieżący węzeł (obiekt HistoryNode lub None).
+    # Signal emitted when the current history node changes.
+    # Carries the new current node (HistoryNode or None).
     current_node_changed = pyqtSignal(object) 
 
     def __init__(self, history_list_widget: QListWidget, parent: Optional[QObject] = None):
@@ -38,10 +38,10 @@ class HistoryManager(QObject):
         """Clears the entire history and updates the list widget."""
         self.history.clear()
         self.current_node_id = None
-        self.history_list_widget.clear() # HistoryManager jest odpowiedzialny za widget
+        self.history_list_widget.clear() # HistoryManager owns the list widget
         logger.info("History cleared by HistoryManager.")
-        # Emituj sygnał, że bieżący węzeł to None, aby MainWindow mogło zareagować
-        # (np. wyczyścić widok obrazu, zaktualizować stan akcji)
+        # Emit the None node signal so MainWindow can react
+        # (e.g., clear image views, update action state)
         self.current_node_changed.emit(None)
 
     def add_node(self, node: HistoryNode) -> Optional[QListWidgetItem]:
@@ -59,7 +59,7 @@ class HistoryManager(QObject):
             return None
         if node.node_id in self.history:
             logger.warning(f"HistoryManager: Node with ID {node.node_id} already exists. Not adding.")
-            # Można by zwrócić istniejący item, jeśli to pożądane
+            # Optionally return the existing item if desired
             for i in range(self.history_list_widget.count()):
                 item = self.history_list_widget.item(i)
                 if item.data(Qt.ItemDataRole.UserRole) == node.node_id:

@@ -89,22 +89,20 @@ class StmFftSimulationDialog(QDialog):
     def _init_ui(self):
         main_layout = QVBoxLayout(self)
         
-        # --- GÓRNA SEKCJA: KONTROLKI I WYNIKI EKSPERYMENTALNE ---
+        # --- TOP SECTION: CONTROLS AND EXPERIMENTAL RESULTS ---
         top_widget = QWidget()
         top_layout = QHBoxLayout(top_widget)
         top_layout.setContentsMargins(0, 0, 0, 0)
         
-        # Kontrolki symulacji
         sim_controls_group = QGroupBox("Simulation Controls")
         self._create_simulation_controls(sim_controls_group)
-        top_layout.addWidget(sim_controls_group, 2) # Daj więcej miejsca na kontrolki
+        top_layout.addWidget(sim_controls_group, 2) # Allocate more space to the controls panel
 
-        # Wyniki eksperymentalne
         exp_group = QGroupBox("Experimental Parameters (Reference)")
         exp_main_layout = QHBoxLayout(exp_group)
-        top_layout.addWidget(exp_group, 3) # Daj więcej miejsca na wyniki
+        top_layout.addWidget(exp_group, 3) # Allocate more space to results
 
-        # Stworzenie pustych layoutów dla podgrup
+        # Prepare empty layouts for subgroups
         self.exp_sub_layout = QFormLayout()
         self.exp_transform_layout = QFormLayout()
         self.exp_ads_layout = QVBoxLayout()
@@ -162,7 +160,7 @@ class StmFftSimulationDialog(QDialog):
         self.button_box = button_box
 
     def _create_simulation_controls(self, parent_group: QGroupBox):
-        """Metoda pomocnicza do tworzenia wszystkich kontrolek symulacji."""
+        """Helper that instantiates every simulation control widget."""
         controls_main_layout = QHBoxLayout(parent_group)
         
         lattice_layout = QVBoxLayout()
@@ -206,7 +204,7 @@ class StmFftSimulationDialog(QDialog):
         vis_form.addRow(self.sub_size_label, self.sub_size_slider)
         vis_form.addRow(self.ads_size_label, self.ads_size_slider)
         self.show_substrate_checkbox = QCheckBox("Show Substrate Atoms")
-        self.show_substrate_checkbox.setChecked(True) # Domyślnie zaznaczony
+        self.show_substrate_checkbox.setChecked(True) # Checked by default
         self.show_substrate_checkbox.setToolTip("Toggles the visibility of the substrate atoms in the simulation.")
         vis_form.addRow(self.show_substrate_checkbox)
         vis_fft_layout.addWidget(vis_group)
@@ -247,7 +245,7 @@ class StmFftSimulationDialog(QDialog):
     # def _init_ui(self):
     #     main_layout = QVBoxLayout(self)
         
-    #     # --- Górny panel z trzema widokami ---
+    #     # --- Top panel with three views ---
     #     top_splitter = QSplitter(Qt.Orientation.Horizontal)
 
     #     controls_widget = QWidget()
@@ -255,7 +253,7 @@ class StmFftSimulationDialog(QDialog):
 
     #     exp_group = QGroupBox("Experimental Parameters (Reference)")
     #     self.exp_layout = QVBoxLayout(exp_group)
-    #     controls_layout.addWidget(exp_group, 1) # Rozciągliwy
+    #     controls_layout.addWidget(exp_group, 1) # Stretchable splitter section
         
     #     # 1. Panel: Symulowany STM
     #     sim_stm_widget = GraphicsLayoutWidget()
@@ -281,7 +279,7 @@ class StmFftSimulationDialog(QDialog):
     #     self.exp_fft_plot.addItem(self.exp_fft_image_item)
     #     top_splitter.addWidget(exp_fft_widget)
         
-    #     # Synchronizacja widoków FFT
+    #     # Synchronize FFT views
     #     self.sim_fft_plot.setXLink(self.exp_fft_plot)
     #     self.sim_fft_plot.setYLink(self.exp_fft_plot)
 
@@ -350,8 +348,8 @@ class StmFftSimulationDialog(QDialog):
     #     self.button_box = button_box
 
     # def _display_experimental_data(self):
-    #     """Wypełnia panel danymi z analizy eksperymentalnej."""
-    #     # Wyczyść poprzednie dane
+    #     """Populate the panel with results from experimental analysis."""
+    #     # Clear previous entries
     #     while self.exp_layout.count():
     #         child = self.exp_layout.takeAt(0)
     #         if child.widget():
@@ -361,7 +359,7 @@ class StmFftSimulationDialog(QDialog):
     #         self.exp_layout.addWidget(QLabel("No experimental data provided."))
     #         return
 
-    #     # Użyj QFormLayout dla lepszego wyglądu
+    #     # Use QFormLayout for nicer alignment
     #     form_layout = QFormLayout()
         
     #     # 1. Transformacja Substratu
@@ -386,9 +384,9 @@ class StmFftSimulationDialog(QDialog):
     #         self.exp_adsorbate_combo.currentIndexChanged.connect(self._on_exp_adsorbate_set_changed)
     #         form_layout.addRow("Select Set:", self.exp_adsorbate_combo)
     #         form_layout.addRow("Parameters:", self.exp_adsorbate_label)
-    #         self._on_exp_adsorbate_set_changed(0) # Wyświetl dane dla pierwszego zestawu
+    #         self._on_exp_adsorbate_set_changed(0) # Display data for the first set
 
-    #     # 3. Parametry Ścian Domenowych
+    #     # 3. Domain wall parameters
     #     domain_walls = self.experimental_data.get('domain_wall_params')
     #     if domain_walls:
     #         form_layout.addRow(QWidget()) # separator
@@ -404,7 +402,7 @@ class StmFftSimulationDialog(QDialog):
     #     self.exp_layout.addStretch()
 
     def _create_slider(self, label_text: str, min_val: int, max_val: int, initial_val: int) -> Tuple[QSlider, QLabel]:
-        """Metoda pomocnicza do tworzenia suwaka z etykietą."""
+        """Helper that builds a horizontal slider paired with a label."""
         label = QLabel(label_text)
         slider = QSlider(Qt.Orientation.Horizontal)
         slider.setRange(min_val, max_val)
@@ -412,21 +410,21 @@ class StmFftSimulationDialog(QDialog):
         return slider, label
 
     def _display_experimental_data(self):
-        """Wypełnia panel danymi z analizy eksperymentalnej w nowym układzie."""
+        """Populate the experimental-analysis panel using the new layout."""
         for layout in [self.exp_sub_layout, self.exp_transform_layout, self.exp_ads_layout, self.exp_dw_layout]:
             while layout.count():
                 item = layout.takeAt(0)
                 if item.widget():
                     item.widget().deleteLater()
 
-        # --- 1. Parametry Substratu ---
+        # --- 1. Substrate Parameters ---
         sub_params = self.experimental_data.get('substrate_real_params')
         if sub_params:
             self.exp_sub_layout.addRow("Lattice Const. |a|:", QLabel(f"{sub_params.get('a1_nm', '-'):.3f} nm"))
             self.exp_sub_layout.addRow("Angle α:", QLabel(f"{sub_params.get('alpha_deg', '-'):.2f}°"))
         else: self.exp_sub_layout.addRow(QLabel("Not calculated."))
 
-        # --- 2. Informacje o Transformacji ---
+        # --- 2. Transformation Information ---
         transform = self.experimental_data.get('transform_analysis')
         if transform:
             rot = transform.get('rotation_angle_deg', '-')
@@ -437,7 +435,7 @@ class StmFftSimulationDialog(QDialog):
             self.exp_transform_layout.addRow("RMSE:", QLabel(f"{rmse:.3f} px" if isinstance(rmse, float) else "-"))
         else: self.exp_transform_layout.addRow(QLabel("Not calculated."))
 
-        # --- 3. Parametry Adsorbatu (z QComboBox) ---
+        # --- 3. Adsorbate Parameters (from QComboBox) ---
         adsorbate_sets = self.experimental_data.get('adsorbate_real_params')
         if adsorbate_sets and isinstance(adsorbate_sets, dict):
             self.exp_adsorbate_combo = QComboBox(); self.exp_adsorbate_combo.addItems([f"Set {i+1}" for i in adsorbate_sets.keys()])
@@ -449,7 +447,7 @@ class StmFftSimulationDialog(QDialog):
             self._on_exp_adsorbate_set_changed(0)
         else: self.exp_ads_layout.addWidget(QLabel("Not calculated."))
         
-        # --- 4. Parametry Ścian Domenowych ---
+        # --- 4. Domain Wall Parameters ---
         domain_walls = self.experimental_data.get('domain_wall_params')
         if domain_walls:
             dist = domain_walls.get('dist_nm_inv', '-'); period = domain_walls.get('periodicity_nm', '-')
@@ -464,7 +462,7 @@ class StmFftSimulationDialog(QDialog):
             self.exp_dw_layout.addRow("Max Value Ratio:", QLabel(f"{m_ratio:.3f}" if isinstance(m_ratio, np.float32) else "-"))
         else: self.exp_dw_layout.addRow(QLabel("Not calculated."))
         
-        # Wyrównaj wszystkie grupy na górze
+        # Align all groups to the top
         # self.exp_sub_layout.parentWidget().layout().addStretch()
         self.exp_ads_layout.addStretch()
         # self.exp_dw_layout.parentWidget().layout().addStretch()
@@ -474,7 +472,7 @@ class StmFftSimulationDialog(QDialog):
     @pyqtSlot(int)
     def _on_exp_adsorbate_set_changed(self, index: int):
         adsorbate_sets = self.experimental_data.get('adsorbate_real_params', {})
-        # Klucze słownika to indeksy, musimy pobrać klucz na podstawie indeksu comboboxa
+        # Dictionary keys map to indexes; derive the key from the combo box index
         key = list(adsorbate_sets.keys())[index] if index < len(adsorbate_sets) else None
         
         if key is None or key not in adsorbate_sets:
@@ -486,11 +484,11 @@ class StmFftSimulationDialog(QDialog):
         self.exp_adsorbate_label.setText(text)
 
     def _connect_signals(self):
-        """Podłącza wszystkie kontrolki UI do slotu aktualizującego symulację."""
+        """Connect all relevant UI controls to the simulation update slot."""
         self.button_box.accepted.connect(self.accept)
         self.button_box.rejected.connect(self.reject)
 
-        # Połącz wszystkie kontrolki z jednym slotem
+        # Connect every control to the shared update slot
         self.substrate_combo.currentTextChanged.connect(self._update_simulation)
         self.adsorbate_combo.currentTextChanged.connect(self._update_simulation)
         self.compression_slider.valueChanged.connect(self._update_simulation)
@@ -509,7 +507,7 @@ class StmFftSimulationDialog(QDialog):
 
     @pyqtSlot()
     def _on_analyze_simulated_peaks_clicked(self):
-        """Uruchamia automatyczną analizę symulowanego obrazu FFT."""
+        """Run the automated analysis against the simulated FFT image."""
         params = self._get_current_simulation_parameters()
         sim_fft_data = self._calculate_fft(self._generate_image(params), params)
         if sim_fft_data is None: return
@@ -542,7 +540,6 @@ class StmFftSimulationDialog(QDialog):
             logger.warning("Cannot calculate theoretical positions: substrate info or get_reciprocal_vectors missing.")
             return None, None
 
-        # Krok 1: Oblicz wektory sieci rzeczywistej i odwrotnej dla symulowanego adsorbatu
         a_sub_nm = substrate_info['a_surf']
         sub_a1 = np.array([a_sub_nm, 0])
         sub_a2 = np.array([a_sub_nm / 2, a_sub_nm * np.sqrt(3) / 2])
@@ -559,35 +556,30 @@ class StmFftSimulationDialog(QDialog):
         b1_prime = 2 * np.pi * np.array([a2_prime[1], -a2_prime[0]]) / area_i
         b2_prime = 2 * np.pi * np.array([-a1_prime[1], a1_prime[0]]) / area_i
 
-        # Pozycja piku głównego w przestrzeni k (nm⁻¹)
+        # Position of the main peak in reciprocal space (nm⁻¹)
         main_peak_k_space = b1_prime
 
-        # Krok 2: Oblicz wektor rozszczepienia (splitting vector)
         l = params.get('stripe_width', 5.0)
         if l < 1e-9: return None, None
         
-        # Zgodnie z artykułem, epsilon = 4*pi / (3*l)
+        # Following the cited paper, epsilon = 4*pi / (3*l)
         epsilon_magnitude = (4 * np.pi) / (3 * l)
         
         if params.get('symmetry') == 'Striped':
-            # Dla prążków, wewnętrzny tryplet jest w epsilon/2
+            # For striped patterns the inner triplet sits at epsilon/2
             split_magnitude = epsilon_magnitude / 2.0
         else: # Hexagonal
             split_magnitude = epsilon_magnitude
             
-        # Kierunek rozszczepienia jest wzdłuż wektora sieci odwrotnej
+        # Splitting direction follows the reciprocal lattice vector
         direction_vector = main_peak_k_space / np.linalg.norm(main_peak_k_space)
         epsilon_vec_k_space = direction_vector * split_magnitude
 
         satellite_peak_k_space = main_peak_k_space + epsilon_vec_k_space
 
-        # Krok 3: Konwersja z nm⁻¹ na piksele
         fft_Ny, fft_Nx = params['px_y'], params['px_x']
         Lx, Ly = params['nm_x'], params['nm_y']
         
-        # Skalowanie z przestrzeni k (z 2pi) do pikseli
-        # Zakres k od -pi/dx do +pi/dx, gdzie dx = Lx/Nx
-        # kx_px = (kx * Lx / (2*pi)) + Nx/2
         main_kx_px = (main_peak_k_space[0] * Lx / (2*np.pi)) + fft_Nx/2
         main_ky_px = (main_peak_k_space[1] * Ly / (2*np.pi)) + fft_Ny/2
         
@@ -598,10 +590,10 @@ class StmFftSimulationDialog(QDialog):
 
     def _analyze_peak_at_coords(self, fft_image: np.ndarray, coords_px: Tuple[float, float]) -> Optional[Dict[str, float]]:
         """
-        Wykonuje szczegółową analizę małego regionu wokół podanych współrzędnych na obrazie FFT.
+        Performs a detailed analysis of a small region around the provided FFT coordinates.
         """
         center_kx, center_ky = coords_px
-        roi_radius = 3 # Użyjmy małego, stałego ROI 7x7 dla analizy
+        roi_radius = 3 # Use a fixed 7x7 ROI for analysis
         
         if not (fit_2d_gaussian_in_roi_with_all_data and callable(fit_2d_gaussian_in_roi_with_all_data)):
             return None
@@ -609,7 +601,7 @@ class StmFftSimulationDialog(QDialog):
         fit_res = fit_2d_gaussian_in_roi_with_all_data(fft_image, (int(round(center_ky)), int(round(center_kx))), roi_radius)
         if not fit_res:
             logger.warning(f"Automated Gaussian fit failed for coordinates {coords_px}.")
-            # Fallback: uśrednienie 3x3
+            # Fallback: average a 3x3 neighbourhood
             y_start, x_start = int(round(center_ky))-1, int(round(center_kx))-1
             patch = fft_image[y_start:y_start+3, x_start:x_start+3]
             return {
@@ -631,7 +623,7 @@ class StmFftSimulationDialog(QDialog):
         }
 
     def _display_automated_analysis_results(self, main_results: Optional[Dict[str, float]], sat_results: Optional[Dict[str, float]]):
-        """Wyświetla wyniki automatycznej analizy w UI."""
+        """Display the automated analysis outcome in the dialog."""
         if not main_results:
             self.auto_main_label.setText("Main Peak: Analysis failed")
             return
@@ -651,7 +643,7 @@ class StmFftSimulationDialog(QDialog):
         sat_max_val = sat_results['max_value']
         self.auto_sat_label.setText(f"Satellite Peak: I={sat_intensity:.2e}, A={sat_amplitude:.2e}, Max={sat_max_val:.2e}")
 
-        # Obliczanie i wyświetlanie stosunków
+        # Compute and display ratios
         intensity_ratio = sat_intensity / main_intensity if main_intensity > 1e-9 else float('inf')
         amplitude_ratio = sat_amplitude / main_amplitude if main_amplitude > 1e-9 else float('inf')
         max_value_ratio = sat_max_val / main_max_val if main_max_val > 1e-9 else float('inf')
@@ -662,7 +654,7 @@ class StmFftSimulationDialog(QDialog):
         self.auto_ratio_label.setText(f"Ratios (Sat/Main): {ratios_text}")
 
     def _get_current_simulation_parameters(self) -> Dict[str, Any]:
-        """Zbiera wszystkie aktualne parametry z kontrolek UI."""
+        """Collect the latest parameters from the UI controls."""
         params = self.sim_params.copy() # Start with px_x, px_y, nm_x, nm_y
 
         multiplier_text = self.resolution_multiplier_combo.currentText() # "1x", "2x", "4x"
@@ -732,9 +724,9 @@ class StmFftSimulationDialog(QDialog):
         return final_image
     
     # def _generate_image(self, params: Dict[str, Any]) -> Optional[np.ndarray]:
-    #     """Generuje obraz topografii STM na podstawie parametrów."""
+    #     """Generate STM topography based on the parameters."""
     #     img_size_y, img_size_x = params['px_y'], params['px_x']
-    #     # Używamy jednego skalowania, aby uniknąć dystorsji, jeśli piksele nie są kwadratowe
+    #     # Use a single scale to avoid distortion when pixels are non-square
     #     pixel_per_nm = params['px_x'] / params['nm_x']
 
     #     # Generuj koordynaty
@@ -745,7 +737,7 @@ class StmFftSimulationDialog(QDialog):
 
     #     def splat(coords: Optional[np.ndarray], intensity: float):
     #         """
-    #         Helper do 'malowania' atomów. Teraz bezpiecznie obsługuje krawędzie.
+    #         Helper for drawing atoms; now handles edges safely.
     #         """
     #         if coords is None or coords.size == 0:
     #             return
@@ -754,21 +746,21 @@ class StmFftSimulationDialog(QDialog):
     #         px = coords[:, 0] * pixel_per_nm
     #         py = coords[:, 1] * pixel_per_nm
             
-    #         # Zaokrąglij do najbliższych współrzędnych całkowitych
+    #         # Round to the nearest integer coordinates
     #         ix = np.round(px).astype(int)
     #         iy = np.round(py).astype(int)
             
-    #         # Sprawdź, czy zaokrąglone indeksy mieszczą się w zakresie [0, size-1]
+    #         # Validate rounded indices fall within [0, size-1]
     #         mask = (ix >= 0) & (ix < img_size_x) & (iy >= 0) & (iy < img_size_y)
             
-    #         # Użyj tylko prawidłowych indeksów
+    #         # Use only valid indices
     #         valid_ix = ix[mask]
     #         valid_iy = iy[mask]
             
-    #         # Dodaj intensywność w prawidłowych lokalizacjach
+    #         # Add intensity only at valid locations
     #         img[valid_iy, valid_ix] += intensity
 
-    #     # "Malowanie" atomów
+    #     # "Painting" the atoms
     #     # splat(sub_coords, intensity=0.5)
     #     if params.get('show_substrate', True):
     #         sub_coords = self._get_substrate_coords(params)
@@ -778,7 +770,7 @@ class StmFftSimulationDialog(QDialog):
     #     if not img.any():
     #         return img
 
-    #     # # Rozmycie gaussowskie dla realistycznego wyglądu
+    #     # # Gaussian blur for a realistic look
     #     # sigma = max((params.get('atom_size_sub', 50) + params.get('atom_size_ads', 50)) / 200.0, 0.1)
     #     # if sigma > 0 and pg:
     #     #      img = pg.gaussianFilter(img, (sigma, sigma))
@@ -786,11 +778,11 @@ class StmFftSimulationDialog(QDialog):
     #     # return img / img.max() if img.max() > 0 else img
 
     #     if params.get('show_substrate', True):
-    #         # Jeśli substrat jest widoczny, uśrednij oba rozmiary
+    #         # If the substrate is visible, average both atom sizes
     #         sigma = max((params.get('atom_size_sub', 50) + params.get('atom_size_ads', 50)) / 200.0, 0.1)
     #     else:
-    #         # Jeśli substrat jest ukryty, bazuj tylko на rozmiarze atomów adsorbatu
-    #         # Dzielnik 100.0 zamiast 200.0, aby zachować podobną skalę efektu
+    #         # If the substrate is hidden, base blur only on adsorbate atom size
+    #         # Use 100.0 instead of 200.0 to keep a similar blur scale
     #         sigma = max(params.get('atom_size_ads', 50) / 100.0, 0.1)
 
     #     if sigma > 0 and pg and img.any():
@@ -800,19 +792,19 @@ class StmFftSimulationDialog(QDialog):
     #     return img / img.max() if img.max() > 0 else img
     
     # def _generate_image(self, params: Dict[str, Any]) -> Optional[np.ndarray]:
-    #     """Generuje obraz topografii STM na podstawie parametrów."""
-    #     img_size = params['px_x'] # Używamy wymiarów z obrazu eksperymentalnego
+    #     """Generate STM topography based on the parameters."""
+    #     img_size = params['px_x'] # Use experimental image dimensions
     #     pixel_per_nm = params['px_x'] / params['nm_x']
 
     #     acc = np.zeros((img_size, img_size), dtype=float)
         
     #     def splat(coords: np.ndarray, size_param: int):
-    #         """Helper do 'malowania' atomów."""
+    #         """Helper for drawing atoms."""
     #         for p in coords:
     #             x, y = p[0] * pixel_per_nm, p[1] * pixel_per_nm
     #             xf, yf = int(np.floor(x)), int(np.floor(y))
     #             if 0 <= xf < img_size and 0 <= yf < img_size:
-    #                 acc[yf, xf] += 1.0 # Prostsze 'malowanie' dla szybkości
+    #                 acc[yf, xf] += 1.0 # Simpler "drawing" for performance
         
     #     # Generuj koordynaty substratu i adsorbatu
     #     sub_coords = self._get_substrate_coords(params)
@@ -823,33 +815,33 @@ class StmFftSimulationDialog(QDialog):
         
     #     if not acc.any(): return np.zeros((img_size, img_size), dtype=np.float32)
 
-    #     # Rozmycie gaussowskie dla realistycznego wyglądu
-    #     # Rozmiar atomu kontroluje sigmę rozmycia
+    #     # Gaussian blur for a realistic appearance
+    #     # Atom radius controls blur sigma
     #     sigma = max((params['atom_size_sub'] + params['atom_size_ads']) / 200.0, 0.1)
     #     img = pg.gaussianFilter(acc, (sigma, sigma))
         
     #     return img / img.max() if img.max() > 0 else img
 
-    # --- NOWA, GŁÓWNA METODA LOGIKI ---
+    # --- Main simulation/update routine ---
     @pyqtSlot()
     def _update_simulation(self):
-        """Główna pętla: zbiera parametry, generuje obraz, oblicza FFT i aktualizuje widoki."""
-        if not self.isVisible(): return # Nie rób nic, jeśli okno nie jest widoczne
+        """Main loop: collect parameters, generate the synthetic image, compute the FFT, and refresh the views."""
+        if not self.isVisible(): return # Skip updates when the dialog is hidden
         
         params = self._get_current_simulation_parameters()
         
-        # Aktualizuj etykiety suwaków
+        # Update slider labels
         self.compression_label.setText(f"Compression: {params['compression']:.2f}")
         self.stripe_width_label.setText(f"Stripe Width: {params['stripe_width']:.2f} nm")
         self.relax_width_label.setText(f"Relax Width: {params['relax_width']:.2f} nm")
         self.sub_size_label.setText(f"Sub. Atom Size: {params['atom_size_sub']}")
         self.ads_size_label.setText(f"Ads. Atom Size: {params['atom_size_ads']}")
         
-        # Generuj obraz STM
+        # Generate STM image
         stm_image = self._generate_image(params)
         if stm_image is None: logger.error("STM image generation failed."); return
         
-        # Oblicz FFT
+        # Compute FFT
         fft_image = self._calculate_fft(stm_image, params)
         if fft_image is None: logger.error("FFT calculation failed."); return
 
@@ -877,24 +869,24 @@ class StmFftSimulationDialog(QDialog):
         #     self.sim_stm_image_item.setImage(stm_image.T, autoLevels=True)
         #     self.sim_fft_image_item.setImage(fft_image.T, autoLevels=True)
             
-        #     # Ustaw skalę osi dla widoków tylko raz
+        #     # Configure axis ranges just once
         #     px_x, px_y = params['px_x'], params['px_y']
         #     self.sim_stm_plot.setRange(xRange=(0, px_x), yRange=(0, px_y))
             
         #     fft_Ny, fft_Nx = fft_image.shape
         #     self.sim_fft_plot.setRange(xRange=(0, fft_Nx), yRange=(0, fft_Ny))
 
-        #     self._initial_update_done = True # Ustaw flagę
+        #     self._initial_update_done = True # Mark initial update as done
         # else:
-        #     # Kolejne aktualizacje: podmień tylko dane, zachowaj widok
+        #     # Subsequent updates swap the data but keep the view
         #     self.sim_stm_image_item.setImage(stm_image.T, autoLevels=False)
         #     self.sim_fft_image_item.setImage(fft_image.T, autoLevels=False)
 
-        # # Wyświetl obrazy
+        # # Display images
         # self.sim_stm_image_item.setImage(stm_image.T, autoLevels=True)
         # self.sim_fft_image_item.setImage(fft_image.T, autoLevels=True) # Poziomy kontrolowane przez histogram
         
-        # # Ustaw skalę osi dla widoków
+        # # Set axis ranges for views
         # # Lx, Ly = params['nm_x'], params['nm_y']
         # px_x, px_y = params['px_x'], params['px_y']
         # self.sim_stm_plot.setRange(xRange=(0,px_x), yRange=(0,px_y))
@@ -908,30 +900,29 @@ class StmFftSimulationDialog(QDialog):
     @pyqtSlot()
     def _on_load_to_lfa_clicked(self):
         """
-        Gdy użytkownik kliknie "Load...", generuje finalne dane, tworzy
-        HistoryNode i emituje go sygnałem.
+        When the user clicks "Load...", the dialog finalizes data, creates a HistoryNode, and emits it.
         """
         logger.info("'Load Simulation to Main Window' clicked.")
         
-        # 1. Zbierz aktualne parametry i wygeneruj dane
+        # 1. Gather current parameters and generate data
         params = self._get_current_simulation_parameters()
         stm_image = self._generate_image(params)
         if stm_image is None:
             QMessageBox.critical(self, "Error", "Failed to generate simulated STM image."); return
 
-        # Oblicz finalne FFT (w skali mocy, |F|^2)
+        # Compute final FFT (power spectrum, |F|^2)
         fft_power_spectrum = self._calculate_fft(stm_image, params)
         if fft_power_spectrum is None:
             QMessageBox.critical(self, "Error", "Failed to calculate simulated FFT."); return
 
-        # 2. Znajdź rodzica w historii (oryginalny obraz eksperymentalny)
-        # current_fft_node_id został przekazany w konstruktorze
+        # 2. Find the parent node in history (original experimental image)
+        # current_fft_node_id was provided via the constructor
         root_node = self.history_manager.get_root_node_for_node(self.current_node_id)
         if not root_node:
             QMessageBox.critical(self, "Error", "Could not find the original image in history to attach the simulation to."); return
             
-        # 3. Stwórz nowy HistoryNode
-        # Ważne: dodaj 'scaling_mode': 'power' do parametrów
+        # 3. Create a new HistoryNode
+        # Important: add 'scaling_mode': 'power' to the parameters
         simulation_and_fft_params = params.copy()
         simulation_and_fft_params['scaling_mode'] = 'power'
 
@@ -943,17 +934,17 @@ class StmFftSimulationDialog(QDialog):
             data_type="FFT"
         )
 
-        # 4. Wyemituj sygnał z nowym węzłem i zamknij dialog
+        # 4. Emit the new node and close the dialog
         self.simulation_accepted.emit(new_node)
         self.accept()
     
     def _update_simulation_results_display(self, params: Dict[str, Any]):
-        """Oblicza i wyświetla parametry sieci dla symulacji."""
-        # Wyczyść poprzednie wyniki
+        """Compute and display lattice parameters for the simulation."""
+        # Clear previous results
         while self.sim_results_layout.count():
             self.sim_results_layout.takeAt(0).widget().deleteLater()
 
-        # Obliczenia dla Substratu
+        # Calculations for substrate
         sub_info = KNOWN_LATTICES.get(params['substrate_name'])
         if sub_info:
             a = sub_info['a_surf']
@@ -964,7 +955,7 @@ class StmFftSimulationDialog(QDialog):
                 self.sim_results_layout.addRow(QLabel("<b>Substrate (Square):</b>"))
                 self.sim_results_layout.addRow(QLabel(f"  |a1|=|a2| = {a:.3f} nm, α=90°"))
 
-        # Obliczenia dla Adsorbatu
+        # Calculations for adsorbate
         if params['adsorbate_name'] != "None" and sub_info and sub_info['type'] == 'hexagonal':
             sub_a1 = np.array([sub_info['a_surf'], 0])
             sub_a2 = np.array([sub_info['a_surf']/2, sub_info['a_surf']*np.sqrt(3)/2])
@@ -987,7 +978,7 @@ class StmFftSimulationDialog(QDialog):
 
 
     def _get_substrate_coords(self, params: Dict[str, Any]) -> Optional[np.ndarray]:
-        """Uogólniona metoda do generowania koordynatów substratu."""
+        """General helper for generating substrate coordinates."""
         lattice_name = params['substrate_name']
         if lattice_name not in KNOWN_LATTICES: return None
         
@@ -1013,13 +1004,13 @@ class StmFftSimulationDialog(QDialog):
         
     def _get_adsorbate_coords(self, params: Dict[str, Any]) -> Optional[np.ndarray]:
         """
-        Uogólniona metoda do generowania współrzędnych adsorbatu, uwzględniająca
-        kompresję i modelowanie ścian domenowych.
+        General helper for generating adsorbate coordinates, accounting for
+        compression and domain-wall modelling.
         """
         if params.get('adsorbate_name') == "None":
-            return None # Jeśli nie wybrano adsorbatu, zwróć None
+            return None # If no adsorbate is selected, return None
         
-        # Pobierz wektory bazowe substratu, które są podstawą do definicji adsorbatu
+        # Fetch substrate basis vectors used to define the adsorbate lattice
         substrate_info = KNOWN_LATTICES.get(params['substrate_name'])
         if not substrate_info:
             return None
@@ -1028,24 +1019,24 @@ class StmFftSimulationDialog(QDialog):
         sub_a1 = np.array([a_sub_nm, 0])
         sub_a2 = np.array([a_sub_nm/2, a_sub_nm * np.sqrt(3)/2])
         
-        # --- Logika specyficzna dla "Iodine (predefined)" ---
-        # W przyszłości można to rozbudować o inne adsorbanty
+        # --- Logic specific to "Iodine (predefined)" ---
+        # Future work: extend to additional adsorbates
         if params['adsorbate_name'] == "Iodine (predefined)":
-            # Definicja idealnej sieci adsorbatu względem substratu
+            # Define the ideal adsorbate lattice relative to the substrate
             fcc_offset = (sub_a1 + sub_a2) / 3
             ads_ideal_a1 = sub_a1 + sub_a2
             ads_ideal_a2 = -sub_a1 + 2 * sub_a2
 
-            # Zastosuj kompresję jednoosiową
+            # Apply uniaxial compression
             T = np.array([[params['compression'], 0], [0, 1]])
             a1 = T @ ads_ideal_a1
             a2 = T @ ads_ideal_a2
             
-            # Parametry ścian domenowych
+            # Domain wall parameters
             phi_map = {'Heavy': 1/3., 'Super Heavy': 2/3., 'Light': -1/3., 'Super Light': -2/3.}
             shift = phi_map.get(params['domain_type'], 0) * a1
             
-            # Generowanie punktów
+            # Generate point coordinates
             pts = []
             L = params['nm_x']
             spacing = min(np.linalg.norm(a1), np.linalg.norm(a2))
@@ -1067,7 +1058,7 @@ class StmFftSimulationDialog(QDialog):
                         t = (xp - stripe_width / 2) / relax_width
                         f = 0 if t < -20 else (1 if t > 20 else (1 + np.tanh(t)) / 2)
                         pts.append(p + shift * (f if d % 2 else 1 - f))
-            else: # Symetria heksagonalna
+            else: # Hexagonal symmetry
                 S = int(N / 4) + 3
                 M = 4
                 for i in range(-S, S + 1):
@@ -1088,9 +1079,9 @@ class StmFftSimulationDialog(QDialog):
     
     def _calculate_fft(self, image_data: np.ndarray, params: Dict[str, Any]) -> Optional[np.ndarray]:
         """
-        Oblicza FFT na podstawie parametrów i zwraca wynik w skali mocy (|F|^2).
+        Compute the FFT from simulation parameters and return the power spectrum (|F|^2).
         """
-        # Użyj funkcji calculate_fft z modułu fft_engine, która obsługuje okienkowanie
+        # Use fft_engine.calculate_fft (handles window functions)
         fft_complex = calculate_fft(
             image_data, 
             apply_window=(params['fft_window_type'] != 'None'), 
@@ -1100,8 +1091,8 @@ class StmFftSimulationDialog(QDialog):
         if fft_complex is None: 
             return None
         
-        # --- ZMIANA: Zwracaj bezpośrednio kwadrat modułu (|F|^2) ---
-        # To jest "Power Spectrum", wymagane do analizy intensywności.
+        # --- Change: return squared magnitude (|F|^2) ---
+        # This is the power spectrum, required for intensity analysis.
         magnitude_squared = np.abs(fft_complex)**2
         
         return magnitude_squared.astype(np.float32)

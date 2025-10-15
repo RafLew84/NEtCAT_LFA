@@ -188,7 +188,7 @@ class DomainWallsAnalysisDialog(QDialog):
         sub_transform_layout.addRow("Scale:", self.dist_sub_transform_info_label_scale)
         sub_transform_layout.addRow("RMSE:", self.dist_sub_transform_info_label_rmse)
         self.apply_substrate_transform_checkbox = QCheckBox("Apply Substrate Transformation")
-        self.apply_substrate_transform_checkbox.setChecked(True)  # domyślnie włączony
+        self.apply_substrate_transform_checkbox.setChecked(True)  # enabled by default
         sub_transform_layout.addRow("Apply Transform:", self.apply_substrate_transform_checkbox)
         left_controls_layout.addWidget(sub_transform_group)
         
@@ -428,7 +428,7 @@ class DomainWallsAnalysisDialog(QDialog):
 
     @pyqtSlot(object)
     def _handle_roi_region_changing(self, roi_item: Optional[pg.ROI] = None):
-        """Slot wywoływany przy zmianie ROI, aktualizuje podglądy na żywo."""
+        """Triggered when the ROI changes; updates live previews."""
         if roi_item is None: roi_item = self.selection_roi
         if not isinstance(roi_item, RectROI) or not roi_item.isVisible(): return
 

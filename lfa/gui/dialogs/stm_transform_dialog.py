@@ -22,7 +22,7 @@ from ...io.write_stp import write_STP_file
 logger = logging.getLogger(__name__)
 
 def qimage_to_numpy(qimage: QImage) -> np.ndarray:
-    """Konwertuje QImage (grayscale) na tablicę NumPy."""
+    """Convert a grayscale QImage into a NumPy array."""
     qimage = qimage.convertToFormat(QImage.Format.Format_Grayscale8)
     ptr = qimage.constBits()
     ptr.setsize(qimage.sizeInBytes())
@@ -52,10 +52,10 @@ class StmTransformDialog(QDialog):
     def _init_ui(self):
         main_layout = QVBoxLayout(self)
         
-        # --- Panel porównawczy ---
+        # --- Comparison panel ---
         display_splitter = QSplitter(Qt.Orientation.Horizontal)
         
-        # Panel Oryginału
+        # Original panel
         original_widget = pg.GraphicsLayoutWidget()
         self.plot_original = original_widget.addPlot(title="Original STM")
         self.plot_original.getViewBox().invertY(True)
@@ -64,7 +64,7 @@ class StmTransformDialog(QDialog):
         self.plot_original.addItem(self.img_original)
         self.plot_original.setAspectLocked(True)
 
-        # Panel Podglądu Transformacji
+        # Transformation preview panel
         preview_widget = pg.GraphicsLayoutWidget()
         self.plot_preview = preview_widget.addPlot(title="Transformed Preview")
         self.plot_preview.getViewBox().invertY(True)
@@ -73,7 +73,7 @@ class StmTransformDialog(QDialog):
         self.plot_preview.addItem(self.img_preview)
         self.plot_preview.setAspectLocked(True)
 
-        # Połączenie widoków dla synchronicznego zoomu i przesuwania
+        # Link the views to synchronize zoom/pan
         self.plot_preview.setXLink(self.plot_original)
         self.plot_preview.setYLink(self.plot_original)
 
@@ -81,7 +81,7 @@ class StmTransformDialog(QDialog):
         display_splitter.addWidget(preview_widget)
         main_layout.addWidget(display_splitter)
 
-        # --- Panel Kontrolny ---
+        # --- Control panel ---
         bottom_widget = QWidget()
         bottom_layout = QHBoxLayout(bottom_widget)
         
@@ -95,26 +95,26 @@ class StmTransformDialog(QDialog):
 
     def _calculate_final_transformed_data(self) -> Optional[np.ndarray]:
         """
-        Oblicza finalną tablicę NumPy z transformacją, używając poprawnej,
-        scentrowanej transformacji afinicznej i spójnego systemu współrzędnych.
+        Compute the final NumPy array after applying the transform, using the corrected,
+        centered affine transformation and consistent coordinate system.
         """
         if not self.cb_apply_stretch.isChecked() and not self.cb_apply_rotation.isChecked():
             logger.info("No transformation selected. Returning a copy of the original data.")
             return self.input_data.copy()
 
         try:
-            # Krok 1: Zbuduj macierz transformacji F_eff dla współrzędnych (x, y)
+            # Step 1: Build the F_eff transformation matrix for (x, y) coordinates
             F_eff_xy = np.eye(2)
             if self.cb_apply_stretch.isChecked(): F_eff_xy = self.U_matrix_apply @ F_eff_xy
             if self.cb_apply_rotation.isChecked(): F_eff_xy = self.R_matrix_apply @ F_eff_xy
             
-            # Konwertujemy macierz z systemu (x, y) na system (rząd, kolumna) używany przez Scipy
+            # Convert the matrix from (x, y) to (row, col) system used by SciPy
             F_eff_rc = np.array([[F_eff_xy[1,1], F_eff_xy[1,0]],
                                 [F_eff_xy[0,1], F_eff_xy[0,0]]])
 
-            # Krok 2: Oblicz wymiary wyjściowe używając już poprawnej macierzy
+            # Step 2: Compute the output dimensions using the corrected matrix
             h, w = self.input_data.shape
-            # Nasze narożniki są w formacie (rząd, kolumna)
+            # Our corners are expressed as (row, col)
             corners_rc = np.array([[0, 0], [0, w], [h, w], [h, 0]]) - np.array([h/2, w/2])
             transformed_corners_rc = corners_rc @ F_eff_rc.T
             
@@ -123,13 +123,13 @@ class StmTransformDialog(QDialog):
             new_h, new_w = (max_coords - min_coords)
             output_shape = (int(np.ceil(new_h)), int(np.ceil(new_w)))
             
-            # Krok 3: Oblicz macierz odwrotną i poprawne przesunięcie (offset)
+            # Step 3: Compute the inverse matrix and proper offset
             c_in_rc = np.array([h/2, w/2])
             c_out_rc = np.array(output_shape) / 2
             F_eff_rc_inv = np.linalg.inv(F_eff_rc)
             offset = c_in_rc - np.dot(F_eff_rc_inv, c_out_rc)
             
-            # Krok 4: Wykonaj transformację
+            # Step 4: Perform the affine transform
             transformed_image = affine_transform(
                 self.input_data,
                 matrix=F_eff_rc_inv,
@@ -146,7 +146,7 @@ class StmTransformDialog(QDialog):
 
     # def _calculate_final_transformed_data(self) -> Optional[np.ndarray]:
     #     """
-    #     Oblicza finalną tablicę NumPy z transformacją, używając poprawnej,
+    #     Compute the final NumPy array after applying the transform, using the corrected,
     #     scentrowanej transformacji afinicznej.
     #     """
     #     if not self.cb_apply_stretch.isChecked() and not self.cb_apply_rotation.isChecked():
@@ -154,12 +154,12 @@ class StmTransformDialog(QDialog):
     #         return self.input_data.copy()
 
     #     try:
-    #         # Krok 1: Zbuduj efektywną macierz transformacji (Idealny -> Zniekształcony)
+    #         # Step 1: Build effective transform matrix (ideal -> distorted)
     #         F_eff = np.eye(2)
     #         if self.cb_apply_stretch.isChecked(): F_eff = self.U_matrix_apply @ F_eff
     #         if self.cb_apply_rotation.isChecked(): F_eff = self.R_matrix_apply @ F_eff
             
-    #         # Krok 2: Oblicz wymiary nowego, opasującego prostokąta (output_shape)
+    #         # Step 2: Determine output bounding rectangle (output_shape)
     #         h, w = self.input_data.shape
     #         corners = np.array([[0, 0], [w, 0], [w, h], [0, h]]) - np.array([w/2, h/2])
     #         transformed_corners = corners @ F_eff.T
@@ -168,24 +168,24 @@ class StmTransformDialog(QDialog):
     #         new_w, new_h = (max_coords - min_coords)
     #         output_shape = (int(np.ceil(new_h)), int(np.ceil(new_w)))
             
-    #         # Krok 3: Oblicz macierz odwrotną i poprawne przesunięcie (offset)
-    #         # Ta nowa, poprawna formuła centruje transformację.
+    #         # Step 3: Compute the inverse matrix and proper offset
+    #         # This corrected formula centers the transformation.
     #         c_in = np.array([h/2, w/2])
     #         c_out = np.array(output_shape) / 2
     #         F_eff_inv = np.linalg.inv(F_eff)
 
-    #         # Przesunięcie jest obliczane tak, aby środek oryginalnego obrazu
-    #         # po transformacji znalazł się w środku nowego obrazu.
+    #         # Offset ensures the original image center
+    #         # maps to the center of the new image after transformation.
     #         offset = c_in - np.dot(F_eff_inv, c_out)
             
-    #         # Krok 4: Wykonaj transformację z poprawnymi parametrami
+    #         # Step 4: Perform the affine transform z poprawnymi parametrami
     #         transformed_image = affine_transform(
     #             self.input_data,
     #             matrix=F_eff_inv,
     #             offset=offset,
     #             output_shape=output_shape,
-    #             order=3, # Interpolacja sześcienna dla wysokiej jakości
-    #             cval=np.min(self.input_data) # Wypełnij tło najciemniejszą wartością z obrazu
+    #             order=3, # Cubic interpolation for high quality
+    #             cval=np.min(self.input_data) # Fill background with darkest pixel value
     #         )
     #         return transformed_image
 
@@ -194,15 +194,15 @@ class StmTransformDialog(QDialog):
     #         return None
 
     # def _calculate_final_transformed_data(self) -> Optional[np.ndarray]:
-    #     """Oblicza finalną tablicę NumPy z transformacją."""
+    #     """Compute the final NumPy array using the transform."""
         
-    #     # --- NOWY KOD: Obsługa przypadku braku transformacji ---
+    #     # --- New logic: handle case with no transform ---
     #     if not self.cb_apply_stretch.isChecked() and not self.cb_apply_rotation.isChecked():
     #         logger.info("No transformation selected. Returning a copy of the original data.")
     #         return self.input_data.copy()
     #     # --- KONIEC NOWEGO KODU ---
 
-    #     # Istniejąca logika, która jest teraz wywoływana tylko, gdy jest to potrzebne
+    #     # Existing logic, invoked only when necessary
     #     F_eff = np.eye(2)
     #     if self.cb_apply_stretch.isChecked(): F_eff = self.U_matrix_apply @ F_eff
     #     if self.cb_apply_rotation.isChecked(): F_eff = self.R_matrix_apply @ F_eff
@@ -242,7 +242,7 @@ class StmTransformDialog(QDialog):
         group_layout.addWidget(self.info_rot_label)
         group_layout.addWidget(self.info_stretch_label)
         
-        # Nowy przycisk zapisu i przycisk zamknięcia
+        # New save button and close button
         self.save_button = QPushButton("Save Comparison (PNG)...")
         self.save_stp_button = QPushButton("Save as STP...")
         self.close_button = QPushButton("Close")
@@ -265,7 +265,6 @@ class StmTransformDialog(QDialog):
         self.close_button.clicked.connect(self.accept)
 
     def _decompose_transform(self):
-        # Ta metoda pozostaje bez zmian
         if self.substrate_F_m2i is None: return
         try:
             R_display, U_display = polar(self.substrate_F_m2i)
@@ -278,16 +277,15 @@ class StmTransformDialog(QDialog):
             logger.error(f"Failed to decompose transform matrix F: {e}")
 
     def _update_info_labels(self):
-        # Ta metoda pozostaje bez zmian
         self.info_rot_label.setText(f"Rotation: {self.rotation_angle_deg_display:.2f}°")
         self.info_stretch_label.setText(f"Stretches: ({self.stretch_factors_display[0]:.3f}, {self.stretch_factors_display[1]:.3f})")
 
     @pyqtSlot()
     def _save_as_stp(self):
-        """Oblicza finalną transformację, aktualizuje metadane WSxM i zapisuje do pliku .stp."""
+        """Compute the final transform, update WSxM metadata, and write an .stp file."""
         transformed_data = self._calculate_final_transformed_data()
         if transformed_data is None:
-            QMessageBox.critical(self, "Błąd Obliczeń", "Nie udało się obliczyć obrazu do zapisu.")
+            QMessageBox.critical(self, "Computation Error", "Could not compute the image for saving.")
             return
 
         file_path, _ = QFileDialog.getSaveFileName(self, "Save Transformed STM as STP", "", "WSxM STP Files (*.stp)")
@@ -295,28 +293,28 @@ class StmTransformDialog(QDialog):
             return
 
         try:
-            # 1. Stwórz głęboką kopię oryginalnego, zagnieżdżonego nagłówka
+            # 1. Make a deep copy of the original nested header
             import copy
             new_header = copy.deepcopy(self.original_node.parameters.get("raw_header", {}))
 
-            # 2. Pobierz oryginalne wymiary
+            # 2. Retrieve original dimensions
             orig_h, orig_w = self.input_data.shape
             orig_nm_x = self.original_node.parameters.get("size_nm_x", 0.0)
             
-            # 3. Pobierz nowe wymiary w pikselach
+            # 3. Retrieve new dimensions in pixels
             new_h, new_w = transformed_data.shape
             
-            # 4. Oblicz nowe wymiary fizyczne
+            # 4. Compute new physical dimensions
             nm_per_px = orig_nm_x / orig_w if orig_w > 0 else 0
             new_nm_x = new_w * nm_per_px
-            new_nm_y = new_h * nm_per_px # Zakładamy kwadratowe piksele
+            new_nm_y = new_h * nm_per_px # Assume square pixels
             
-            # 5. Zaktualizuj pola w odpowiednich sekcjach
+            # 5. Update fields in the relevant sections
             if "General Info" in new_header and isinstance(new_header["General Info"], dict):
                 new_header["General Info"]["Number of columns"] = str(new_w)
                 new_header["General Info"]["Number of rows"] = str(new_h)
                 
-                # Dodaj informację o wykonanych procesach
+                # Append information about the performed processes
                 applied_processes = []
                 if self.cb_apply_stretch.isChecked(): applied_processes.append("stretch")
                 if self.cb_apply_rotation.isChecked(): applied_processes.append("rotate")
@@ -329,21 +327,21 @@ class StmTransformDialog(QDialog):
                 new_header["Control"]["X Amplitude"] = f"{new_nm_x:.6f} nm"
                 new_header["Control"]["Y Amplitude"] = f"{new_nm_y:.6f} nm"
 
-            # 6. Wywołaj nową funkcję zapisu
+            # 6. Call the write function
             write_STP_file(
                 file_path=file_path,
                 data_array=transformed_data,
                 header_info=new_header
             )
-            QMessageBox.information(self, "Zapisano", f"Obraz został zapisany jako:\n{os.path.basename(file_path)}")
+            QMessageBox.information(self, "Saved", f"Image saved as:\n{os.path.basename(file_path)}")
 
         except Exception as e:
-            logger.exception(f"Błąd podczas zapisu do pliku STP: {e}")
-            QMessageBox.critical(self, "Błąd Zapisu", f"Nie można było zapisać pliku STP:\n{e}")
+            logger.exception(f"Error while writing STP file: {e}")
+            QMessageBox.critical(self, "Save Error", f"Could not save the STP file:\n{e}")
     
     @pyqtSlot()
     def _update_preview(self):
-        # Ta metoda pozostaje prawie bez zmian, ale na końcu dopasowuje oba widoki
+        # This method is mostly unchanged but aligns both views at the end
         h, w = self.input_data.shape
         F_eff = np.eye(2)
         if self.cb_apply_stretch.isChecked(): F_eff = self.U_matrix_apply @ F_eff
@@ -356,12 +354,12 @@ class StmTransformDialog(QDialog):
         transform.translate(-w/2, -h/2)
         
         self.img_preview.setTransform(transform)
-        self.plot_original.autoRange() # Dopasuj oba widoki
+        self.plot_original.autoRange() # Align both views
         self.plot_preview.autoRange()
 
     @pyqtSlot()
     def _save_comparison(self):
-        """Zapisuje obraz oryginalny i przetransformowany do plików, oba z osiami."""
+        """Save the original and transformed images to disk, each with axis overlays."""
         file_path, _ = QFileDialog.getSaveFileName(self, "Save Comparison Images", "", "PNG Image (*.png)")
         if not file_path:
             return
@@ -371,20 +369,23 @@ class StmTransformDialog(QDialog):
         transformed_path = f"{base}_transformed.png"
 
         try:
-            # --- POCZĄTEK ZMIANY ---
-            # 1. Zapis obrazu oryginalnego (z osiami) za pomocą eksportera
+            # --- Start of updated logic ---
+            # 1. Export the original image (with axes) using the exporter
             exporter_original = pg.exporters.ImageExporter(self.plot_original.scene())
             exporter_original.export(original_path)
             logger.info(f"Oryginalny obraz zapisany w: {original_path}")
-            # --- KONIEC ZMIANY ---
 
-            # 2. Zapis obrazu przetransformowanego (bez zmian, już działał poprawnie)
+            # 2. Export the transformed image (existing workflow)
             exporter_transformed = pg.exporters.ImageExporter(self.plot_preview.scene())
             exporter_transformed.export(transformed_path)
             logger.info(f"Przetransformowany obraz zapisany w: {transformed_path}")
             
-            QMessageBox.information(self, "Zapisano", f"Obrazy zostały pomyślnie zapisane:\n- {os.path.basename(original_path)}\n- {os.path.basename(transformed_path)}")
+            QMessageBox.information(
+                self,
+                "Saved",
+                f"Images saved successfully:\n- {os.path.basename(original_path)}\n- {os.path.basename(transformed_path)}"
+            )
 
         except Exception as e:
-            logger.exception(f"Błąd podczas zapisu porównania: {e}")
-            QMessageBox.critical(self, "Błąd Zapisu", f"Nie można było zapisać obrazów:\n{e}")
+            logger.exception(f"Error while saving comparison images: {e}")
+            QMessageBox.critical(self, "Save Error", f"Could not save the images:\n{e}")

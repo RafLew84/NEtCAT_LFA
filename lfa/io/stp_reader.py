@@ -9,7 +9,7 @@ from ..core.data_models import STMImage
 logger = logging.getLogger(__name__)
 
 def parse_value_unit(value_str: str) -> float:
-    """Parsuje string z wartością i jednostką do wartości w metrach."""
+    """Parse a value+unit string and return the value in meters."""
     value_str = value_str.strip()
     match = re.match(r"([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)\s*([a-zA-ZμÅµ]*)", value_str)
     if not match: return 0.0
@@ -18,7 +18,7 @@ def parse_value_unit(value_str: str) -> float:
     try: numeric_value = float(numeric_part_str)
     except ValueError: return 0.0
     
-    factor = 1.0 # Domyślnie metry
+    factor = 1.0 
     if unit_part == 'nm': factor = 1e-9
     elif unit_part == 'pm': factor = 1e-12
     elif unit_part in ('å', 'a', 'angstrom'): factor = 1e-10
@@ -26,7 +26,7 @@ def parse_value_unit(value_str: str) -> float:
 
 def read_stp_file(file_path: str) -> STMImage | None:
     """
-    Wczytuje plik WSxM .stp, poprawnie parsując nagłówek i dane binarne.
+    Read a WSxM .stp file, parsing the header and binary payload.
     """
     logger.info(f"Reading WSxM STP file: {file_path}")
     try:
@@ -34,13 +34,11 @@ def read_stp_file(file_path: str) -> STMImage | None:
         current_section = None
         
         with open(file_path, "rb") as file:
-            # --- NOWA, POPRAWNA LOGIKA CZYTANIA NAGŁÓWKA ---
             while True:
                 line_bytes = file.readline()
                 if not line_bytes:
                     raise ValueError("Unexpected end of file before '[Header end]'.")
                 
-                # Sprawdzamy, czy to koniec nagłówka PRZED dekodowaniem
                 if line_bytes.strip() == b"[Header end]":
                     break
                 
@@ -54,16 +52,13 @@ def read_stp_file(file_path: str) -> STMImage | None:
                 elif ":" in line:
                     key, value = line.split(":", 1)
                     key, value = key.strip(), value.strip()
-                    if current_section is None: # Linie przed pierwszą sekcją
+                    if current_section is None:
                         if "Header Root" not in header_info:
                             header_info["Header Root"] = OrderedDict()
                         header_info["Header Root"][key] = value
                     else:
                         header_info[current_section][key] = value
-            
-            # W tym momencie wskaźnik w pliku jest idealnie za linią [Header end]
-            
-            # Pobieranie danych z wczytanego nagłówka
+                        
             general_info = header_info.get("General Info", {})
             control_info = header_info.get("Control", {})
             num_columns = int(general_info.get("Number of columns", 0))
@@ -72,17 +67,13 @@ def read_stp_file(file_path: str) -> STMImage | None:
             if num_columns <= 0 or num_rows <= 0:
                 raise ValueError("Could not find valid dimensions in header.")
 
-            # Wczytywanie danych binarnych
             expected_bytes = num_rows * num_columns * 8 # 8 bajtów dla 'double'
             binary_data = file.read(expected_bytes)
             if len(binary_data) != expected_bytes:
                 raise ValueError(f"Incomplete binary data. Expected {expected_bytes}, got {len(binary_data)}.")
 
-            # Konwersja danych binarnych do tablicy NumPy
-            # '<f8' to 8-bajtowy float w formacie little-endian (odpowiednik 'double')
             data_array = np.frombuffer(binary_data, dtype='<f8').reshape((num_rows, num_columns))
 
-        # Mapowanie pól z nagłówka (bez zmian)
         size_nm_x = parse_value_unit(control_info.get("X Amplitude", "0 nm")) * 1e9
         size_nm_y = parse_value_unit(control_info.get("Y Amplitude", "0 nm")) * 1e9
         
