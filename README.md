@@ -150,15 +150,6 @@ Po powrocie do okna głównego, kliknij `Calculate Adsorbate Parameters`. Progra
 * **Okresowość ściany domenowej (P) w przestrzeni rzeczywistej**: Jest to najważniejszy parametr fizyczny wynikający z tej analizy. Reprezentuje on rzeczywistą, periodyczną odległość między elementami nadstruktury (np. pasami domenowymi) na powierzchni próbki. Program oblicza go bezpośrednio z odległości w przestrzeni odwrotnej, korzystając z fundamentalnej zależności: $P=\frac{1}{\Delta g^∗}$. Wynik podawany jest w nanometrach (nm).
 * Stosunek intensywności, amplitudy i maksymalnej wartości piku satelitarnego do głównego.
 
-### 6. Symulacja Obrazów STM/FFT
-Narzędzie `STM/FFT Simulation...` (menu `Analysis`) pozwala na stworzenie wirtualnego modelu powierzchni (substrat + adsorbat + nadstruktura), wygenerowanie na jego podstawie symulowanego obrazu STM oraz jego transformaty Fouriera (FFT).
-
-1. Po wybraniu opcji `STM/FFT Simulation...`, otwiera się okno dialogowe z trzema głównymi panelami wizualizacyjnymi:
-  * **Simulated STM**: Podgląd generowanego w czasie rzeczywistym obrazu topografii.
-  * **Simulated FFT**: Obraz FFT obliczony na podstawie symulowanego obrazu STM.
-  * **Experimental FFT**: Obraz FFT z Twoich rzeczywistych danych, wczytany jako punkt odniesienia do porównań.
-Po lewej stronie znajduje się panel `Simulation Controls`, gdzie budujesz swój model teoretyczny.
-
 2. Budowa Modelu Teoretycznego
 W panelu kontrolnym możesz dostosować wszystkie aspekty symulowanej powierzchni:
 * Definicja Sieci (Lattice):

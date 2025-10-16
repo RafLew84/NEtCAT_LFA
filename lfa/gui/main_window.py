@@ -109,13 +109,6 @@ except ImportError: # pragma: no cover
     logging.warning("Could not import RealSpaceFFTVisualizerDialog.")
 
 try:
-    from .dialogs.stm_fft_simulation_dialog import StmFftSimulationDialog
-    SIMULATION_DIALOG_AVAILABLE = True
-except ImportError as e: # pragma: no cover
-    StmFftSimulationDialog = None; SIMULATION_DIALOG_AVAILABLE = False
-    logging.warning(f"Could not import StmFftSimulationDialog: {e}")
-
-try:
     from .dialogs.stm_transform_dialog import StmTransformDialog
     STM_TRANSFORM_DIALOG_AVAILABLE = True
 except ImportError as e:
@@ -412,9 +405,7 @@ class MainWindow(QMainWindow):
         if hasattr(self, 'domain_wall_analysis_action'):
             self.domain_wall_analysis_action.setEnabled(can_analyze_domain_walls)
         
-        if hasattr(self, 'stm_fft_simulation_action'):
-            self.stm_fft_simulation_action.setEnabled(SIMULATION_DIALOG_AVAILABLE)
-
+        
         if hasattr(self, 'stm_transform_action'):
             self.stm_transform_action.setEnabled(is_stm_data_active and STM_TRANSFORM_DIALOG_AVAILABLE)
         
@@ -516,47 +507,6 @@ class MainWindow(QMainWindow):
                      f"CanCalcSubRS={can_calculate_substrate_rs}, CanCalcAdsRS={can_calculate_adsorbate_rs}")
     
     @pyqtSlot()
-    def open_stm_fft_simulation_dialog(self):
-        """Open the simulation dialog to compare against experimental data."""
-        logger.info("MainWindow: Opening STM/FFT Simulation dialog...")
-        
-        if not SIMULATION_DIALOG_AVAILABLE: 
-            QMessageBox.critical(self, "Dialog Error", "StmFftSimulationDialog is not available."); return
-
-        current_node_info = self.app_controller.get_current_node_info_for_dialogs()
-        if not (current_node_info and current_node_info[1] == "FFT"):
-            QMessageBox.warning(self, "No FFT Data", "Simulation comparison requires an active experimental FFT image."); return
-
-        node_id, _, experimental_fft_image = current_node_info
-        
-        experimental_data = {
-            "substrate_real_params": self.app_controller.substrate_real_space_results,
-            "transform_analysis": self.app_controller.substrate_transform_analysis_m2i,
-            "adsorbate_real_params": self.app_controller.adsorbate_real_space_results,
-            "domain_wall_params": self.app_controller.domain_wall_analysis_results
-        }
-        
-        root_node = self.history_manager.get_root_node_for_node(node_id)
-        simulation_params = {
-            "px_x": root_node.parameters.get("pixels_x"),
-            "px_y": root_node.parameters.get("pixels_y"),
-            "nm_x": root_node.parameters.get("size_nm_x"),
-            "nm_y": root_node.parameters.get("size_nm_y"),
-        }
-
-        dialog = StmFftSimulationDialog(
-            experimental_fft_image=experimental_fft_image,
-            experimental_data=experimental_data,
-            simulation_params=simulation_params,
-            history_manager=self.history_manager,
-            current_node_id=node_id,
-            parent=self
-        )
-        dialog.simulation_accepted.connect(self._on_simulation_accepted)
-        dialog.exec()
-        logger.info("STM/FFT Simulation dialog closed.")
-
-    @pyqtSlot()
     def open_stm_transform_dialog(self):
         """Open the window for STM transform visualization and export."""
         if not STM_TRANSFORM_DIALOG_AVAILABLE:
@@ -593,13 +543,6 @@ class MainWindow(QMainWindow):
         if self.app_controller:
             self.app_controller.load_metadata_into_session()
 
-    @pyqtSlot(HistoryNode)
-    def _on_simulation_accepted(self, new_fft_node: HistoryNode):
-        """Receive the new node from the simulation dialog and append it to history."""
-        if self.app_controller:
-            logger.info(f"Received new simulated FFT node ({new_fft_node.operation_name}) to be added to history.")
-            self.app_controller.add_new_node_to_history(new_fft_node)
-    
     @pyqtSlot(object) 
     def _on_domain_wall_results_updated(self, results: Optional[Dict[str, Any]]):
         """Updates the panel with the domain wall analysis results."""

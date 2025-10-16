@@ -164,17 +164,6 @@ class MenuActionManager:
         )
         analysis_menu.addAction(vis_action)
         self.main_window.visualize_real_space_action = vis_action
-
-        analysis_menu.addSeparator()
-        simulation_action = self._create_action(
-            text="STM/FFT Simulation...",
-            status_tip="Open dialog to create simulated STM and FFT data",
-            triggered_slot=self.main_window.open_stm_fft_simulation_dialog,
-            enabled=True
-        )
-        analysis_menu.addAction(simulation_action)
-        setattr(self.main_window, "stm_fft_simulation_action", simulation_action)
-
         # analysis_menu.addSeparator()
         reconstruction_action = self._create_action(
             text="Real Space Reconstruction...",

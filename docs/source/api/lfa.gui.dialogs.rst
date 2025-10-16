@@ -63,11 +63,6 @@ lfa.gui.dialogs.real\_space\_visualizer\_dialog module
 lfa.gui.dialogs.stm\_fft\_simulation\_dialog module
 ---------------------------------------------------
 
-.. automodule:: lfa.gui.dialogs.stm_fft_simulation_dialog
-   :members:
-   :show-inheritance:
-   :undoc-members:
-
 lfa.gui.dialogs.substrate\_spot\_dialog module
 ----------------------------------------------
 

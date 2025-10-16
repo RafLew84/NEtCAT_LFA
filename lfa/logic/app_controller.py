@@ -866,7 +866,6 @@ class AppController(QObject):
     def add_new_node_to_history(self, new_node: HistoryNode):
         """
         Add a prepared history node and make it the current entry.
-        Used, for example, by the simulation dialog.
         """
         if self.history_manager:
             self.history_manager.add_node(new_node)
