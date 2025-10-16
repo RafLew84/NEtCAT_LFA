@@ -69,24 +69,33 @@ explore the interface and analysis workflow.
 
 ## Typical Workflow
 
-1. **Load data**: Use `File > Open...` to import an STM file. The metadata panel
-   displays scan dimensions and acquisition settings.
-2. **Preprocess**: Apply one or more preprocessing operations. Each operation
-   creates a new entry in the history panel so you can branch and compare
-   results.
-3. **Compute FFT**: Select the desired history node and choose
-   `Analysis > Calculate FFT...` to generate a reciprocal space image.
-4. **Analyze substrate**: In the FFT analysis dock, select your substrate,
-   open `Select Substrate Spots...`, mark the primary Bragg peaks, and calculate
+1. **Load data**: Use `File > Open...` to import STM files. Each image is added
+   as a separate root in the history panel (e.g., “Original Image 1”,
+   “Original Image 2”), letting you run a single analysis across multiple scans.
+2. **Inspect metadata**: Select any history node to review original-file details
+   and processing parameters in the metadata dock, including the source image
+   label for derived nodes.
+3. **Preprocess**: Apply leveling, filtering, or denoising operations. Each
+   step branches off its originating image, preserving the “Original Image N”
+   grouping so you always know which scan you’re editing.
+4. **Compute FFT**: Choose a node from any image and run
+   `Analysis > Calculate FFT...`; the dialog title indicates which original
+   image the FFT belongs to. Use `Apply FFT` to append results without closing
+   the dialog—handy for sampling multiple ROIs or parameter sets before you hit
+   `Close`.
+5. **Analyze substrate**: In the FFT analysis dock, select your substrate,
+   open `Select Substrate Spots...`, pick the primary Bragg peaks, and compute
    the affine transform that corrects drift and distortions.
-5. **Analyze adsorbate**: Create an adsorbate set, open `Select Adsorbate
-   Spots...`, and pick the overlayer peaks. The substrate transform is applied
-   automatically.
-6. **Obtain parameters**: Use the analysis dock to compute lattice constants,
-   angles, and transformation metrics. Optional dialogs cover domain wall
-   periodicity and real space reconstruction.
-7. **Persist your work**: Save the session to resume later or share the state
-   with collaborators.
+6. **Analyze adsorbate**: Create adsorbate sets, open `Select Adsorbate
+   Spots...`, and mark overlayer peaks. You can reuse substrate transforms from
+   one image on FFTs derived from another.
+7. **Obtain parameters**: Use the analysis dock and specialized dialogs to
+   compute lattice constants, domain wall periodicity, and real-space vectors.
+8. **Persist your work**: Save the session via `File > Save Analysis…`. Sessions
+   now capture all images, history branches, and cross-image metadata. Reloading
+   restores every “Original Image N” grouping so you can continue exactly where
+   you left off or load legacy sessions saved before multi-image support was
+   added.
 
 ## Quantitative Outputs
 

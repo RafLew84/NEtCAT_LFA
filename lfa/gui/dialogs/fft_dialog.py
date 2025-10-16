@@ -21,7 +21,7 @@ try:
         QDialogButtonBox, QWidget, QSizePolicy, QSpacerItem, QFrame, QMessageBox,
         QLabel, QPushButton, QGroupBox, QRadioButton, QSplitter
     )
-    from PyQt6.QtCore import Qt, pyqtSlot
+    from PyQt6.QtCore import Qt, pyqtSlot, pyqtSignal
     # Import necessary pyqtgraph components
     import pyqtgraph as pg
     from pyqtgraph import PlotItem, RectROI, ROI, ImageItem, ImageView
@@ -44,6 +44,7 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 class FFTDialog(QDialog):
+    fftApplied = pyqtSignal(object, object, object, object)
     """
     Standalone dialog for FFT Calculation with scaling options.
     
@@ -85,6 +86,7 @@ class FFTDialog(QDialog):
         self._final_params: Dict[str, Any] = {}
         self._final_source_roi_slice: Optional[Tuple[slice, slice]] = None
         self._final_complex_fft_data: Optional[np.ndarray] = None
+        self._last_emitted_signature: Optional[Tuple[Any, Any]] = None
 
         if self.source_label:
             self.setWindowTitle(f"{self.operation_name} [{self.source_label}]")
@@ -132,7 +134,17 @@ class FFTDialog(QDialog):
         top_layout.addWidget(controls_panel, stretch=1)
 
         # --- Dialog Buttons ---
-        self.button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel); self.button_box.button(QDialogButtonBox.StandardButton.Ok).setText("Apply FFT"); bottom_layout.addWidget(self.button_box)
+        self.button_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Apply | QDialogButtonBox.StandardButton.Close
+        )
+        self.apply_button = self.button_box.button(QDialogButtonBox.StandardButton.Apply)
+        self.apply_button.setText("Apply FFT")
+        self.close_button = self.button_box.button(QDialogButtonBox.StandardButton.Close)
+        bottom_layout.addWidget(self.button_box)
+
+        self.status_label = QLabel("")
+        self.status_label.setObjectName("fftStatusLabel")
+        bottom_layout.addWidget(self.status_label)
 
         # --- Assemble Layout ---
         main_layout.addLayout(top_layout); main_layout.addLayout(bottom_layout)
@@ -153,10 +165,14 @@ class FFTDialog(QDialog):
         self.rb_power.toggled.connect(self._on_parameter_changed)
         self.rb_sqrt.toggled.connect(self._on_parameter_changed)
         self.roi.sigRegionChanged.connect(self._on_roi_changed)
-        self.button_box.accepted.connect(self.accept)
-        self.button_box.rejected.connect(self.reject)
+        self.apply_button.clicked.connect(self._on_apply_clicked)
+        self.close_button.clicked.connect(self.accept)
 
         logger.debug(f"Standalone {self.operation_name} dialog initialized.")
+
+    def _clear_status_message(self):
+        if hasattr(self, "status_label") and self.status_label is not None:
+            self.status_label.setText("")
 
 
     def _create_parameter_controls(self, layout: QVBoxLayout):
@@ -216,6 +232,7 @@ class FFTDialog(QDialog):
         if hasattr(self, 'window_combo') and hasattr(self, 'window_checkbox'):
             self.window_combo.setEnabled(self.window_checkbox.isChecked())
         self._update_preview_slot() # Trigger preview update
+        self._clear_status_message()
 
     @pyqtSlot(int)
     def _on_mode_changed(self, state=None):
@@ -228,6 +245,7 @@ class FFTDialog(QDialog):
         self.roi_info_label.setVisible(is_roi_mode)
         self._update_preview_slot() # Trigger preview update
         logger.debug(f"FFT mode changed. ROI mode active: {is_roi_mode}")
+        self._clear_status_message()
 
     @pyqtSlot()
     def _on_roi_changed(self):
@@ -240,6 +258,7 @@ class FFTDialog(QDialog):
         # Update preview only if ROI mode AND live preview are active
         if self.roi_mode_checkbox.isChecked() and self.live_preview_checkbox.isChecked():
              self._update_preview()
+        self._clear_status_message()
 
     @pyqtSlot()
     def _update_preview_slot(self):
@@ -420,6 +439,80 @@ class FFTDialog(QDialog):
             logger.debug("FFT Preview view cleared.")
 
 
+    def _perform_fft(self) -> bool:
+        params = self._get_current_parameters()
+        is_roi = params.get('apply_roi_only', False)
+        self._final_params = params
+        self._final_source_roi_slice = None
+
+        logger.info(f"{self.operation_name}: applying transform. ROI mode: {is_roi}, Params: {params}")
+
+        input_for_calc = self.input_data
+        if is_roi:
+            roi_slice = self._get_roi_slice()
+            if roi_slice:
+                input_for_calc = self.input_data[roi_slice]
+                self._final_source_roi_slice = roi_slice
+            else:
+                QMessageBox.critical(self, "Error", "Invalid ROI selected.")
+                return False
+        if input_for_calc.size == 0:
+            QMessageBox.critical(self, "Error", "Input data for FFT is empty.")
+            return False
+
+        try:
+            complex_fft_result = calculate_fft(
+                input_for_calc,
+                apply_window=params.get('apply_window', False),
+                window_type=params.get('window_type', 'hann'),
+                pad_to_shape=(self.input_data.shape if is_roi else None)
+            )
+            processed = self._calculate_scaled_fft_magnitude(input_for_calc, params)
+            if processed is None:
+                raise ValueError("FFT calculation or scaling failed.")
+            self._final_complex_fft_data = complex_fft_result
+            self._final_processed_data = processed
+            return True
+        except Exception as e:
+            logger.exception(f"Error during FFT calculation/scaling: {e}")
+            QMessageBox.critical(self, "Calculation Error", f"Failed to calculate FFT result:\n{e}")
+            self._final_processed_data = None
+            self._final_source_roi_slice = None
+            self._final_complex_fft_data = None
+            return False
+
+    def _compute_signature(self) -> Tuple[Any, Any]:
+        params_signature = tuple(sorted(self._final_params.items()))
+        roi_sig = None
+        if self._final_source_roi_slice is not None:
+            y_slice, x_slice = self._final_source_roi_slice
+            roi_sig = (
+                (y_slice.start, y_slice.stop, y_slice.step),
+                (x_slice.start, x_slice.stop, x_slice.step),
+            )
+        return params_signature, roi_sig
+
+    def _emit_fft_result(self) -> bool:
+        if self._final_processed_data is None:
+            return False
+        signature = self._compute_signature()
+        if signature == self._last_emitted_signature:
+            return False
+        self._last_emitted_signature = signature
+        params_copy = dict(self._final_params)
+        processed_copy = self._final_processed_data.copy()
+        complex_copy = self._final_complex_fft_data.copy() if self._final_complex_fft_data is not None else None
+        self.fftApplied.emit(params_copy, processed_copy, complex_copy, self._final_source_roi_slice)
+        return True
+
+    def _on_apply_clicked(self):
+        if not self._perform_fft():
+            return
+        if self._emit_fft_result():
+            self.status_label.setText("FFT added to history without closing the dialog.")
+        else:
+            self.status_label.setText("FFT result already added for these parameters.")
+
     # --- Methods to retrieve results after dialog acceptance ---
     def get_processed_data(self) -> Optional[np.ndarray]:
         """
@@ -451,51 +544,12 @@ class FFTDialog(QDialog):
     # --- Dialog Actions ---
     def accept(self):
         """
-        Calculate final SCALED FFT MAGNITUDE based on settings and close.
-        Handles both full image and ROI-based calculations.
+        Perform FFT one more time (if needed) before closing.
         """
-        params = self._get_current_parameters()
-        is_roi = params.get('apply_roi_only', False)
-        self._final_params = params # Store final parameters used
-        self._final_source_roi_slice = None # Reset
-
-        logger.info(f"FFT Dialog accepted. ROI mode: {is_roi}, Params: {params}")
-
-        input_for_calc = self.input_data
-        if is_roi:
-            roi_slice = self._get_roi_slice()
-            if roi_slice:
-                input_for_calc = self.input_data[roi_slice]
-                self._final_source_roi_slice = roi_slice # Store the slice used
-            else:
-                QMessageBox.critical(self, "Error", "Invalid ROI selected."); super().reject(); return
-        if input_for_calc.size == 0:
-             QMessageBox.critical(self, "Error", "Input data for FFT is empty."); super().reject(); return
-
-        try:
-            complex_fft_result = calculate_fft(
-                input_for_calc,
-                apply_window=params.get('apply_window', False),
-                window_type=params.get('window_type', 'hann'),
-                pad_to_shape=(self.input_data.shape if is_roi else None)
-            )
-            # Calculate the final SCALED MAGNITUDE using the helper
-            self._final_processed_data = self._calculate_scaled_fft_magnitude(input_for_calc, params)
-            if self._final_processed_data is None:
-                raise ValueError("FFT calculation or scaling failed.")
-            self._final_complex_fft_data = complex_fft_result
-
-            # No need to check allclose for FFT
-            logger.info("Final scaled FFT magnitude calculated successfully.")
-            super().accept() # Close the dialog with Accepted state
-
-        except Exception as e:
-            logger.exception(f"Error during final FFT calculation/scaling: {e}")
-            QMessageBox.critical(self, "Calculation Error", f"Failed to calculate final FFT result:\n{e}")
-            self._final_processed_data = None # Ensure no data returned on error
-            self._final_source_roi_slice = None
-            self._final_complex_fft_data = None
-            super().reject() # Close with Rejected state
+        if not self._perform_fft():
+            return
+        self._emit_fft_result()
+        super().accept()
 
     def reject(self):
         """

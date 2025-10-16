@@ -1297,29 +1297,26 @@ class MainWindow(QMainWindow):
         dialog = FFTDialog(image_data_copy, parent=self, source_label=source_label)
         dialog.source_image_id = source_image_id
         dialog.source_image_label = source_label
-        if source_label and source_label not in dialog.windowTitle():
-            dialog.setWindowTitle(f"{dialog.windowTitle()} [{source_label}]")
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            processed_fft_data = dialog.get_processed_data()
-            complex_fft_data = dialog.get_complex_fft_data()
-            params = dialog.get_fft_parameters()
-            was_roi_only = dialog.was_roi_applied_only()
+        results_added = {"count": 0}
 
-            if processed_fft_data is not None:
-                self.app_controller.calculate_fft_operation(
-                    parent_node_id=parent_id,
-                    processed_fft_data=processed_fft_data,
-                    complex_fft_data=complex_fft_data,
-                    params=params,
-                    source_roi_slice=dialog.get_source_roi_slice() if was_roi_only else None
-                )
-                self.statusBar().showMessage("FFT calculated and scaled.", 3000)
-            else: # pragma: no cover
-                logger.warning("FFTDialog accepted, but no processed data returned.")
-                self.statusBar().showMessage("FFT calculation failed or no data.", 3000)
-        else: # pragma: no cover
-            logger.info("FFT dialog cancelled.")
-            self.statusBar().showMessage("FFT calculation cancelled.", 3000)
+        def _handle_fft_applied(params, processed_fft_data, complex_fft_data, roi_slice):
+            self.app_controller.calculate_fft_operation(
+                parent_node_id=parent_id,
+                processed_fft_data=processed_fft_data,
+                complex_fft_data=complex_fft_data,
+                params=params,
+                source_roi_slice=roi_slice
+            )
+            results_added["count"] += 1
+            self.statusBar().showMessage("FFT result added to history.", 3000)
+
+        dialog.fftApplied.connect(_handle_fft_applied)
+        dialog.exec()
+
+        if results_added["count"] == 0:
+            self.statusBar().showMessage("FFT dialog closed without applying results.", 3000)
+        else:
+            self.statusBar().showMessage("FFT dialog closed after applying results.", 3000)
 
 
     def open_gaussian_sharpening_dialog(self):
