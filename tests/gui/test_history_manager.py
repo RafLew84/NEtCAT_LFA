@@ -1,6 +1,7 @@
 # tests/gui/test_history_manager.py
 import pytest
 import logging
+import numpy as np
 from PyQt6.QtWidgets import QListWidget, QListWidgetItem
 from PyQt6.QtCore import Qt, pyqtSignal, pyqtSlot
 # from PyQt6.QtCore import QSignalSpy # Do testowania sygnałów
@@ -10,6 +11,7 @@ from PyQt6.QtCore import Qt, pyqtSignal, pyqtSlot
 try:
     from lfa.logic.history_manager import HistoryManager
     from lfa.core.history import HistoryNode
+    from lfa.core.data_models import OriginalImageRecord
 except ImportError as e:
     pytest.fail(f"Could not import HistoryManager or HistoryNode: {e}", pytrace=False)
 
@@ -134,3 +136,67 @@ def test_get_root_node_broken_history(history_manager: HistoryManager):
 
     # Powinien zwrócić sam node_c jako najstarszego przodka, którego można prześledzić
     assert history_manager.get_root_node_for_node(node_c.node_id) is node_c
+
+def _add_original_image(history_manager: HistoryManager, label: str) -> tuple[OriginalImageRecord, HistoryNode]:
+    record = OriginalImageRecord(display_name=label)
+    history_manager.register_original_image(record)
+    root_node = HistoryNode(
+        operation_name="Original",
+        parameters={"original_label": label, "source_image_label": label},
+        image_data=np.zeros((4, 4), dtype=np.float32),
+        data_type="STM",
+        original_image_id=record.image_id,
+    )
+    history_manager.add_node(root_node)
+    return record, root_node
+
+
+def test_multi_original_images_grouping(history_manager: HistoryManager, list_widget: QListWidget):
+    """Węzły powinny być grupowane według obrazu źródłowego i zachowywać porządek."""
+    rec1, root1 = _add_original_image(history_manager, "Original Image 1")
+    child1 = HistoryNode(
+        parent_id=root1.node_id,
+        operation_name="Gaussian Blur",
+        parameters={"sigma": 1.0, "source_image_label": rec1.display_name},
+        image_data=np.ones((4, 4), dtype=np.float32),
+        data_type="STM",
+        original_image_id=rec1.image_id,
+    )
+    history_manager.add_node(child1)
+
+    rec2, root2 = _add_original_image(history_manager, "Original Image 2")
+
+    assert list_widget.count() == 3
+    assert list_widget.item(0).text() == rec1.display_name
+    assert list_widget.item(0).font().bold()
+    assert "[Original Image 1]" in list_widget.item(1).text()
+    assert list_widget.item(2).text() == rec2.display_name
+
+    ids = history_manager.iter_original_image_ids()
+    assert ids == [rec1.image_id, rec2.image_id]
+    assert list_widget.item(1).data(Qt.ItemDataRole.UserRole + 2) == rec1.image_id
+    assert list_widget.item(2).data(Qt.ItemDataRole.UserRole + 2) == rec2.image_id
+
+
+def test_refresh_widget_preserves_order(history_manager: HistoryManager, list_widget: QListWidget):
+    """Odświeżenie widoku powinno zachować kolejność i zaznaczenie."""
+    rec1, root1 = _add_original_image(history_manager, "Original Image 1")
+    child1 = HistoryNode(
+        parent_id=root1.node_id,
+        operation_name="Gaussian Blur",
+        parameters={"sigma": 0.5, "source_image_label": rec1.display_name},
+        image_data=np.zeros((2, 2), dtype=np.float32),
+        data_type="STM",
+        original_image_id=rec1.image_id,
+    )
+    history_manager.add_node(child1)
+    rec2, root2 = _add_original_image(history_manager, "Original Image 2")
+
+    history_manager.set_current_node_by_id(child1.node_id)
+    history_manager.refresh_widget()
+
+    assert list_widget.count() == 3
+    assert list_widget.item(0).text() == rec1.display_name
+    assert "[Original Image 1]" in list_widget.item(1).text()
+    assert list_widget.item(2).text() == rec2.display_name
+    assert history_manager.get_current_node() is history_manager.history[child1.node_id]

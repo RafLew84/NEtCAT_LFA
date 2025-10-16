@@ -30,10 +30,13 @@ def sample_history() -> Tuple[Dict[str, HistoryNode], str, str, str]:
     """Creates a sample history tree for testing."""
     # Original STM node
     root_id = "root-001"
+    root_label = "Original Image 1"
     root_params = {
         "filename": "test_image.stp", "pixels_x": 128, "pixels_y": 128,
         "size_nm_x": 50.5, "size_nm_y": 51.2, "bias_v": 0.75,
-        "setpoint_a": 1.5e-10, "scan_angle_deg": 15.0
+        "setpoint_a": 1.5e-10, "scan_angle_deg": 15.0,
+        "original_label": root_label,
+        "source_image_label": root_label,
     }
     root_node = HistoryNode(
         node_id=root_id,
@@ -45,7 +48,7 @@ def sample_history() -> Tuple[Dict[str, HistoryNode], str, str, str]:
 
     # Gaussian Blur node
     blur_id = "blur-002"
-    blur_params = {"sigma": 1.5, 'apply_roi_only': False}
+    blur_params = {"sigma": 1.5, 'apply_roi_only': False, "source_image_label": root_label}
     blur_node = HistoryNode(
         node_id=blur_id,
         parent_id=root_id,
@@ -57,7 +60,7 @@ def sample_history() -> Tuple[Dict[str, HistoryNode], str, str, str]:
 
     # FFT from ROI node
     fft_id = "fft-003"
-    fft_params = {'apply_window': True, 'window_type': 'hann', 'scaling_mode': 'log'}
+    fft_params = {'apply_window': True, 'window_type': 'hann', 'scaling_mode': 'log', "source_image_label": root_label}
     fft_roi_slice = (slice(32, 96), slice(32, 96))
     fft_node = HistoryNode(
         node_id=fft_id,
@@ -85,8 +88,12 @@ def test_metadata_widget_init(qtbot):
     assert widget is not None
     # Check if labels exist (sanity check)
     assert hasattr(widget, 'filename_label')
+    assert hasattr(widget, 'orig_label_label')
+    assert hasattr(widget, 'node_source_label')
     assert hasattr(widget, 'node_op_label')
     assert widget.filename_label.text() == "-" # Check default text
+    assert widget.orig_label_label.text() == "-"
+    assert widget.node_source_label.text() == "-"
 
 def test_metadata_widget_clear(qtbot, sample_history):
     """Test if update_metadata with None node clears labels."""
@@ -108,11 +115,13 @@ def test_metadata_widget_clear(qtbot, sample_history):
     assert widget.orig_bias_label.text() == "-"
     assert widget.orig_setpoint_label.text() == "-"
     assert widget.orig_angle_label.text() == "-"
+    assert widget.orig_label_label.text() == "-"
     assert widget.node_op_label.text() == "-"
     assert widget.node_type_label.text() == "-"
     assert widget.node_shape_label.text() == "-"
     assert widget.node_roi_label.text() == "-"
     assert widget.node_params_label.text() == "-"
+    assert widget.node_source_label.text() == "-"
 
 def test_metadata_widget_root_node(qtbot, sample_history):
     """Test displaying metadata for the root (Original Image) node."""
@@ -130,12 +139,14 @@ def test_metadata_widget_root_node(qtbot, sample_history):
     assert widget.orig_bias_label.text() == "0.7500"
     assert "1.500e-10" in widget.orig_setpoint_label.text() # Check scientific notation
     assert widget.orig_angle_label.text() == "15.0"
+    assert widget.orig_label_label.text() == "Original Image 1"
 
     # Check Current State Info (should also reflect the root node)
     assert "<i>Original</i>" in widget.node_op_label.text() # Check italic tag
     assert widget.node_type_label.text() == "STM"
     assert widget.node_shape_label.text() == str(root_node.image_data.shape)
     assert widget.node_roi_label.text() == "N/A (Whole Image)" # No source ROI for original
+    assert widget.node_source_label.text() == "Original Image 1"
     # Check parameters (original metadata stored here) - might be long
     assert "filename=test_image.stp" in widget.node_params_label.text()
     assert "pixels_x=128" in widget.node_params_label.text()
@@ -156,12 +167,14 @@ def test_metadata_widget_child_node(qtbot, sample_history):
     assert widget.orig_bias_label.text() == "0.7500"
     assert "1.500e-10" in widget.orig_setpoint_label.text()
     assert widget.orig_angle_label.text() == "15.0"
+    assert widget.orig_label_label.text() == "Original Image 1"
 
     # Check Current State Info (should reflect the blur node)
     assert "<i>Gaussian Blur</i>" in widget.node_op_label.text()
     assert widget.node_type_label.text() == "STM" # Blur on STM gives STM
     assert widget.node_shape_label.text() == str(blur_node.image_data.shape)
     assert widget.node_roi_label.text() == "N/A (Whole Image)" # Blur was not ROI-only
+    assert widget.node_source_label.text() == "Original Image 1"
     # Check parameters (sigma should be present)
     assert "sigma=1.5" in widget.node_params_label.text()
 
@@ -185,6 +198,7 @@ def test_metadata_widget_fft_node(qtbot, sample_history):
     assert widget.node_shape_label.text() == str(fft_node.image_data.shape) # Shape of FFT result
     # Check formatted ROI string
     assert "Rows [32:96], Cols [32:96]" in widget.node_roi_label.text()
+    assert widget.node_source_label.text() == "Original Image 1"
 
     # --- POPRAWIONE ASERCJE dla formatu parametrów z MetadataWidget ---
     params_text = widget.node_params_label.text()
