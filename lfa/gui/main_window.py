@@ -304,7 +304,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "No Image", "No data loaded or selected in history to process.")
             return
 
-        parent_id, parent_data_type, image_data_copy = current_node_info
+        parent_id, parent_data_type, image_data_copy, source_image_id, source_label = current_node_info
 
         if not DialogClass: # pragma: no cover
             QMessageBox.critical(self, "Error", f"{DialogClass.__name__ if DialogClass else 'Dialog'} is not available.")
@@ -315,6 +315,10 @@ class MainWindow(QMainWindow):
 
 
         dialog = DialogClass(image_data_copy, parent=self)
+        dialog.source_image_id = source_image_id
+        dialog.source_image_label = source_label
+        if source_label and source_label not in dialog.windowTitle():
+            dialog.setWindowTitle(f"{dialog.windowTitle()} [{source_label}]")
         if dialog.exec() == QDialog.DialogCode.Accepted:
             processed_data = dialog.get_processed_data()
             params = dialog.get_parameters() # Dialog should return a dictionary of parameters
@@ -543,6 +547,30 @@ class MainWindow(QMainWindow):
         if self.app_controller:
             self.app_controller.load_metadata_into_session()
 
+    @pyqtSlot()
+    def clear_analysis_session(self):
+        """Clears all loaded images and analysis results after user confirmation."""
+        response = QMessageBox.question(
+            self,
+            "Clear Session",
+            "Remove all loaded images and analysis results?\nThis action cannot be undone.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if response != QMessageBox.StandardButton.Yes:
+            logger.info("MainWindow: Session clear cancelled by user.")
+            return
+
+        logger.info("MainWindow: Clearing analysis session at user request.")
+        if self.app_controller:
+            self.app_controller.reset_session()
+        if hasattr(self, "metadata_widget") and self.metadata_widget:
+            self.metadata_widget.clear_labels()
+        self.display_image_data()
+        self._update_action_states()
+        self.statusBar().showMessage("Session cleared.", 3000)
+        self.setWindowTitle("Lattice Fourier Analyzer (LFA)")
+
     @pyqtSlot(object) 
     def _on_domain_wall_results_updated(self, results: Optional[Dict[str, Any]]):
         """Updates the panel with the domain wall analysis results."""
@@ -695,13 +723,15 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Dialog Error", "DomainWallsAnalysisDialog is not available."); return
 
         current_node_info = self.app_controller.get_current_node_info_for_dialogs()
-        if not (current_node_info and current_node_info[1] == "FFT"):
+        if not current_node_info:
+            QMessageBox.warning(self, "Incorrect Data", "Domain wall analysis requires an active FFT image."); return
+
+        node_id, data_type, fft_image_data_copy, source_image_id, source_label = current_node_info
+        if data_type != "FFT":
             QMessageBox.warning(self, "Incorrect Data", "Domain wall analysis requires an active FFT image."); return
         
         if not (self.app_controller.substrate_F_m2i is not None and self.app_controller.substrate_t_m2i is not None):
             QMessageBox.warning(self, "Data Missing", "Substrate transformation (F, t) must be calculated first."); return
-
-        node_id, _, fft_image_data_copy = current_node_info
 
         dialog = DomainWallsAnalysisDialog(
             fft_image_data=fft_image_data_copy,
@@ -713,6 +743,10 @@ class MainWindow(QMainWindow):
             substrate_transform_analysis=self.app_controller.substrate_transform_analysis_m2i,
             parent=self
         )
+        dialog.source_image_id = source_image_id
+        dialog.source_image_label = source_label
+        if source_label and hasattr(dialog, "setWindowTitle") and source_label not in dialog.windowTitle():
+            dialog.setWindowTitle(f"{dialog.windowTitle()} [{source_label}]")
         if dialog.exec() == QDialog.DialogCode.Accepted:
             results = dialog.get_analysis_results()
             if results and self.app_controller:
@@ -786,15 +820,17 @@ class MainWindow(QMainWindow):
         logger.info("MainWindow: Opening substrate spot selection dialog...")
         
         current_node_info = self.app_controller.get_current_node_info_for_dialogs()
-        if not (current_node_info and current_node_info[1] == "FFT"): QMessageBox.warning(self, "Incorrect Data Type", "Substrate spots can only be selected on an FFT image."); return
+        if not current_node_info:
+            QMessageBox.warning(self, "Incorrect Data Type", "Substrate spots can only be selected on an FFT image."); return
+        node_id, data_type, fft_image_data_copy, source_image_id, source_label = current_node_info
+        if data_type != "FFT":
+            QMessageBox.warning(self, "Incorrect Data Type", "Substrate spots can only be selected on an FFT image."); return
         if not SubstrateSpotSelectionDialog: QMessageBox.critical(self, "Dialog Error", "SubstrateSpotSelectionDialog is not available."); return
 
-        _, _, fft_image_data_copy = current_node_info
-        
         dialog = SubstrateSpotSelectionDialog(
             fft_image_data=fft_image_data_copy,
             history_manager=self.history_manager,
-            current_fft_node_id=current_node_info[0],
+            current_fft_node_id=node_id,
             current_spots=self.app_controller.user_selected_substrate_spots, 
             initial_lattice_type=self.app_controller.substrate_lattice_type if self.app_controller.substrate_lattice_type else LATTICE_TYPE_HEXAGONAL,
             initial_selected_substrate_name=self.app_controller.substrate_definition_name,
@@ -806,6 +842,10 @@ class MainWindow(QMainWindow):
             initial_fitted_spots = self.app_controller.displayable_fitted_substrate_spots_on_fft,
             parent=self
         )
+        dialog.source_image_id = source_image_id
+        dialog.source_image_label = source_label
+        if source_label and hasattr(dialog, "setWindowTitle") and source_label not in dialog.windowTitle():
+            dialog.setWindowTitle(f"{dialog.windowTitle()} [{source_label}]")
         
         if dialog.exec() == QDialog.DialogCode.Accepted:
             results = dialog.get_dialog_results()
@@ -822,7 +862,13 @@ class MainWindow(QMainWindow):
         logger.info("MainWindow: Opening adsorbate spot selection dialog...")
 
         current_node_info = self.app_controller.get_current_node_info_for_dialogs()
-        if not (current_node_info and current_node_info[1] == "FFT"):
+        if not current_node_info:
+            QMessageBox.warning(self, "Incorrect Data Type", 
+                                "Adsorbate spots can only be selected on an FFT image.")
+            logger.warning("Attempted to open adsorbate spot selection on non-FFT data.")
+            return
+        _, data_type, fft_image_data_copy, source_image_id, source_label = current_node_info
+        if data_type != "FFT":
             QMessageBox.warning(self, "Incorrect Data Type", 
                                 "Adsorbate spots can only be selected on an FFT image.")
             logger.warning("Attempted to open adsorbate spot selection on non-FFT data.")
@@ -834,8 +880,6 @@ class MainWindow(QMainWindow):
             logger.error("AdsorbateSpotSelectionDialog class is not available.")
             return
 
-        parent_node_id, _, fft_image_data_copy = current_node_info
-        
         current_set_idx = self.app_controller.current_adsorbate_set_index
         initial_expected_type = self.app_controller.adsorbate_expected_lattice_types.get(
             current_set_idx, ADSORBATE_LATTICE_TYPE_UNKNOWN
@@ -881,6 +925,10 @@ class MainWindow(QMainWindow):
             initial_expected_type=initial_expected_type,
             parent=self
         )
+        dialog.source_image_id = source_image_id
+        dialog.source_image_label = source_label
+        if source_label and hasattr(dialog, "setWindowTitle") and source_label not in dialog.windowTitle():
+            dialog.setWindowTitle(f"{dialog.windowTitle()} [{source_label}]")
         
         if dialog.exec() == QDialog.DialogCode.Accepted:
             results = dialog.get_dialog_results()
@@ -1237,7 +1285,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "No Image", "No data loaded or selected to calculate FFT.") # pragma: no cover
             return
 
-        parent_id, parent_data_type, image_data_copy = current_node_info
+        parent_id, parent_data_type, image_data_copy, source_image_id, source_label = current_node_info
 
         if parent_data_type != "STM": # pragma: no cover
             QMessageBox.warning(self, "Invalid Data Type", "FFT can only be calculated from STM data (not from an existing FFT).")
@@ -1246,7 +1294,11 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Error", "FFTDialog is not available.")
             return
 
-        dialog = FFTDialog(image_data_copy, parent=self)
+        dialog = FFTDialog(image_data_copy, parent=self, source_label=source_label)
+        dialog.source_image_id = source_image_id
+        dialog.source_image_label = source_label
+        if source_label and source_label not in dialog.windowTitle():
+            dialog.setWindowTitle(f"{dialog.windowTitle()} [{source_label}]")
         if dialog.exec() == QDialog.DialogCode.Accepted:
             processed_fft_data = dialog.get_processed_data()
             complex_fft_data = dialog.get_complex_fft_data()

@@ -82,6 +82,15 @@ class MenuActionManager:
         file_menu.addAction(self.file_actions["load_metadata"])
     
         file_menu.addSeparator()
+
+        self.file_actions["clear_session"] = self._create_action(
+            text="Clear Session",
+            status_tip="Remove all loaded data and reset the analysis session",
+            triggered_slot=self.main_window.clear_analysis_session
+        )
+        file_menu.addAction(self.file_actions["clear_session"])
+
+        file_menu.addSeparator()
         
         self.file_actions["exit"] = self._create_action(
             text="&Exit", 

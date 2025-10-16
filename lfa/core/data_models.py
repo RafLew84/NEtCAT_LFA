@@ -7,7 +7,26 @@ and its associated metadata in a standardized format.
 
 import numpy as np
 from dataclasses import dataclass, field
-from typing import Dict, Any
+from typing import Dict, Any, Optional
+import uuid
+
+@dataclass
+class OriginalImageRecord:
+    """
+    Represents a single original STM image loaded into the session.
+
+    Attributes:
+        image_id (str): Unique identifier for this original image entry.
+        display_name (str): Human-readable label (e.g., "Original Image 1").
+        stm_image (STMImage): The STM image data and metadata.
+        source_path (Optional[str]): Filesystem path used when loading the image.
+        extra_metadata (Dict[str, Any]): Additional metadata preserved for UI use.
+    """
+    image_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    display_name: str = "Original Image"
+    stm_image: Optional["STMImage"] = field(repr=False, default=None)
+    source_path: Optional[str] = None
+    extra_metadata: Dict[str, Any] = field(default_factory=dict)
 
 @dataclass
 class STMImage:

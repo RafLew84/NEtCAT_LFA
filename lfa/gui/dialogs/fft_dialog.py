@@ -63,7 +63,7 @@ class FFTDialog(QDialog):
         _final_source_roi_slice (Optional[Tuple[slice, slice]]): ROI slice if used
     """
 
-    def __init__(self, input_stm_data: np.ndarray, parent=None):
+    def __init__(self, input_stm_data: np.ndarray, parent=None, source_label: Optional[str] = None):
         """
         Initialize the FFT dialog.
         
@@ -77,6 +77,7 @@ class FFTDialog(QDialog):
 
         self.operation_name = "FFT Calculation"
         self.input_data = input_stm_data.astype(np.float32)
+        self.source_label = source_label
         # Stores the scaled magnitude for preview display
         self.preview_display_data: Optional[np.ndarray] = None
         # Stores the final scaled magnitude result after accept
@@ -85,13 +86,20 @@ class FFTDialog(QDialog):
         self._final_source_roi_slice: Optional[Tuple[slice, slice]] = None
         self._final_complex_fft_data: Optional[np.ndarray] = None
 
-        self.setWindowTitle(self.operation_name)
+        if self.source_label:
+            self.setWindowTitle(f"{self.operation_name} [{self.source_label}]")
+        else:
+            self.setWindowTitle(self.operation_name)
         self.setMinimumSize(950, 550)
         current_flags=self.windowFlags()
         self.setWindowFlags(current_flags | Qt.WindowType.WindowMinimizeButtonHint | Qt.WindowType.WindowMaximizeButtonHint)
 
         # --- Layouts ---
         main_layout=QVBoxLayout(self)
+        if self.source_label:
+            source_lbl = QLabel(f"Source image: {self.source_label}")
+            source_lbl.setObjectName("fftSourceImageLabel")
+            main_layout.addWidget(source_lbl)
         top_layout=QHBoxLayout()
         controls_area_layout=QVBoxLayout()
         bottom_layout=QHBoxLayout()

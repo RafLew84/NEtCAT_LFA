@@ -6,18 +6,19 @@ Manages application state and coordinates operations between UI and backend modu
 import logging
 import os
 import pickle
+import uuid
 import numpy as np
 
 from typing import Optional, List, Tuple, Dict, Any
 
 from PyQt6.QtCore import QObject, pyqtSignal
 
-from ..core.data_models import STMImage 
+from ..core.data_models import STMImage, OriginalImageRecord 
 from ..io.factory import load_stm_file  
 from ..core.history import HistoryNode  
 from ..gui.dialogs.substrate_spot_dialog import PREDEFINED_SUBSTRATE_NONE, PREDEFINED_SUBSTRATE_CUSTOM
 
-from PyQt6.QtWidgets import QFileDialog, QMessageBox, QListWidgetItem
+from PyQt6.QtWidgets import QFileDialog, QMessageBox
 from PyQt6.QtCore import Qt
 
 
@@ -173,11 +174,27 @@ class AppController(QObject):
             'domain_wall_analysis_results': self.domain_wall_analysis_results
         }
 
+        original_images_payload = []
+        original_order_payload: List[str] = []
+        if hasattr(self.history_manager, "iter_original_image_ids"):
+            for image_id in self.history_manager.iter_original_image_ids():
+                record = self.history_manager.get_original_image_record(image_id)
+                if not record:
+                    continue
+                original_images_payload.append({
+                    "image_id": image_id,
+                    "display_name": record.display_name,
+                    "source_path": record.source_path,
+                    "extra_metadata": record.extra_metadata,
+                })
+                original_order_payload.append(image_id)
         session_data = {
-            "format_version": "1.0",
+            "format_version": "1.1",
             "history_data": {
                 "tree": self.history_manager.history,
-                "current_node_id": self.history_manager.current_node_id
+                "current_node_id": self.history_manager.current_node_id,
+                "original_images": original_images_payload,
+                "original_order": original_order_payload,
             },
             "controller_state": controller_state_to_save
         }
@@ -204,10 +221,10 @@ class AppController(QObject):
         try:
             with open(file_path, 'rb') as f:
                 session_data = pickle.load(f)
-            
-            # Validate the format version (best practice)
-            if session_data.get("format_version") != "1.0":
-                logger.warning("Attempted to load a session file with an incompatible format version.")
+
+            format_version = session_data.get("format_version", "1.0")
+            if format_version not in {"1.0", "1.1"}:
+                logger.warning("Attempted to load a session file with an incompatible format version: %s", format_version)
                 QMessageBox.warning(None, "Version error", "The session file uses an unsupported format version.")
                 return
 
@@ -227,21 +244,51 @@ class AppController(QObject):
             else:
                 logger.warning(f"Attribute '{key}' from the session file no longer exists on AppController.")
 
+        format_version = session_data.get("format_version", "1.0")
         history_data = session_data.get("history_data", {})
-        self.history_manager.history = history_data.get("tree", {})
 
-        self.history_manager.history_list_widget.blockSignals(True)
-        self.history_manager.history_list_widget.clear()
+        self.history_manager.history = history_data.get("tree", {}) or {}
 
-        for node_id, node in self.history_manager.history.items():
-            item = QListWidgetItem(node.get_display_text())
-            item.setData(Qt.ItemDataRole.UserRole, node_id)
-            self.history_manager.history_list_widget.addItem(item)
-        
+        # Rebuild original image registry
+        if hasattr(self.history_manager, "original_images"):
+            self.history_manager.original_images.clear()
+        if hasattr(self.history_manager, "_original_order"):
+            self.history_manager._original_order = []
+        if hasattr(self.history_manager, "_root_nodes_by_image_id"):
+            self.history_manager._root_nodes_by_image_id.clear()
+
+        if format_version == "1.1":
+            stored_records = history_data.get("original_images", []) or []
+            for record_data in stored_records:
+                image_id = record_data.get("image_id") or str(uuid.uuid4())
+                record = OriginalImageRecord(
+                    image_id=image_id,
+                    display_name=record_data.get("display_name", "Original Image"),
+                    stm_image=None,
+                    source_path=record_data.get("source_path"),
+                    extra_metadata=record_data.get("extra_metadata", {}),
+                )
+                if hasattr(self.history_manager, "register_original_image"):
+                    self.history_manager.register_original_image(record)
+
+        # Ensure nodes are linked to latest registry (also handles legacy sessions)
+        if hasattr(self.history_manager, "rebuild_indexes"):
+            self.history_manager.rebuild_indexes()
+
+        if format_version == "1.1":
+            stored_order = history_data.get("original_order", []) or []
+            filtered_order = [img_id for img_id in stored_order if img_id in getattr(self.history_manager, "original_images", {})]
+            for img_id in getattr(self.history_manager, "original_images", {}):
+                if img_id not in filtered_order:
+                    filtered_order.append(img_id)
+            if hasattr(self.history_manager, "_original_order"):
+                self.history_manager._original_order = filtered_order
+
+        if hasattr(self.history_manager, "refresh_widget"):
+            self.history_manager.refresh_widget()
+
         current_id = history_data.get("current_node_id")
         self.history_manager.set_current_node_by_id(current_id, emit_signal=False)
-        
-        self.history_manager.history_list_widget.blockSignals(False)
 
         logger.info(f"Session loaded successfully. Refreshing user interface...")
         
@@ -261,14 +308,26 @@ class AppController(QObject):
         logger.warning("AppController: No current image data available for processing.")
         return None
 
-    def get_current_node_info_for_dialogs(self) -> Optional[Tuple[str, str, Any]]:
+    def get_current_node_info_for_dialogs(self) -> Optional[Tuple[str, str, Any, Optional[str], Optional[str]]]:
         """
         Returns information about the current node needed to open dialogs.
-        Returns: Tuple (node_id, node_data_type, image_data_copy) or None.
+        Returns: Tuple (node_id, node_data_type, image_data_copy, original_image_id, original_image_label) or None.
         """
         current_node = self.history_manager.get_current_node()
         if current_node and current_node.image_data is not None:
-            return current_node.node_id, current_node.data_type, current_node.image_data.copy()
+            source_image_id = current_node.original_image_id
+            source_label = None
+            if source_image_id:
+                record = self.history_manager.get_original_image_record(source_image_id)
+                if record:
+                    source_label = record.display_name
+            return (
+                current_node.node_id,
+                current_node.data_type,
+                current_node.image_data.copy(),
+                source_image_id,
+                source_label,
+            )
         return None
     
     def load_metadata_into_session(self):
@@ -306,75 +365,110 @@ class AppController(QObject):
             logger.exception(f"Error while loading metadata: {e}")
             QMessageBox.critical(None, "Error", f"Couldnt load metadata:\n{e}")
     
+    def reset_session(self):
+        """
+        Clears all loaded data, history, and analysis results so the user can start fresh.
+        """
+        logger.info("AppController: Resetting current analysis session.")
+        self.history_manager.clear_history()
+        self.clear_all_spot_data()
+
+        self.original_file_path = None
+        self.reference_ideal_substrate_spots_px.clear()
+        self.custom_lattice_info = None
+        self.last_selected_substrate = PREDEFINED_SUBSTRATE_NONE
+        self.current_substrate_a_surf = None
+        self.current_substrate_type = None
+        self.current_substrate_name = PREDEFINED_SUBSTRATE_NONE
+        self.substrate_definition_name = PREDEFINED_SUBSTRATE_NONE
+        self.substrate_lattice_type = None
+        self.substrate_a_surf = None
+        self.substrate_F_m2i = None
+        self.substrate_t_m2i = None
+        self.substrate_transform_analysis_m2i = None
+        self.displayable_fitted_substrate_spots_on_fft.clear()
+        self.show_ideal_lattice = True
+        self.current_fft_data_shape = None
+        self.user_selected_substrate_spots.clear()
+
+        self.history_manager.refresh_widget()
+
+        self.substrate_definition_changed.emit()
+        self.substrate_transform_results_updated.emit()
+        self.substrate_real_space_params_updated.emit({})
+        self.adsorbate_sets_structure_changed.emit()
+        self.adsorbate_set_updated.emit(0)
+        self.adsorbate_real_space_params_updated.emit(0, {})
+        self.adsorbate_expected_type_updated.emit(0, ADSORBATE_LATTICE_TYPE_UNKNOWN)
+        self.domain_wall_results_updated.emit(None)
+        self.spot_lists_updated.emit()
+        logger.info("AppController: Session reset complete.")
+
     def load_file(self, file_path: str):
         """
-        Loads an STM file, creates an initial history node, and updates the application state.
-        Emits signals indicating success or failure.
+        Loads an STM file, creates an initial history node, and registers it as a new
+        original image without discarding previously loaded data. Emits signals
+        indicating success or failure.
         """
         logger.info(f"AppController: Attempting to load file: {file_path}")
         try:
             stm_image_obj: Optional[STMImage] = load_stm_file(file_path)
 
-            if stm_image_obj and stm_image_obj.data is not None:
-                self.original_file_path = file_path
-
-                self.clear_all_spot_data()
-                self.reference_ideal_substrate_spots_px.clear()
-                self.current_substrate_a_surf = None
-                self.current_substrate_type = None
-                self.current_substrate_name = PREDEFINED_SUBSTRATE_NONE
-                self.substrate_definition_changed.emit()
-                self.adsorbate_expected_lattice_types = {0: ADSORBATE_LATTICE_TYPE_UNKNOWN}
-
-                self.history_manager.clear_history()
-                self.corrected_adsorbate_spot_sets = [[]]
-                if hasattr(self, 'adsorbate_set_updated'): self.adsorbate_set_updated.emit(0)
-                if hasattr(self, 'adsorbate_real_space_params_updated'): self.adsorbate_real_space_params_updated.emit(0, {})
-                if hasattr(self, 'adsorbate_expected_type_updated'): self.adsorbate_expected_type_updated.emit(0, ADSORBATE_LATTICE_TYPE_UNKNOWN)
-
-                root_params = {
-                    "raw_header": stm_image_obj.raw_header,
-                    "filename": os.path.basename(file_path),
-                    "pixels_x": stm_image_obj.pixels_x,
-                    "pixels_y": stm_image_obj.pixels_y,
-                    "size_nm_x": stm_image_obj.size_nm_x,
-                    "size_nm_y": stm_image_obj.size_nm_y,
-                }
-
-                root_node = HistoryNode(
-                    operation_name="Original",
-                    image_data=stm_image_obj.data.copy(),
-                    parameters=root_params,
-                    data_type="STM"
-                )
-                
-                self.history_manager.add_node(root_node)
-                self.history_manager.set_current_node_by_id(root_node.node_id)
-
-                self.clear_all_spot_data()
-                self.substrate_lattice_type = None
-                self.substrate_a_surf = None
-                self.substrate_definition_name = PREDEFINED_SUBSTRATE_NONE
-                self.substrate_F_m2i = None
-                self.substrate_t_m2i = None
-                self.substrate_transform_analysis_m2i = None
-                self.substrate_real_space_results = None
-                self.current_fft_data_shape = None
-                self.domain_wall_analysis_results = None
-                self.displayable_fitted_substrate_spots_on_fft.clear()
-                self.adsorbate_real_space_results.clear()
-                self.substrate_definition_changed.emit()
-                self.substrate_transform_results_updated.emit()
-                self.substrate_real_space_params_updated.emit({})
-                self.domain_wall_results_updated.emit(None)
-                logger.info(f"AppController: File '{os.path.basename(file_path)}' loaded successfully.")
-                self.file_loaded_successfully.emit(os.path.basename(file_path))
-            else:
+            if not (stm_image_obj and stm_image_obj.data is not None):
                 logger.error(f"AppController: Failed to load valid data from file: {file_path}")
-                self.history_manager.clear_history()
-                self.original_file_path = None
                 self.file_loading_failed.emit(f"Could not load valid data from file: {file_path}")
-        
+                return
+
+            self.original_file_path = file_path  # Track the most recently loaded source
+
+            display_name = self.history_manager.get_next_original_display_name()
+            root_params = {
+                "raw_header": stm_image_obj.raw_header,
+                "filename": os.path.basename(file_path),
+                "source_path": file_path,
+                "pixels_x": stm_image_obj.pixels_x,
+                "pixels_y": stm_image_obj.pixels_y,
+                "size_nm_x": stm_image_obj.size_nm_x,
+                "size_nm_y": stm_image_obj.size_nm_y,
+                "bias_v": stm_image_obj.bias_v,
+                "setpoint_a": stm_image_obj.setpoint_a,
+                "scan_angle_deg": stm_image_obj.scan_angle_deg,
+                "scan_speed_nm_s": stm_image_obj.scan_speed_nm_s,
+                "z_nm_per_raw": stm_image_obj.z_nm_per_raw,
+                "image_type": stm_image_obj.image_type,
+                "original_label": display_name,
+                "source_image_label": display_name,
+            }
+
+            record = OriginalImageRecord(
+                display_name=display_name,
+                stm_image=stm_image_obj,
+                source_path=file_path,
+                extra_metadata=dict(root_params),
+            )
+            self.history_manager.register_original_image(record)
+            record.extra_metadata["source_image_id"] = record.image_id
+            root_params["source_image_id"] = record.image_id
+
+            root_node = HistoryNode(
+                operation_name="Original",
+                image_data=stm_image_obj.data.copy(),
+                parameters=root_params,
+                data_type="STM",
+                original_image_id=record.image_id,
+            )
+
+            self.history_manager.add_node(root_node)
+            self.history_manager.set_current_node_by_id(root_node.node_id)
+
+            logger.info(
+                "AppController: File '%s' registered as %s (node_id=%s).",
+                os.path.basename(file_path),
+                display_name,
+                root_node.node_id,
+            )
+            self.file_loaded_successfully.emit(f"{display_name} - {os.path.basename(file_path)}")
+
         except FileNotFoundError: # pragma: no cover
             logger.error(f"AppController: File not found: {file_path}")
             self.file_loading_failed.emit(f"File not found: {file_path}")
@@ -646,12 +740,27 @@ class AppController(QObject):
             return
 
         parent_node = self.history_manager.get_node_by_id(parent_node_id)
+        original_params = dict(params) if params else {}
 
         if parent_node and parent_node.image_data is not None:
             if np.array_equal(processed_data, parent_node.image_data) and \
-               params == parent_node.parameters.get(op_name, {}):
+               original_params == parent_node.parameters.get(op_name, {}):
                 logger.info(f"AppController: Data for '{op_name}' has not changed. Node not added.")
                 return
+
+        params = dict(original_params)
+        source_image_id: Optional[str] = None
+        source_image_label: Optional[str] = None
+        if parent_node:
+            source_image_id = parent_node.original_image_id
+            if source_image_id:
+                record = self.history_manager.get_original_image_record(source_image_id)
+                if record:
+                    source_image_label = record.display_name
+        if source_image_id:
+            params.setdefault("source_image_id", source_image_id)
+        if source_image_label:
+            params.setdefault("source_image_label", source_image_label)
 
         new_node = HistoryNode(
             parent_id=parent_node_id,
@@ -659,7 +768,8 @@ class AppController(QObject):
             parameters=params,
             image_data=processed_data,
             data_type=data_type,
-            source_roi_slice=source_roi_slice
+            source_roi_slice=source_roi_slice,
+            original_image_id=source_image_id
         )
 
         self.history_manager.add_node(new_node)
@@ -722,6 +832,22 @@ class AppController(QObject):
         else: # pragma: no cover
             self.current_fft_data_shape = None
             logger.warning("AppController: FFT data is None, cannot store shape.")
+
+        params = dict(params) if params else {}
+        parent_node = self.history_manager.get_node_by_id(parent_node_id)
+        source_image_id: Optional[str] = None
+        source_image_label: Optional[str] = None
+        if parent_node:
+            source_image_id = parent_node.original_image_id
+            if source_image_id:
+                record = self.history_manager.get_original_image_record(source_image_id)
+                if record:
+                    source_image_label = record.display_name
+        if source_image_id:
+            params.setdefault("source_image_id", source_image_id)
+        if source_image_label:
+            params.setdefault("source_image_label", source_image_label)
+
             
         # self.add_operation_to_history(parent_node_id, "FFT", params, processed_fft_data, "FFT", source_roi_slice)
         new_node = HistoryNode(
@@ -731,7 +857,8 @@ class AppController(QObject):
             image_data=processed_fft_data,
             data_type="FFT",
             complex_fft_data=complex_fft_data,
-            source_roi_slice=source_roi_slice
+            source_roi_slice=source_roi_slice,
+            original_image_id=source_image_id
         )
         self.history_manager.add_node(new_node)
         self.history_manager.set_current_node_by_id(new_node.node_id)

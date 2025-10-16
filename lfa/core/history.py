@@ -32,6 +32,7 @@ class HistoryNode:
         image_data (Optional[np.ndarray]): The processed image data.
         data_type (Literal["STM", "FFT"]): Type of data stored in image_data.
         source_roi_slice (Optional[Tuple[slice, slice]]): ROI slice if operation was ROI-based.
+        original_image_id (Optional[str]): Identifier linking the node to its originating image.
     """
     node_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     parent_id: Optional[str] = None
@@ -44,6 +45,7 @@ class HistoryNode:
     complex_fft_data: Optional[np.ndarray] = field(repr=False, default=None)
     # Stores the source ROI slice if operation resulted from ROI
     source_roi_slice: Optional[Tuple[slice, slice]] = field(repr=False, default=None)
+    original_image_id: Optional[str] = None
 
     def get_display_text(self) -> str:
         """
@@ -62,7 +64,11 @@ class HistoryNode:
         suffix = ""
 
         if self.operation_name == "Original":
-            return "Original Image"
+            return self.parameters.get("original_label", "Original Image")
+
+        source_label = self.parameters.get("source_image_label") or self.parameters.get("original_label")
+        if source_label:
+            base_name += f" [{source_label}]"
 
         if self.data_type == "FFT":
             base_name += " (FFT)"
@@ -89,7 +95,8 @@ class HistoryNode:
 
             for i, (k, v) in enumerate(param_items):
                 # Skip internal flags unless necessary
-                if k == 'apply_roi_only': continue
+                if k in ('apply_roi_only', 'source_image_id', 'source_image_label', 'original_label'):
+                    continue
 
                 # Format common parameters nicely
                 if k == 'scaling_mode': part = f"Scale:{v}"

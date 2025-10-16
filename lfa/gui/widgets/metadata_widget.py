@@ -3,7 +3,6 @@
 QWidget for displaying metadata associated with a HistoryNode.
 """
 import logging
-import os
 from typing import Optional, Dict, Any
 
 try:
@@ -40,6 +39,7 @@ class MetadataWidget(QWidget):
         # --- Labels for displaying metadata ---
         # Original File Info Section
         self.filename_label = QLabel("-")
+        self.orig_label_label = QLabel("-")
         self.orig_dims_px_label = QLabel("-")
         self.orig_dims_nm_label = QLabel("-")
         self.orig_bias_label = QLabel("-")
@@ -53,11 +53,13 @@ class MetadataWidget(QWidget):
         self.node_params_label.setWordWrap(True) # Allow wrapping
         self.node_roi_label = QLabel("-")
         self.node_shape_label = QLabel("-")
+        self.node_source_label = QLabel("-")
 
         # --- Add rows to layout ---
         # Use QLabel directly for section headers for easier styling if needed
         self.layout.addRow(QLabel("<b>Original File:</b>"))
         self.layout.addRow("Filename:", self.filename_label)
+        self.layout.addRow("Image Label:", self.orig_label_label)
         self.layout.addRow("Dimensions (px):", self.orig_dims_px_label)
         self.layout.addRow("Size (nm):", self.orig_dims_nm_label)
         self.layout.addRow("Bias (V):", self.orig_bias_label)
@@ -71,12 +73,14 @@ class MetadataWidget(QWidget):
         self.layout.addRow("Operation:", self.node_op_label)
         self.layout.addRow("Data Type:", self.node_type_label)
         self.layout.addRow("Shape:", self.node_shape_label)
+        self.layout.addRow("Source Image:", self.node_source_label)
         self.layout.addRow("Source ROI:", self.node_roi_label)
         self.layout.addRow("Parameters:", self.node_params_label)
 
     def clear_labels(self):
         """Clears all metadata labels."""
         self.filename_label.setText("-")
+        self.orig_label_label.setText("-")
         self.orig_dims_px_label.setText("-")
         self.orig_dims_nm_label.setText("-")
         self.orig_bias_label.setText("-")
@@ -87,11 +91,13 @@ class MetadataWidget(QWidget):
         self.node_params_label.setText("-")
         self.node_roi_label.setText("-")
         self.node_shape_label.setText("-")
+        self.node_source_label.setText("-")
 
     def update_metadata(self, node: Optional['HistoryNode'], history: Dict[str, 'HistoryNode']):
         """Updates the labels with information from the given node and history."""
         history_dict: Optional[Dict[str, HistoryNode]] = None
         root_node: Optional[HistoryNode] = None
+        history_mgr = None
 
         if isinstance(history, dict):
             history_dict = history
@@ -134,9 +140,21 @@ class MetadataWidget(QWidget):
             roi_str = "N/A (Whole Image)"
         self.node_roi_label.setText(roi_str)
 
+        source_label = node.parameters.get("source_image_label")
+        if not source_label and node.original_image_id and history_mgr:
+            record = history_mgr.get_original_image_record(node.original_image_id)
+            if record:
+                source_label = record.display_name
+        if not source_label and root_node and root_node.operation_name == "Original":
+            source_label = root_node.parameters.get("original_label")
+        self.node_source_label.setText(source_label or "-")
+
         # Format parameters
         # Filter out internal flags unless needed, format nicely
-        params_to_show = {k: v for k, v in node.parameters.items() if k not in ['apply_roi_only']}
+        params_to_show = {
+            k: v for k, v in node.parameters.items()
+            if k not in ['apply_roi_only', 'source_image_id', 'source_image_label', 'original_label']
+        }
         param_str = ", ".join(f"{k}={v:.3g}" if isinstance(v, float) else f"{k}={v}"
                              for k, v in params_to_show.items())
         if not param_str:
@@ -147,6 +165,7 @@ class MetadataWidget(QWidget):
         if root_node and root_node.operation_name == "Original":
             orig_params = root_node.parameters 
             self.filename_label.setText(orig_params.get("filename", "-"))
+            self.orig_label_label.setText(orig_params.get("original_label", "-"))
             px_x = orig_params.get("pixels_x", 0); px_y = orig_params.get("pixels_y", 0)
             self.orig_dims_px_label.setText(f"{px_x} x {px_y}" if px_x and px_y else "-")
             nm_x = orig_params.get("size_nm_x", 0.0); nm_y = orig_params.get("size_nm_y", 0.0)
@@ -160,8 +179,10 @@ class MetadataWidget(QWidget):
         else:
             logger.warning(f"Could not trace back to a valid 'Original' root node from node {node.node_id if node else 'None'}. Root found: {root_node.operation_name if root_node else 'None'}")
             self.filename_label.setText("?")
+            self.orig_label_label.setText("?")
             self.orig_dims_px_label.setText("?")
             self.orig_dims_nm_label.setText("?")
             self.orig_bias_label.setText("?")
             self.orig_setpoint_label.setText("?")
             self.orig_angle_label.setText("?")
+            self.node_source_label.setText("?")

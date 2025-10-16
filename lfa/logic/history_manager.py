@@ -1,11 +1,13 @@
 # lfa/logic/history_manager.py
 import logging
-from typing import Dict, Optional, Any # 'Any' may later be needed for parameters
+from typing import Dict, Optional, Any, List # 'Any' may later be needed for parameters
 from PyQt6.QtWidgets import QListWidget, QListWidgetItem # Dodaj potrzebne importy Qt
 from PyQt6.QtCore import Qt, pyqtSignal, QObject
 # Use the relative path if HistoryNode resides in lfa.core
 # Assuming history_manager.py is in lfa/gui/ and HistoryNode in lfa/core/
 from ..core.history import HistoryNode
+from ..core.data_models import OriginalImageRecord
+import uuid
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +33,9 @@ class HistoryManager(QObject):
         self.history: Dict[str, HistoryNode] = {}
         self.current_node_id: Optional[str] = None
         self.history_list_widget = history_list_widget
+        self.original_images: Dict[str, OriginalImageRecord] = {}
+        self._original_order: List[str] = [] # Keeps insertion order of original images
+        self._root_nodes_by_image_id: Dict[str, str] = {}
 
         logger.debug("HistoryManager initialized.")
 
@@ -39,10 +44,250 @@ class HistoryManager(QObject):
         self.history.clear()
         self.current_node_id = None
         self.history_list_widget.clear() # HistoryManager owns the list widget
+        self.original_images.clear()
+        self._original_order.clear()
+        self._root_nodes_by_image_id.clear()
         logger.info("History cleared by HistoryManager.")
         # Emit the None node signal so MainWindow can react
         # (e.g., clear image views, update action state)
         self.current_node_changed.emit(None)
+
+    def _create_item_for_node(self, node: HistoryNode) -> QListWidgetItem:
+        """Create a view item for a history node."""
+        item = QListWidgetItem(node.get_display_text())
+        item.setData(Qt.ItemDataRole.UserRole, node.node_id)
+        if node.original_image_id:
+            item.setData(Qt.ItemDataRole.UserRole + 2, node.original_image_id)
+        if node.operation_name == "Original":
+            font = item.font()
+            font.setBold(True)
+            item.setFont(font)
+            label = node.parameters.get("original_label", "Original Image")
+            tooltip = f"Original STM image ({label})"
+            filename = node.parameters.get("filename")
+            if filename:
+                tooltip += f"\nFile: {filename}"
+            item.setToolTip(tooltip)
+        else:
+            label = node.parameters.get("source_image_label")
+            if label:
+                item.setToolTip(f"Derived from {label}")
+        return item
+
+    def _determine_insertion_row(self, node: HistoryNode) -> int:
+        """Determine list row for inserting a node to keep grouping."""
+        count = self.history_list_widget.count()
+        if not node.original_image_id or count == 0:
+            return count
+        last_row = -1
+        for row in range(count):
+            item = self.history_list_widget.item(row)
+            if not item:
+                continue
+            existing_id = item.data(Qt.ItemDataRole.UserRole)
+            if not existing_id:
+                continue
+            existing_node = self.history.get(existing_id)
+            if existing_node and existing_node.original_image_id == node.original_image_id:
+                last_row = row
+        return last_row + 1 if last_row >= 0 else count
+
+    def refresh_widget(self):
+        """Rebuild the QListWidget from the current history tree."""
+        current_id = self.current_node_id
+        self.history_list_widget.blockSignals(True)
+        self.history_list_widget.clear()
+
+        # Render grouped by original image order
+        for image_id in self._original_order:
+            nodes = [
+                node for node in self.history.values()
+                if node.original_image_id == image_id
+            ]
+            if not nodes:
+                continue
+            nodes.sort(key=lambda n: (0 if n.parent_id is None or n.operation_name == "Original" else 1, n.timestamp))
+            for node in nodes:
+                item = self._create_item_for_node(node)
+                self.history_list_widget.addItem(item)
+
+        # Add any nodes without original image information (legacy)
+        legacy_nodes = [node for node in self.history.values() if not node.original_image_id]
+        legacy_nodes.sort(key=lambda n: n.timestamp)
+        for node in legacy_nodes:
+            item = self._create_item_for_node(node)
+            self.history_list_widget.addItem(item)
+
+        self.history_list_widget.blockSignals(False)
+        if current_id and current_id in self.history:
+            self.set_current_node_by_id(current_id, emit_signal=False)
+        else:
+            self.set_current_node_by_id(None, emit_signal=False)
+
+    def register_original_image(self, record: OriginalImageRecord):
+        """
+        Registers metadata for an original STM image.
+        """
+        if record.image_id not in self.original_images:
+            self._original_order.append(record.image_id)
+        self.original_images[record.image_id] = record
+        logger.debug("Registered original image record: %s", record.display_name)
+
+    def unregister_original_image(self, image_id: str):
+        """
+        Removes the original image record and associated root mapping.
+        """
+        if image_id in self.original_images:
+            del self.original_images[image_id]
+        if image_id in self._root_nodes_by_image_id:
+            del self._root_nodes_by_image_id[image_id]
+        if image_id in self._original_order:
+            self._original_order.remove(image_id)
+
+    def get_original_image_record(self, image_id: str) -> Optional[OriginalImageRecord]:
+        """
+        Retrieves the registered record for an original image.
+        """
+        return self.original_images.get(image_id)
+
+    def iter_original_image_ids(self) -> List[str]:
+        """
+        Returns original image IDs in registration order.
+        """
+        return list(self._original_order)
+
+    def _assign_original_image_for_node(self, node: HistoryNode):
+        """
+        Ensures the node has an original_image_id assigned.
+        """
+        if node.original_image_id:
+            return
+
+        # If the node has a parent, inherit the parent's original image id
+        if node.parent_id and node.parent_id in self.history:
+            parent = self.history[node.parent_id]
+            node.original_image_id = parent.original_image_id
+            return
+
+        # Otherwise, generate a legacy id for backwards compatibility
+        legacy_id = str(uuid.uuid4())
+        node.original_image_id = legacy_id
+        display_name = node.parameters.get("original_label") or self._generate_default_display_name()
+        node.parameters["original_label"] = display_name
+        legacy_record = OriginalImageRecord(
+            image_id=legacy_id,
+            display_name=display_name,
+            stm_image=None,
+            source_path=node.parameters.get("filename"),
+            extra_metadata=dict(node.parameters)
+        )
+        self.register_original_image(legacy_record)
+        self._root_nodes_by_image_id[legacy_id] = node.node_id
+
+    def _generate_default_display_name(self) -> str:
+        """
+        Generates the next display name for an original image.
+        """
+        next_index = len(self._original_order) + 1
+        return f"Original Image {next_index}"
+
+    def get_next_original_display_name(self) -> str:
+        """
+        Returns a display label for a newly added original image without mutating state.
+        """
+        return self._generate_default_display_name()
+
+    def _finalize_root_registration(self, node: HistoryNode):
+        """
+        Records root node mapping and ensures original image metadata exists.
+        """
+        if not node.original_image_id:
+            self._assign_original_image_for_node(node)
+
+        image_id = node.original_image_id
+        if image_id is None:
+            return
+
+        # Ensure registration exists
+        if image_id not in self.original_images:
+            display_name = node.parameters.get("original_label") or self._generate_default_display_name()
+            node.parameters["original_label"] = display_name
+            node.parameters["source_image_label"] = display_name
+            record = OriginalImageRecord(
+                image_id=image_id,
+                display_name=display_name,
+                stm_image=None,
+                source_path=node.parameters.get("filename"),
+                extra_metadata=dict(node.parameters)
+            )
+            self.register_original_image(record)
+        else:
+            # Ensure parameters reflect the stored display name
+            record = self.original_images[image_id]
+            node.parameters.setdefault("original_label", record.display_name)
+            node.parameters.setdefault("source_image_label", record.display_name)
+            record.extra_metadata = dict(node.parameters)
+
+        self._root_nodes_by_image_id[image_id] = node.node_id
+
+    def rebuild_indexes(self):
+        """
+        Rebuilds the mapping between original images and history roots.
+        Useful after loading history from disk.
+        """
+        self._root_nodes_by_image_id.clear()
+        # Preserve current original_images where possible
+        known_ids = set(self.original_images.keys())
+        for node in self.history.values():
+            if node.parent_id and node.original_image_id is None:
+                parent = self.history.get(node.parent_id)
+                if parent:
+                    node.original_image_id = parent.original_image_id
+
+        # Collect potential root nodes sorted by timestamp to get deterministic order
+        root_candidates = [
+            node for node in self.history.values()
+            if node.parent_id is None or node.operation_name == "Original"
+        ]
+        root_candidates.sort(key=lambda n: n.timestamp)
+
+        self._original_order = []
+        for node in root_candidates:
+            if node.parent_id is not None and node.operation_name != "Original":
+                continue
+            if node.original_image_id is None:
+                node.original_image_id = str(uuid.uuid4())
+            image_id = node.original_image_id
+
+            display_name = node.parameters.get("original_label")
+            if not display_name:
+                display_name = self._generate_default_display_name()
+                node.parameters["original_label"] = display_name
+
+            if image_id not in self.original_images or image_id not in known_ids:
+                record = OriginalImageRecord(
+                    image_id=image_id,
+                    display_name=display_name,
+                    stm_image=None,
+                    source_path=node.parameters.get("filename"),
+                    extra_metadata=dict(node.parameters)
+                )
+                self.original_images[image_id] = record
+            else:
+                record = self.original_images[image_id]
+                record.extra_metadata = dict(node.parameters)
+            self._original_order.append(image_id)
+            self._root_nodes_by_image_id[image_id] = node.node_id
+
+        for node in self.history.values():
+            if not node.original_image_id:
+                continue
+            record = self.original_images.get(node.original_image_id)
+            if not record:
+                continue
+            node.parameters.setdefault("source_image_label", record.display_name)
+            if node.operation_name == "Original":
+                node.parameters.setdefault("original_label", record.display_name)
 
     def add_node(self, node: HistoryNode) -> Optional[QListWidgetItem]:
         """
@@ -66,11 +311,23 @@ class HistoryManager(QObject):
                     return item
             return None
 
+        # Ensure original image linkage propagates
+        self._assign_original_image_for_node(node)
+
         self.history[node.node_id] = node
-        item = QListWidgetItem(node.get_display_text())
-        item.setData(Qt.ItemDataRole.UserRole, node.node_id)
-        self.history_list_widget.addItem(item)
-        logger.debug(f"HistoryManager added node: '{node.get_display_text()}' (ID: {node.node_id})")
+
+        if node.parent_id is None or node.operation_name == "Original":
+            self._finalize_root_registration(node)
+
+        item = self._create_item_for_node(node)
+        insert_row = self._determine_insertion_row(node)
+        self.history_list_widget.insertItem(insert_row, item)
+        logger.debug(
+            "HistoryManager added node: '%s' (ID: %s) at row %d",
+            node.get_display_text(),
+            node.node_id,
+            insert_row
+        )
         return item
 
     def get_current_node(self) -> Optional[HistoryNode]:
@@ -178,6 +435,14 @@ class HistoryManager(QObject):
         if not current_node:
             logger.warning(f"get_root_node_for_node: Starting node {node_id} not found in history.")
             return None
+
+        # If mapping already knows the root, return it immediately
+        if current_node.original_image_id:
+            root_id = self._root_nodes_by_image_id.get(current_node.original_image_id)
+            if root_id:
+                root_node = self.history.get(root_id)
+                if root_node:
+                    return root_node
 
         visited_ids = {current_node.node_id} # To prevent cycles
 
