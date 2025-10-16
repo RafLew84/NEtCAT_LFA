@@ -569,7 +569,7 @@ class MainWindow(QMainWindow):
             return
             
         if self.app_controller.substrate_F_m2i is None:
-            QMessageBox.warning(self, "Missing Data", "Please analyze the substrate and compute the transform in the "Select Substrate Spots" dialog first.")
+            QMessageBox.warning(self, "Missing Data", "Please analyze the substrate and compute the transform in the \"Select Substrate Spots\" dialog first.")
             return
 
         root_node = self.history_manager.get_root_node_for_node(current_node.node_id)
