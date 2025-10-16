@@ -146,7 +146,7 @@ class MenuActionManager:
 
         analysis_menu.addSeparator()
         domain_wall_action = self._create_action(
-            text="Analyze Domain Walls...",
+            text="Analyze Supperstructure Periodicyty...",
             status_tip="Analyze domain wall structures from spot splittings",
             triggered_slot=self.main_window.open_domain_wall_analysis_dialog,
             enabled=False

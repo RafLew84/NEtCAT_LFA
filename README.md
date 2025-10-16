@@ -132,7 +132,7 @@ Po powrocie do okna głównego, kliknij `Calculate Adsorbate Parameters`. Progra
 ### 5. Analiza Ścian Domenowych
 **UWAGA** Upewnij się, że obraz FFT został obliczony w trybie `Power Spectrum`, co jest wymagane do analizy intensywności.
 
-1. Z menu `Analysis` wybierz `Analyze Domain Walls...`.
+1. Z menu `Analysis` wybierz `Analyze Supperstructure Periodicyty...`.
 2. W oknie dialogowym zaznacz kolejno główny pik Bragga oraz jeden z jego pików satelitarnych. Do wyznaczenia pozycji piku wykorzystywana jest metoda `2D Gaussian Fit`. **UWAGA** Jeżeli jest zaznaczona opcja `Apply Substrate Tranformation`, pozycja każdego piku będzide wyznaczana po obliczeniu transformacji. Jest to odwzorowane przez `x` na obrazie FFT.
   * Aby zaznaczyć głowny pik Bragga kliknij na obraz, co spowoduje pojawienie się ROI - kliknięcie przycisku `Add/Update Main Spot From ROI` zapisze pik główny, kliknięcie `Add Satelite Spot from ROI` zapisze pik satelicki.
   * Po dodaniu piku program obliczy (Wyniki w grupie `Selected Peaks Information):
@@ -170,7 +170,7 @@ Gdy już zbudujesz swój model, możesz go porównać z eksperymentem na dwa spo
 W panelu `Automated Analysis` wyświetlone zostaną stosunki intensywności i amplitudy piku satelitarnego do głównego.
 
 4. Zapisanie Wyniku
-Jeśli chcesz zachować wygenerowane FFT do dalszej analizy (np. użyć na nim innych narzędzi LFA - możesz użyć `Analyze Domain Walls...` i manualnie wybrać piki do analizy (rekomendowane)), kliknij przycisk `Load Simulation to Main Window`. Spowoduje to dodanie symulowanego obrazu FFT jako nowego elementu w panelu History w głównym oknie aplikacji.
+Jeśli chcesz zachować wygenerowane FFT do dalszej analizy (np. użyć na nim innych narzędzi LFA - możesz użyć `Analyze Supperstructure Periodicyty...` i manualnie wybrać piki do analizy (rekomendowane)), kliknij przycisk `Load Simulation to Main Window`. Spowoduje to dodanie symulowanego obrazu FFT jako nowego elementu w panelu History w głównym oknie aplikacji.
 
 ### 7. Rekonstrukcja z Przestrzeni Odwrotnej
 Narzędzie `Real Space Reconstruction...` (dostępne w menu `Analysis`) pozwala na wykonanie analizy *odwrotnej* – czyli przejścia z obrazu FFT z powrotem do przestrzeni rzeczywistej. Celem nie jest odtworzenie oryginalnego obrazu STM (co wymagałoby zachowania fazy, którą FFT traci), ale zrozumienie, jakie cechy w przestrzeni rzeczywistej odpowiadają za konkretne elementy widma Fouriera.
