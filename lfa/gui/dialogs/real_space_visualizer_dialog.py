@@ -4,7 +4,7 @@ import numpy as np
 from typing import Optional, List, Dict, Any, Tuple
 
 from PyQt6.QtWidgets import (
-    QDialog, QHBoxLayout, QVBoxLayout, QWidget, QGroupBox, QSpinBox, QScrollArea,
+    QDialog, QHBoxLayout, QVBoxLayout, QWidget, QGroupBox, QSpinBox, QDoubleSpinBox, QScrollArea,
     QFormLayout, QCheckBox, QLabel, QComboBox, QPushButton, QSplitter, QMessageBox
 )
 from PyQt6.QtCore import Qt, pyqtSlot, QPointF
@@ -221,6 +221,32 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         self.cb_visual_align.setToolTip("Rotates only the visualization so the adsorbate a1 vector matches the substrate a1 vector.")
         self.display_options_form.addRow(self.cb_visual_align)
 
+        self.substrate_lattice_cells_spin = QSpinBox()
+        self.substrate_lattice_cells_spin.setRange(1, 50)
+        self.substrate_lattice_cells_spin.setValue(10)
+        self.substrate_lattice_cells_spin.setToolTip("Number of substrate lattice cells drawn in each direction (N×N).")
+        self.display_options_form.addRow("Substrate lattice span (N):", self.substrate_lattice_cells_spin)
+
+        self.adsorbate_lattice_cells_spin = QSpinBox()
+        self.adsorbate_lattice_cells_spin.setRange(1, 50)
+        self.adsorbate_lattice_cells_spin.setValue(10)
+        self.adsorbate_lattice_cells_spin.setToolTip("Number of adsorbate lattice cells drawn in each direction (N×N).")
+        self.display_options_form.addRow("Adsorbate lattice span (N):", self.adsorbate_lattice_cells_spin)
+
+        self.substrate_atom_size_spin = QDoubleSpinBox()
+        self.substrate_atom_size_spin.setRange(1.0, 30.0)
+        self.substrate_atom_size_spin.setSingleStep(0.5)
+        self.substrate_atom_size_spin.setValue(8.0)
+        self.substrate_atom_size_spin.setToolTip("Marker size used for substrate lattice points.")
+        self.display_options_form.addRow("Substrate atom size:", self.substrate_atom_size_spin)
+
+        self.adsorbate_atom_size_spin = QDoubleSpinBox()
+        self.adsorbate_atom_size_spin.setRange(1.0, 30.0)
+        self.adsorbate_atom_size_spin.setSingleStep(0.5)
+        self.adsorbate_atom_size_spin.setValue(7.0)
+        self.adsorbate_atom_size_spin.setToolTip("Marker size used for adsorbate lattice points.")
+        self.display_options_form.addRow("Adsorbate atom size:", self.adsorbate_atom_size_spin)
+
         self.supercell_size_spinbox = QSpinBox()
         self.supercell_size_spinbox.setMinimum(1)
         self.supercell_size_spinbox.setMaximum(50)
@@ -306,6 +332,10 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         self.cb_show_g_adsorbate_fft.stateChanged.connect(self._trigger_redraw_all_visuals)
         self.ads_set_combo_vis.currentIndexChanged.connect(self._on_selected_adsorbate_set_changed_in_vis)
         self.calculate_sub_ads_angle_button.clicked.connect(self._on_calculate_sub_ads_angle_clicked)
+        self.substrate_lattice_cells_spin.valueChanged.connect(lambda _: self._trigger_redraw_all_visuals())
+        self.adsorbate_lattice_cells_spin.valueChanged.connect(lambda _: self._trigger_redraw_all_visuals())
+        self.substrate_atom_size_spin.valueChanged.connect(lambda _: self._trigger_redraw_all_visuals())
+        self.adsorbate_atom_size_spin.valueChanged.connect(lambda _: self._trigger_redraw_all_visuals())
         self.supercell_size_spinbox.valueChanged.connect(self._on_3d_settings_changed)
         self.launch_3d_button.clicked.connect(self._launch_3d_viewer)
 
@@ -694,9 +724,14 @@ class RealSpaceFFTVisualizerDialog(QDialog):
                     plot_item_rs, 
                     np.array(sub_params["a1_vec_nm"]), 
                     np.array(sub_params["a2_vec_nm"]),
-                    pen_color='r', symbol='o', symbol_size=8, symbol_color='darkred', label_text="S"
+                    pen_color='r',
+                    symbol='o',
+                    symbol_size=float(self.substrate_atom_size_spin.value()),
+                    symbol_color='darkred',
+                    label_text="S",
+                    n_cells=int(self.substrate_lattice_cells_spin.value())
                 )
-        
+
         for i, cb_ads_set in enumerate(self.adsorbate_set_checkboxes):
             if cb_ads_set.isChecked():
                 set_index = self.ads_set_combo_vis.itemData(i)
@@ -719,17 +754,28 @@ class RealSpaceFFTVisualizerDialog(QDialog):
                             plot_item_rs,
                             a1_ads_vec,
                             a2_ads_vec,
-                            pen_color=color, symbol=symbol, symbol_size=7, symbol_color=color, label_text=f"A{i+1}",
-                            offset_factor=0.0
+                            pen_color=color,
+                            symbol=symbol,
+                            symbol_size=float(self.adsorbate_atom_size_spin.value()),
+                            symbol_color=color,
+                            label_text=f"A{i+1}",
+                            offset_factor=0.0,
+                            n_cells=int(self.adsorbate_lattice_cells_spin.value())
                         )
         plot_item_rs.autoRange()
 
 
-    def _draw_single_real_space_lattice(self, plot_item: PlotItem, 
-                                      a1_vec: np.ndarray, a2_vec: np.ndarray, 
-                                      pen_color='k', symbol='o', symbol_size=8, 
-                                      symbol_color='k', label_text="",
-                                      offset_factor=0.0, n_cells: int = 10):
+    def _draw_single_real_space_lattice(self,
+                                        plot_item: PlotItem,
+                                        a1_vec: np.ndarray,
+                                        a2_vec: np.ndarray,
+                                        pen_color='k',
+                                        symbol='o',
+                                        symbol_size: float = 8.0,
+                                        symbol_color='k',
+                                        label_text: str = "",
+                                        offset_factor: float = 0.0,
+                                        n_cells: int = 10):
         """
         Draw a single real space lattice visualization.
         
