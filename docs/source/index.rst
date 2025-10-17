@@ -17,6 +17,7 @@ Key Features
 * **Drift & Distortion Correction**: Automatic calculation of the affine transformation matrix that maps the distorted, measured lattice to an ideal one, providing quantitative data on rotation and strain.
 * **Adsorbate Lattice Analysis**: Correction of adsorbate spot positions using the calculated substrate transformation, enabling accurate analysis of overlayer structures.
 * **Advanced Tools**: Includes modules for superstructure periodicity analysis and real-space reconstruction from a masked FFT.
+  * **Interactive 3D Viewer**: Inspect substrate and adsorbate lattices in 3D, with manual XY offsets to align layers before export or screenshots.
 * **History Tracking**: A non-linear history system allows users to seamlessly switch between different stages of the analysis.
 
 Core Workflow

@@ -374,6 +374,30 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         self.supercell_size_spinbox.setToolTip("Sets the NxN size of the supercell for 3D visualization.")
         self.display_options_form.addRow("3D Supercell Size (NxN):", self.supercell_size_spinbox)
 
+        offsets_group = QGroupBox("3D Layer Offsets (nm)")
+        offsets_form = QFormLayout(offsets_group)
+        self.substrate_offset_x_spin = QDoubleSpinBox()
+        self.substrate_offset_x_spin.setRange(-100.0, 100.0)
+        self.substrate_offset_x_spin.setDecimals(3)
+        self.substrate_offset_x_spin.setSingleStep(0.05)
+        offsets_form.addRow("Substrate ΔX:", self.substrate_offset_x_spin)
+        self.substrate_offset_y_spin = QDoubleSpinBox()
+        self.substrate_offset_y_spin.setRange(-100.0, 100.0)
+        self.substrate_offset_y_spin.setDecimals(3)
+        self.substrate_offset_y_spin.setSingleStep(0.05)
+        offsets_form.addRow("Substrate ΔY:", self.substrate_offset_y_spin)
+        self.adsorbate_offset_x_spin = QDoubleSpinBox()
+        self.adsorbate_offset_x_spin.setRange(-100.0, 100.0)
+        self.adsorbate_offset_x_spin.setDecimals(3)
+        self.adsorbate_offset_x_spin.setSingleStep(0.05)
+        offsets_form.addRow("Adsorbate ΔX:", self.adsorbate_offset_x_spin)
+        self.adsorbate_offset_y_spin = QDoubleSpinBox()
+        self.adsorbate_offset_y_spin.setRange(-100.0, 100.0)
+        self.adsorbate_offset_y_spin.setDecimals(3)
+        self.adsorbate_offset_y_spin.setSingleStep(0.05)
+        offsets_form.addRow("Adsorbate ΔY:", self.adsorbate_offset_y_spin)
+        self.display_options_form.addRow(offsets_group)
+
         self.launch_3d_button = QPushButton("Launch Interactive 3D Viewer")
         self.launch_3d_button.setToolTip("Opens a new, interactive window with a 3D model of the lattices.")
         self.display_options_form.addRow(self.launch_3d_button)
@@ -435,6 +459,8 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         main_splitter.setStretchFactor(1, 1)
         main_splitter.setStretchFactor(2, 0)
 
+        self._update_offset_controls_from_state()
+
     def _connect_signals(self):
         """
         Connect UI element signals to their respective slots.
@@ -463,6 +489,10 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         self.custom_length_convert_button.clicked.connect(self._on_custom_length_convert_clicked)
         self.custom_symbol_combo.currentTextChanged.connect(self._on_custom_symbol_changed)
         self.launch_3d_button.clicked.connect(self._launch_3d_viewer)
+        self.substrate_offset_x_spin.valueChanged.connect(self._on_substrate_offset_value_changed)
+        self.substrate_offset_y_spin.valueChanged.connect(self._on_substrate_offset_value_changed)
+        self.adsorbate_offset_x_spin.valueChanged.connect(self._on_adsorbate_offset_value_changed)
+        self.adsorbate_offset_y_spin.valueChanged.connect(self._on_adsorbate_offset_value_changed)
 
     @pyqtSlot()
     def _on_3d_settings_changed(self):
@@ -470,10 +500,17 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         Slot called when a 3D visualization parameter (like supercell size) changes.
         If the 3D viewer is already open, it triggers a redraw.
         """
-        # Refresh the 3D window if it is already open
-        if self.background_plotter and self.background_plotter.app_window.isVisible():
-            logger.debug("3D settings changed, updating background plotter.")
-            # self._launch_3d_viewer()
+        self._refresh_3d_plotter_if_open()
+
+    def _refresh_3d_plotter_if_open(self):
+        """Redraw the 3D viewer if it is currently visible."""
+        if self.background_plotter and not self.background_plotter._closed:
+            try:
+                if self.background_plotter.app_window.isVisible():
+                    logger.debug("Refreshing existing 3D plotter.")
+                    self._launch_3d_viewer()
+            except AttributeError: # pragma: no cover - defensive in case plotter lacks app_window
+                logger.debug("Background plotter missing app_window attribute during refresh.")
 
     @pyqtSlot(int)
     def _on_custom_adsorbate_visibility_changed(self, _state: int):
@@ -623,6 +660,10 @@ class RealSpaceFFTVisualizerDialog(QDialog):
                 z_height_nm=1.0
             )
             if substrate_atoms:
+                sub_offset = np.array(getattr(self.app_controller, "substrate_visual_offset_nm", (0.0, 0.0)), dtype=float)
+                if np.any(sub_offset):
+                    substrate_atoms.positions[:, 0] += sub_offset[0]
+                    substrate_atoms.positions[:, 1] += sub_offset[1]
                 for atom in substrate_atoms:
                     sphere = pv.Sphere(center=atom.position, radius=0.07)
                     sphere.compute_normals(inplace=True)
@@ -664,9 +705,13 @@ class RealSpaceFFTVisualizerDialog(QDialog):
                         if rotation_matrix is not None:
                             offset_xy_nm = np.dot(rotation_matrix, offset_xy_nm)
 
-                if np.any(offset_xy_nm):
-                    adsorbate_atoms.positions[:, 0] += offset_xy_nm[0]
-                    adsorbate_atoms.positions[:, 1] += offset_xy_nm[1]
+                ads_offsets = getattr(self.app_controller, "adsorbate_visual_offsets_nm", {})
+                user_offset_nm = np.array(ads_offsets.get(current_set_idx, (0.0, 0.0)), dtype=float)
+                total_offset = offset_xy_nm + user_offset_nm
+
+                if np.any(total_offset):
+                    adsorbate_atoms.positions[:, 0] += total_offset[0]
+                    adsorbate_atoms.positions[:, 1] += total_offset[1]
 
                 for atom in adsorbate_atoms:
                     sphere = pv.Sphere(center=atom.position, radius=0.1)
@@ -710,6 +755,7 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         set_index = self.ads_set_combo_vis.itemData(combo_box_index)
         if set_index is not None:
             logger.debug(f"Visualizer: Selected adsorbate set in combo changed to index {set_index}")
+            self._update_offset_controls_from_state()
             self._update_real_space_param_labels()
             self._redraw_fft_overlays()
             self._real_space_force_autorange = True
@@ -799,6 +845,8 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         self.ads_set_combo_vis.blockSignals(False)
         if self.ads_set_combo_vis.count() > 0 :
             self._on_selected_adsorbate_set_changed_in_vis(self.ads_set_combo_vis.currentIndex())
+        else:
+            self._update_offset_controls_from_state()
     
     @pyqtSlot()
     def _redraw_fft_overlays(self):
@@ -1446,3 +1494,58 @@ class RealSpaceFFTVisualizerDialog(QDialog):
             self.background_plotter.close()
             self.background_plotter = None
         super().closeEvent(event)
+    @pyqtSlot(float)
+    def _on_substrate_offset_value_changed(self, _value: float):
+        if not self.app_controller:
+            return
+        new_offset = (self.substrate_offset_x_spin.value(), self.substrate_offset_y_spin.value())
+        if getattr(self.app_controller, "substrate_visual_offset_nm", None) != new_offset:
+            self.app_controller.substrate_visual_offset_nm = new_offset
+            logger.debug(f"Updated substrate visual offset to {new_offset}.")
+            self._refresh_3d_plotter_if_open()
+
+    @pyqtSlot(float)
+    def _on_adsorbate_offset_value_changed(self, _value: float):
+        if not self.app_controller:
+            return
+        current_combo_index = self.ads_set_combo_vis.currentIndex()
+        set_index = self.ads_set_combo_vis.itemData(current_combo_index)
+        if set_index is None:
+            return
+        new_offset = (self.adsorbate_offset_x_spin.value(), self.adsorbate_offset_y_spin.value())
+        current_offsets = getattr(self.app_controller, "adsorbate_visual_offsets_nm", {})
+        if current_offsets.get(set_index) != new_offset:
+            current_offsets[set_index] = new_offset
+            self.app_controller.adsorbate_visual_offsets_nm = current_offsets
+            logger.debug(f"Updated adsorbate set {set_index} visual offset to {new_offset}.")
+            self._refresh_3d_plotter_if_open()
+
+    def _update_offset_controls_from_state(self):
+        """Sync spin boxes with controller-stored offsets."""
+        if not self.app_controller:
+            return
+
+        sub_offset = getattr(self.app_controller, "substrate_visual_offset_nm", (0.0, 0.0))
+        for spin, value in (
+            (self.substrate_offset_x_spin, sub_offset[0]),
+            (self.substrate_offset_y_spin, sub_offset[1]),
+        ):
+            spin.blockSignals(True)
+            spin.setValue(value)
+            spin.blockSignals(False)
+
+        current_combo_index = self.ads_set_combo_vis.currentIndex()
+        set_index = self.ads_set_combo_vis.itemData(current_combo_index)
+        ads_offsets = getattr(self.app_controller, "adsorbate_visual_offsets_nm", {})
+        offset = ads_offsets.get(set_index, (0.0, 0.0)) if set_index is not None else (0.0, 0.0)
+        if set_index is not None:
+            ads_offsets.setdefault(set_index, offset)
+            self.app_controller.adsorbate_visual_offsets_nm = ads_offsets
+
+        for spin, value in (
+            (self.adsorbate_offset_x_spin, offset[0]),
+            (self.adsorbate_offset_y_spin, offset[1]),
+        ):
+            spin.blockSignals(True)
+            spin.setValue(value)
+            spin.blockSignals(False)

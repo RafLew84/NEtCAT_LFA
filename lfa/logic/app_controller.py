@@ -138,6 +138,8 @@ class AppController(QObject):
         self.substrate_real_space_results: Optional[Dict[str, Any]] = None
         self.adsorbate_real_space_results: Dict[int, Dict[str, Any]] = {}
         self.adsorbate_expected_lattice_types: Dict[int, str] = {0: ADSORBATE_LATTICE_TYPE_UNKNOWN}
+        self.substrate_visual_offset_nm: Tuple[float, float] = (0.0, 0.0)
+        self.adsorbate_visual_offsets_nm: Dict[int, Tuple[float, float]] = {0: (0.0, 0.0)}
 
         self.superstructure_periodicity_results: Optional[Dict[str, Any]] = None
 
@@ -195,6 +197,8 @@ class AppController(QObject):
             'adsorbate_real_space_results': self.adsorbate_real_space_results,
             'adsorbate_expected_lattice_types': self.adsorbate_expected_lattice_types,
             'superstructure_periodicity_results': self.superstructure_periodicity_results,
+            'substrate_visual_offset_nm': self.substrate_visual_offset_nm,
+            'adsorbate_visual_offsets_nm': self.adsorbate_visual_offsets_nm,
             'adsorbate_spot_pairs': {
                 index: [
                     {'raw': raw, 'transformed': transformed}
@@ -273,8 +277,32 @@ class AppController(QObject):
             logger.info("Migrating legacy domain wall analysis results to superstructure periodicity results.")
             self.superstructure_periodicity_results = legacy_superstructure_results
 
+        substrate_offset = loaded_state.get("substrate_visual_offset_nm")
+        if substrate_offset is not None:
+            try:
+                self.substrate_visual_offset_nm = tuple(substrate_offset)
+            except TypeError:
+                logger.warning("Invalid substrate_visual_offset_nm in session; resetting to defaults.")
+                self.substrate_visual_offset_nm = (0.0, 0.0)
+
+        adsorbate_offsets = loaded_state.get("adsorbate_visual_offsets_nm")
+        if isinstance(adsorbate_offsets, dict):
+            converted_offsets: Dict[int, Tuple[float, float]] = {}
+            for idx_key, offset in adsorbate_offsets.items():
+                try:
+                    idx = int(idx_key)
+                except (TypeError, ValueError):
+                    logger.warning(f"Ignoring adsorbate offset with non-integer key: {idx_key}")
+                    continue
+                try:
+                    converted_offsets[idx] = tuple(offset)
+                except TypeError:
+                    logger.warning(f"Ignoring malformed adsorbate offset for set {idx}.")
+            if converted_offsets:
+                self.adsorbate_visual_offsets_nm.update(converted_offsets)
+
         for key, value in loaded_state.items():
-            if key == "domain_wall_analysis_results":
+            if key in {"domain_wall_analysis_results", "substrate_visual_offset_nm", "adsorbate_visual_offsets_nm"}:
                 continue
             if hasattr(self, key):
                 setattr(self, key, value)
@@ -315,6 +343,8 @@ class AppController(QObject):
         else:
             for idx in range(len(self.adsorbate_spot_sets)):
                 self.adsorbate_spot_pairs.setdefault(idx, [])
+        for idx in range(len(self.adsorbate_spot_sets)):
+            self.adsorbate_visual_offsets_nm.setdefault(idx, (0.0, 0.0))
 
         self.set_substrate_raw_visibility(getattr(self, "show_substrate_raw_spots", True))
         self.set_substrate_transformed_visibility(getattr(self, "show_substrate_transformed_spots", True))
@@ -467,6 +497,8 @@ class AppController(QObject):
         self.show_ideal_lattice = True
         self.current_fft_data_shape = None
         self.user_selected_substrate_spots.clear()
+        self.substrate_visual_offset_nm = (0.0, 0.0)
+        self.adsorbate_visual_offsets_nm = {0: (0.0, 0.0)}
 
         self.history_manager.refresh_widget()
 
@@ -1057,11 +1089,12 @@ class AppController(QObject):
 
     def clear_all_adsorbate_sets(self):
         """Clears all adsorbate sets and resets to one empty set."""
-        if self.adsorbate_spot_sets != [[]] or self.current_adsorbate_set_index != 0 :
+        if self.adsorbate_spot_sets != [[]] or self.current_adsorbate_set_index != 0:
             self.adsorbate_spot_sets = [[]]
             self.corrected_adsorbate_spot_sets = [[]]
             self.current_adsorbate_set_index = 0
             self.adsorbate_expected_lattice_types = {0: ADSORBATE_LATTICE_TYPE_UNKNOWN}
+            self.adsorbate_visual_offsets_nm = {0: (0.0, 0.0)}
             logger.info("All adsorbate spot sets cleared. Reset to one empty set.")
             self.adsorbate_sets_structure_changed.emit()
             if hasattr(self, 'adsorbate_expected_type_updated'): self.adsorbate_expected_type_updated.emit(0, ADSORBATE_LATTICE_TYPE_UNKNOWN)
@@ -1141,6 +1174,7 @@ class AppController(QObject):
         logger.info(f"Added new adsorbate set. Index: {self.current_adsorbate_set_index}")
         last_selected_type_in_panel = ADSORBATE_LATTICE_TYPE_UNKNOWN
         self.adsorbate_expected_lattice_types[new_set_index] = last_selected_type_in_panel
+        self.adsorbate_visual_offsets_nm[new_set_index] = (0.0, 0.0)
         self.spot_lists_updated.emit()
         self.adsorbate_sets_structure_changed.emit()
         if hasattr(self, 'adsorbate_expected_type_updated'): self.adsorbate_expected_type_updated.emit(new_set_index, last_selected_type_in_panel)
@@ -1177,6 +1211,8 @@ class AppController(QObject):
         self.substrate_real_space_results = None
         self.adsorbate_expected_lattice_types = {0: ADSORBATE_LATTICE_TYPE_UNKNOWN}
         self.adsorbate_spot_pairs = {0: []}
+        self.substrate_visual_offset_nm = (0.0, 0.0)
+        self.adsorbate_visual_offsets_nm = {0: (0.0, 0.0)}
         self.superstructure_periodicity_results = None
         self.superstructure_periodicity_results_updated.emit(None)
 

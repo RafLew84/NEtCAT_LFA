@@ -69,6 +69,11 @@ python -m lfa.main
 Sample STM datasets are located in the `data/` directory and can be used to
 explore the interface and analysis workflow.
 
+## 3D Visualization Tips
+
+- Launch the interactive 3D lattice viewer from the real-space visualizer to inspect substrate and adsorbate supercells.
+- Use the new layer offset controls (ΔX/ΔY) to nudge substrate or adsorbate atoms when layers render side-by-side.
+- These shifts are stored in the session, letting you fine-tune alignment before exporting screenshots or continuing analysis.
 ## Typical Workflow
 
 1. **Load data**: Use `File > Open...` to import STM files. Each image is added
