@@ -306,6 +306,13 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         self.custom_offset_y_spin.setValue(0.0)
         custom_adsorbate_form.addRow("Offset y (nm):", self.custom_offset_y_spin)
 
+        self.custom_symbol_combo = QComboBox()
+        self.custom_symbol_combo.addItems(["o", "s", "t", "x", "+", "star", "d"])
+        self.custom_symbol_combo.blockSignals(True)
+        self.custom_symbol_combo.setCurrentText("star")
+        self.custom_symbol_combo.blockSignals(False)
+        custom_adsorbate_form.addRow("Marker symbol:", self.custom_symbol_combo)
+
         button_row = QHBoxLayout()
         self.custom_adsorbate_apply_button = QPushButton("Apply Custom Adsorbate")
         self.custom_adsorbate_clear_button = QPushButton("Clear Custom Definition")
@@ -454,6 +461,7 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         self.custom_adsorbate_clear_button.clicked.connect(self._on_custom_adsorbate_clear_clicked)
         self.supercell_size_spinbox.valueChanged.connect(self._on_3d_settings_changed)
         self.custom_length_convert_button.clicked.connect(self._on_custom_length_convert_clicked)
+        self.custom_symbol_combo.currentTextChanged.connect(self._on_custom_symbol_changed)
         self.launch_3d_button.clicked.connect(self._launch_3d_viewer)
 
     @pyqtSlot()
@@ -502,6 +510,7 @@ class RealSpaceFFTVisualizerDialog(QDialog):
             "a1_vec_nm": a1_vec,
             "a2_vec_nm": a2_vec,
             "offset_nm": offset_vec,
+            "symbol": self.custom_symbol_combo.currentText(),
         }
         if not self.custom_adsorbate_visibility_checkbox.isChecked():
             self.custom_adsorbate_visibility_checkbox.blockSignals(True)
@@ -520,6 +529,7 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         self.custom_a2_y_spin.setValue(1.0)
         self.custom_offset_x_spin.setValue(0.0)
         self.custom_offset_y_spin.setValue(0.0)
+        self.custom_symbol_combo.setCurrentText("star")
         self.custom_a1_length_spin.setValue(1.0)
         self.custom_a2_length_spin.setValue(1.0)
         self.custom_angle_a1_spin.setValue(0.0)
@@ -560,6 +570,17 @@ class RealSpaceFFTVisualizerDialog(QDialog):
             spin.blockSignals(True)
             spin.setValue(value)
             spin.blockSignals(False)
+
+        if self.custom_adsorbate_definition is not None:
+            self._real_space_force_autorange = False
+            self._trigger_redraw_all_visuals()
+
+    @pyqtSlot(str)
+    def _on_custom_symbol_changed(self, new_symbol: str):
+        if self.custom_adsorbate_definition is not None:
+            self.custom_adsorbate_definition["symbol"] = new_symbol
+            self._real_space_force_autorange = False
+            self._trigger_redraw_all_visuals()
 
     @pyqtSlot()
     def _launch_3d_viewer(self):
@@ -1032,12 +1053,14 @@ class RealSpaceFFTVisualizerDialog(QDialog):
                 custom_a2 = np.dot(rotation_matrix, custom_a2)
                 custom_offset = np.dot(rotation_matrix, custom_offset)
 
+            custom_symbol = self.custom_adsorbate_definition.get("symbol", "star")
+
             self._draw_single_real_space_lattice(
                 plot_item_rs,
                 custom_a1,
                 custom_a2,
                 pen_color='orange',
-                symbol='star',
+                symbol=custom_symbol,
                 symbol_size=float(self.adsorbate_atom_size_spin.value()),
                 symbol_color='orange',
                 label_text="Custom",
