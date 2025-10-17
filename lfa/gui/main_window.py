@@ -221,6 +221,10 @@ class MainWindow(QMainWindow):
             self.app_controller.substrate_real_space_params_updated.connect(self._on_substrate_real_space_params_updated)
             self.app_controller.adsorbate_real_space_params_updated.connect(self._on_adsorbate_real_space_params_updated)
             self.app_controller.domain_wall_results_updated.connect(self._on_domain_wall_results_updated)
+            self.app_controller.substrate_raw_visibility_updated.connect(self._on_substrate_raw_visibility_updated)
+            self.app_controller.substrate_transformed_visibility_updated.connect(self._on_substrate_transformed_visibility_updated)
+            self.app_controller.adsorbate_raw_visibility_updated.connect(self._on_adsorbate_raw_visibility_updated)
+            self.app_controller.adsorbate_transformed_visibility_updated.connect(self._on_adsorbate_transformed_visibility_updated)
 
         if hasattr(self, 'fft_analysis_panel_widget'):
             self.fft_analysis_panel_widget.substrate_changed.connect(self._handle_substrate_changed)
@@ -233,11 +237,16 @@ class MainWindow(QMainWindow):
             self.fft_analysis_panel_widget.clear_all_adsorbate_sets_triggered.connect(self._on_clear_all_adsorbate_sets_clicked)
             self.fft_analysis_panel_widget.substrate_spots_visibility_changed.connect(self._handle_substrate_spots_visibility_changed)
             self.fft_analysis_panel_widget.adsorbate_spots_visibility_changed.connect(self._handle_adsorbate_spots_visibility_changed)
+            self.fft_analysis_panel_widget.substrate_raw_visibility_changed.connect(self._handle_substrate_raw_visibility_changed)
+            self.fft_analysis_panel_widget.substrate_transformed_visibility_changed.connect(self._handle_substrate_transformed_visibility_changed)
+            self.fft_analysis_panel_widget.adsorbate_raw_visibility_changed.connect(self._handle_adsorbate_raw_visibility_changed)
+            self.fft_analysis_panel_widget.adsorbate_transformed_visibility_changed.connect(self._handle_adsorbate_transformed_visibility_changed)
             self.fft_analysis_panel_widget.select_edit_substrate_spots_requested.connect(self.open_substrate_spot_selection_dialog)
             self.fft_analysis_panel_widget.select_edit_adsorbate_spots_requested.connect(self.open_adsorbate_spot_selection_dialog)
             self.fft_analysis_panel_widget.calculate_substrate_real_space_params_requested.connect(self._on_calculate_substrate_rs_params_button_clicked)
             self.fft_analysis_panel_widget.calculate_adsorbate_real_space_params_requested.connect(self._on_calculate_adsorbate_rs_params_button_clicked)
             self.fft_analysis_panel_widget.expected_adsorbate_lattice_type_changed.connect(self._handle_expected_adsorbate_type_changed_from_panel)
+            self._apply_panel_overlay_visibility_to_controller()
 
         if hasattr(self, 'visualization_manager') and self.visualization_manager:
             self.visualization_manager.fft_view_clicked.connect(self._on_fft_view_clicked_from_visualizer)
@@ -1068,6 +1077,55 @@ class MainWindow(QMainWindow):
         logger.debug(f"MainWindow: Substrate spots visibility changed to {is_visible} via panel.")
         self.app_controller.show_substrate_spots_markers = is_visible
 
+    def _handle_substrate_raw_visibility_changed(self, is_visible: bool):
+        if self.app_controller:
+            self.app_controller.set_substrate_raw_visibility(is_visible)
+
+    def _handle_substrate_transformed_visibility_changed(self, is_visible: bool):
+        if self.app_controller:
+            self.app_controller.set_substrate_transformed_visibility(is_visible)
+
+    def _handle_adsorbate_raw_visibility_changed(self, is_visible: bool):
+        if self.app_controller:
+            self.app_controller.set_adsorbate_raw_visibility(is_visible)
+
+    def _handle_adsorbate_transformed_visibility_changed(self, is_visible: bool):
+        if self.app_controller:
+            self.app_controller.set_adsorbate_transformed_visibility(is_visible)
+
+    def _on_substrate_raw_visibility_updated(self, is_visible: bool):
+        if hasattr(self, 'visualization_manager') and self.visualization_manager:
+            self.visualization_manager.set_substrate_raw_visible(is_visible)
+        if hasattr(self, 'fft_analysis_panel_widget') and self.fft_analysis_panel_widget:
+            self.fft_analysis_panel_widget.set_show_substrate_raw_checked(is_visible)
+
+    def _on_substrate_transformed_visibility_updated(self, is_visible: bool):
+        if hasattr(self, 'visualization_manager') and self.visualization_manager:
+            self.visualization_manager.set_substrate_transformed_visible(is_visible)
+        if hasattr(self, 'fft_analysis_panel_widget') and self.fft_analysis_panel_widget:
+            self.fft_analysis_panel_widget.set_show_substrate_transformed_checked(is_visible)
+
+    def _on_adsorbate_raw_visibility_updated(self, is_visible: bool):
+        if hasattr(self, 'visualization_manager') and self.visualization_manager:
+            self.visualization_manager.set_adsorbate_raw_visible(is_visible)
+        if hasattr(self, 'fft_analysis_panel_widget') and self.fft_analysis_panel_widget:
+            self.fft_analysis_panel_widget.set_show_adsorbate_raw_checked(is_visible)
+
+    def _on_adsorbate_transformed_visibility_updated(self, is_visible: bool):
+        if hasattr(self, 'visualization_manager') and self.visualization_manager:
+            self.visualization_manager.set_adsorbate_transformed_visible(is_visible)
+        if hasattr(self, 'fft_analysis_panel_widget') and self.fft_analysis_panel_widget:
+            self.fft_analysis_panel_widget.set_show_adsorbate_transformed_checked(is_visible)
+
+    def _apply_panel_overlay_visibility_to_controller(self) -> None:
+        if not self.app_controller or not hasattr(self, 'fft_analysis_panel_widget'):
+            return
+        panel = self.fft_analysis_panel_widget
+        self.app_controller.set_substrate_raw_visibility(panel.is_show_substrate_raw_checked())
+        self.app_controller.set_substrate_transformed_visibility(panel.is_show_substrate_transformed_checked())
+        self.app_controller.set_adsorbate_raw_visibility(panel.is_show_adsorbate_raw_checked())
+        self.app_controller.set_adsorbate_transformed_visibility(panel.is_show_adsorbate_transformed_checked())
+
 
     @pyqtSlot(bool)
     def _handle_adsorbate_spots_visibility_changed(self, is_visible: bool):
@@ -1389,6 +1447,12 @@ class MainWindow(QMainWindow):
         substrate_spots_to_draw = self.app_controller.displayable_fitted_substrate_spots_on_fft
         corrected_adsorbate_sets_ideal_sys = self.app_controller.corrected_adsorbate_spot_sets
 
+        show_substrate_markers = True
+        show_adsorbate_markers = True
+        if self.app_controller:
+            show_substrate_markers = self.app_controller.show_substrate_spots_markers
+            show_adsorbate_markers = self.app_controller.show_adsorbate_spots_markers
+
         if hasattr(self, 'fft_analysis_panel_widget') and self.fft_analysis_panel_widget is not None:
             show_ideal_lattice = self.fft_analysis_panel_widget.is_show_ideal_lattice_checked() # lub self.app_controller.show_ideal_lattice
             selected_substrate = self.fft_analysis_panel_widget.get_current_substrate() # lub self.app_controller.last_selected_substrate
@@ -1401,10 +1465,23 @@ class MainWindow(QMainWindow):
             self.app_controller.custom_lattice_info, 
             panel_custom_text,  
             substrate_spots_to_draw, 
-            True,
+            show_substrate_markers,
             corrected_adsorbate_sets_ideal_sys,
-            True
+            show_adsorbate_markers
         )
+
+        if current_node and current_node.data_type == "FFT":
+            substrate_pairs = self.app_controller.substrate_spot_pairs if show_substrate_markers else []
+            self.visualization_manager.update_substrate_spot_pairs(substrate_pairs)
+
+            if show_adsorbate_markers:
+                for set_index, pair_list in self.app_controller.adsorbate_spot_pairs.items():
+                    self.visualization_manager.update_adsorbate_spot_pairs(set_index, pair_list)
+            else:
+                self.visualization_manager.clear_adsorbate_layers()
+        else:
+            self.visualization_manager.update_substrate_spot_pairs([])
+            self.visualization_manager.clear_adsorbate_layers()
         if hasattr(self, '_update_action_states'): self._update_action_states()
     
     @pyqtSlot(QPointF)

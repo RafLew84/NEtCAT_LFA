@@ -51,6 +51,10 @@ class FFTAnalysisPanel(QWidget):
     # Signals for marker visibility
     substrate_spots_visibility_changed = pyqtSignal(bool)
     adsorbate_spots_visibility_changed = pyqtSignal(bool)
+    substrate_raw_visibility_changed = pyqtSignal(bool)
+    substrate_transformed_visibility_changed = pyqtSignal(bool)
+    adsorbate_raw_visibility_changed = pyqtSignal(bool)
+    adsorbate_transformed_visibility_changed = pyqtSignal(bool)
 
     calculate_substrate_real_space_params_requested = pyqtSignal()
     calculate_adsorbate_real_space_params_requested = pyqtSignal(int)
@@ -196,6 +200,14 @@ class FFTAnalysisPanel(QWidget):
         substrate_set_form_layout.addRow(self.rotation_angle_label) # type: ignore
         substrate_set_form_layout.addRow(self.rmse_label) # type: ignore
         substrate_set_form_layout.addRow(self.scale_factor_label) # type: ignore
+
+        self.cb_show_substrate_raw_spots = QCheckBox("Show Raw Substrate Spots")
+        self.cb_show_substrate_raw_spots.setChecked(True)
+        substrate_set_form_layout.addRow(self.cb_show_substrate_raw_spots)
+
+        self.cb_show_substrate_transformed_spots = QCheckBox("Show Transformed Substrate Spots")
+        self.cb_show_substrate_transformed_spots.setChecked(True)
+        substrate_set_form_layout.addRow(self.cb_show_substrate_transformed_spots)
         spot_selection_layout.addWidget(self.substrate_set_panel)
         self.substrate_set_panel.setVisible(True) # Visible by default
 
@@ -223,6 +235,14 @@ class FFTAnalysisPanel(QWidget):
         adsorbate_buttons_layout_top.addWidget(self.edit_adsorbate_spots_button)
 
         adsorbate_buttons_layout_bottom = QHBoxLayout()
+        self.cb_show_adsorbate_raw_spots = QCheckBox("Show Raw Adsorbate Spots")
+        self.cb_show_adsorbate_raw_spots.setChecked(True)
+        adsorbate_set_form_layout.addRow(self.cb_show_adsorbate_raw_spots)
+
+        self.cb_show_adsorbate_transformed_spots = QCheckBox("Show Transformed Adsorbate Spots")
+        self.cb_show_adsorbate_transformed_spots.setChecked(True)
+        adsorbate_set_form_layout.addRow(self.cb_show_adsorbate_transformed_spots)
+
         self.reselect_adsorbate_set_button = QPushButton("Clear Current Set")
         self.clear_all_adsorbate_sets_button = QPushButton("Clear All Sets")
         adsorbate_buttons_layout_bottom.addWidget(self.reselect_adsorbate_set_button)
@@ -256,6 +276,19 @@ class FFTAnalysisPanel(QWidget):
 
         # Spot Selection Mode
         self.rb_select_substrate.toggled.connect(self._handle_spot_selection_mode_toggle)
+
+        self.cb_show_substrate_raw_spots.stateChanged.connect(
+            lambda state: self.substrate_raw_visibility_changed.emit(state == Qt.CheckState.Checked.value)
+        )
+        self.cb_show_substrate_transformed_spots.stateChanged.connect(
+            lambda state: self.substrate_transformed_visibility_changed.emit(state == Qt.CheckState.Checked.value)
+        )
+        self.cb_show_adsorbate_raw_spots.stateChanged.connect(
+            lambda state: self.adsorbate_raw_visibility_changed.emit(state == Qt.CheckState.Checked.value)
+        )
+        self.cb_show_adsorbate_transformed_spots.stateChanged.connect(
+            lambda state: self.adsorbate_transformed_visibility_changed.emit(state == Qt.CheckState.Checked.value)
+        )
 
         # Adsorbate Set Management
         self.adsorbate_set_combo.currentTextChanged.connect(self._handle_adsorbate_set_combo_change)
@@ -367,6 +400,38 @@ class FFTAnalysisPanel(QWidget):
 
     def is_show_ideal_lattice_checked(self) -> bool:
         return self.show_ideal_lattice_checkbox.isChecked()
+    
+    def is_show_substrate_raw_checked(self) -> bool:
+        return self.cb_show_substrate_raw_spots.isChecked()
+
+    def is_show_substrate_transformed_checked(self) -> bool:
+        return self.cb_show_substrate_transformed_spots.isChecked()
+
+    def is_show_adsorbate_raw_checked(self) -> bool:
+        return self.cb_show_adsorbate_raw_spots.isChecked()
+
+    def is_show_adsorbate_transformed_checked(self) -> bool:
+        return self.cb_show_adsorbate_transformed_spots.isChecked()
+
+    def set_show_substrate_raw_checked(self, checked: bool) -> None:
+        self.cb_show_substrate_raw_spots.blockSignals(True)
+        self.cb_show_substrate_raw_spots.setChecked(checked)
+        self.cb_show_substrate_raw_spots.blockSignals(False)
+
+    def set_show_substrate_transformed_checked(self, checked: bool) -> None:
+        self.cb_show_substrate_transformed_spots.blockSignals(True)
+        self.cb_show_substrate_transformed_spots.setChecked(checked)
+        self.cb_show_substrate_transformed_spots.blockSignals(False)
+
+    def set_show_adsorbate_raw_checked(self, checked: bool) -> None:
+        self.cb_show_adsorbate_raw_spots.blockSignals(True)
+        self.cb_show_adsorbate_raw_spots.setChecked(checked)
+        self.cb_show_adsorbate_raw_spots.blockSignals(False)
+
+    def set_show_adsorbate_transformed_checked(self, checked: bool) -> None:
+        self.cb_show_adsorbate_transformed_spots.blockSignals(True)
+        self.cb_show_adsorbate_transformed_spots.setChecked(checked)
+        self.cb_show_adsorbate_transformed_spots.blockSignals(False)
     
     def get_spot_selection_mode(self) -> str:
         """Returns the current spot selection mode ('Substrate' or 'Adsorbate')."""

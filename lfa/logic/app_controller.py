@@ -74,6 +74,11 @@ class AppController(QObject):
 
     adsorbate_expected_type_updated = pyqtSignal(int, str)
 
+    substrate_raw_visibility_updated = pyqtSignal(bool)
+    substrate_transformed_visibility_updated = pyqtSignal(bool)
+    adsorbate_raw_visibility_updated = pyqtSignal(bool)
+    adsorbate_transformed_visibility_updated = pyqtSignal(bool)
+
     def __init__(self, history_manager, parent: Optional[QObject] = None):
         """
         Initializes the AppController.
@@ -118,12 +123,20 @@ class AppController(QObject):
         self.substrate_transform_analysis_m2i: Optional[Dict[str, Any]] = None
         
         self.displayable_fitted_substrate_spots_on_fft: List[Tuple[float, float]] = []
+        self.substrate_spot_pairs: List[Tuple[Tuple[float, float], Tuple[float, float]]] = []
 
         self.show_fitted_substrate_spots: bool = True
+        self.show_substrate_raw_spots: bool = True
+        self.show_substrate_transformed_spots: bool = True
+        self.show_adsorbate_raw_spots: bool = True
+        self.show_adsorbate_transformed_spots: bool = True
+        self.show_substrate_spots_markers: bool = True
+        self.show_adsorbate_spots_markers: bool = True
+        self.adsorbate_spot_pairs: Dict[int, List[Tuple[Tuple[float, float], Tuple[float, float]]]] = {0: []}
 
         self.current_fft_data_shape: Optional[Tuple[int, int]] = None
         self.substrate_real_space_results: Optional[Dict[str, Any]] = None
-        self.adsorbate_real_space_results: Dict[int, Dict[str, Any]] = {} 
+        self.adsorbate_real_space_results: Dict[int, Dict[str, Any]] = {}
         self.adsorbate_expected_lattice_types: Dict[int, str] = {0: ADSORBATE_LATTICE_TYPE_UNKNOWN}
 
         self.domain_wall_analysis_results: Optional[Dict[str, Any]] = None
@@ -165,13 +178,30 @@ class AppController(QObject):
             'substrate_t_m2i': self.substrate_t_m2i,
             'substrate_transform_analysis_m2i': self.substrate_transform_analysis_m2i,
             'displayable_fitted_substrate_spots_on_fft': self.displayable_fitted_substrate_spots_on_fft,
+            'substrate_spot_pairs': [
+                {'raw': raw, 'transformed': transformed}
+                for raw, transformed in self.substrate_spot_pairs
+            ],
+            'show_substrate_raw_spots': self.show_substrate_raw_spots,
+            'show_substrate_transformed_spots': self.show_substrate_transformed_spots,
+            'show_adsorbate_raw_spots': self.show_adsorbate_raw_spots,
+            'show_adsorbate_transformed_spots': self.show_adsorbate_transformed_spots,
+            'show_substrate_spots_markers': self.show_substrate_spots_markers,
+            'show_adsorbate_spots_markers': self.show_adsorbate_spots_markers,
             'substrate_real_space_results': self.substrate_real_space_results,
             'adsorbate_spot_sets': self.adsorbate_spot_sets,
             'corrected_adsorbate_spot_sets': self.corrected_adsorbate_spot_sets,
             'current_adsorbate_set_index': self.current_adsorbate_set_index,
             'adsorbate_real_space_results': self.adsorbate_real_space_results,
             'adsorbate_expected_lattice_types': self.adsorbate_expected_lattice_types,
-            'domain_wall_analysis_results': self.domain_wall_analysis_results
+            'domain_wall_analysis_results': self.domain_wall_analysis_results,
+            'adsorbate_spot_pairs': {
+                index: [
+                    {'raw': raw, 'transformed': transformed}
+                    for raw, transformed in pairs
+                ]
+                for index, pairs in self.adsorbate_spot_pairs.items()
+            },
         }
 
         original_images_payload = []
@@ -243,6 +273,46 @@ class AppController(QObject):
                 setattr(self, key, value)
             else:
                 logger.warning(f"Attribute '{key}' from the session file no longer exists on AppController.")
+
+        raw_substrate_pairs = loaded_state.get("substrate_spot_pairs")
+        if raw_substrate_pairs is not None:
+            self.substrate_spot_pairs = [
+                (tuple(pair.get("raw", (0.0, 0.0))), tuple(pair.get("transformed", (0.0, 0.0))))
+                for pair in raw_substrate_pairs
+            ]
+        else:
+            self.substrate_spot_pairs = []
+
+        raw_substrate_pairs = loaded_state.get("substrate_spot_pairs") or []
+        self.substrate_spot_pairs = [
+            (tuple(pair.get("raw", (0.0, 0.0))), tuple(pair.get("transformed", (0.0, 0.0))))
+            for pair in raw_substrate_pairs
+        ]
+
+        raw_adsorbate_pairs = loaded_state.get("adsorbate_spot_pairs")
+        converted_adsorbate_pairs: Dict[int, List[Tuple[Tuple[float, float], Tuple[float, float]]]] = {}
+        if isinstance(raw_adsorbate_pairs, dict):
+            for index_key, pairs in raw_adsorbate_pairs.items():
+                try:
+                    index = int(index_key)
+                except (TypeError, ValueError):
+                    continue
+                converted_adsorbate_pairs[index] = [
+                    (tuple(pair.get("raw", (0.0, 0.0))), tuple(pair.get("transformed", (0.0, 0.0))))
+                    for pair in pairs
+                ]
+        self.adsorbate_spot_pairs = converted_adsorbate_pairs
+
+        if not self.adsorbate_spot_pairs:
+            self.adsorbate_spot_pairs = {i: [] for i in range(len(self.adsorbate_spot_sets))}
+        else:
+            for idx in range(len(self.adsorbate_spot_sets)):
+                self.adsorbate_spot_pairs.setdefault(idx, [])
+
+        self.set_substrate_raw_visibility(getattr(self, "show_substrate_raw_spots", True))
+        self.set_substrate_transformed_visibility(getattr(self, "show_substrate_transformed_spots", True))
+        self.set_adsorbate_raw_visibility(getattr(self, "show_adsorbate_raw_spots", True))
+        self.set_adsorbate_transformed_visibility(getattr(self, "show_adsorbate_transformed_spots", True))
 
         format_version = session_data.get("format_version", "1.0")
         history_data = session_data.get("history_data", {})
@@ -510,6 +580,14 @@ class AppController(QObject):
         self.substrate_t_m2i = new_t_m2i
         self.substrate_transform_analysis_m2i = new_analysis_m2i
         self.displayable_fitted_substrate_spots_on_fft = list(new_displayable_fitted_spots)
+        if new_displayable_fitted_spots and new_user_spots:
+            pair_count = min(len(new_user_spots), len(new_displayable_fitted_spots))
+            self.substrate_spot_pairs = [
+                (tuple(new_user_spots[i]), tuple(new_displayable_fitted_spots[i]))
+                for i in range(pair_count)
+            ]
+        else:
+            self.substrate_spot_pairs = []
 
         if new_def_name == PREDEFINED_SUBSTRATE_CUSTOM:
             self.custom_lattice_info = {"type": new_lattice_type, "a_surf": new_a_surf, "name": "Custom (Dialog)"}
@@ -897,6 +975,34 @@ class AppController(QObject):
         else:
             logger.warning(f"Attempted to set invalid refinement ROI size: {size}")
 
+    def set_substrate_raw_visibility(self, is_visible: bool) -> None:
+        """Stores substrate raw spot visibility and informs listeners."""
+        if self.show_substrate_raw_spots != is_visible:
+            logger.debug("AppController: Substrate raw visibility changed to %s", is_visible)
+        self.show_substrate_raw_spots = is_visible
+        self.substrate_raw_visibility_updated.emit(is_visible)
+
+    def set_substrate_transformed_visibility(self, is_visible: bool) -> None:
+        """Stores substrate transformed spot visibility and informs listeners."""
+        if self.show_substrate_transformed_spots != is_visible:
+            logger.debug("AppController: Substrate transformed visibility changed to %s", is_visible)
+        self.show_substrate_transformed_spots = is_visible
+        self.substrate_transformed_visibility_updated.emit(is_visible)
+
+    def set_adsorbate_raw_visibility(self, is_visible: bool) -> None:
+        """Stores adsorbate raw spot visibility and informs listeners."""
+        if self.show_adsorbate_raw_spots != is_visible:
+            logger.debug("AppController: Adsorbate raw visibility changed to %s", is_visible)
+        self.show_adsorbate_raw_spots = is_visible
+        self.adsorbate_raw_visibility_updated.emit(is_visible)
+
+    def set_adsorbate_transformed_visibility(self, is_visible: bool) -> None:
+        """Stores adsorbate transformed spot visibility and informs listeners."""
+        if self.show_adsorbate_transformed_spots != is_visible:
+            logger.debug("AppController: Adsorbate transformed visibility changed to %s", is_visible)
+        self.show_adsorbate_transformed_spots = is_visible
+        self.adsorbate_transformed_visibility_updated.emit(is_visible)
+
     def clear_last_adsorbate_spot(self):
         """Removes the last added spot from the current adsorbate set."""
         if self.spot_selection_mode == SPOT_SELECTION_ADSORBATE and \
@@ -904,6 +1010,10 @@ class AppController(QObject):
             current_set = self.adsorbate_spot_sets[self.current_adsorbate_set_index]
             if current_set:
                 removed_point = current_set.pop()
+                if self.current_adsorbate_set_index < len(self.corrected_adsorbate_spot_sets) and self.corrected_adsorbate_spot_sets[self.current_adsorbate_set_index]:
+                    self.corrected_adsorbate_spot_sets[self.current_adsorbate_set_index].pop()
+                if self.current_adsorbate_set_index in self.adsorbate_spot_pairs and self.adsorbate_spot_pairs[self.current_adsorbate_set_index]:
+                    self.adsorbate_spot_pairs[self.current_adsorbate_set_index].pop()
                 logger.info(f"Removed last adsorbate spot {removed_point} from set {self.current_adsorbate_set_index}.")
                 self.spot_lists_updated.emit()
             else: logger.debug("No adsorbate spots in current set to clear.") # pragma: no cover
@@ -915,6 +1025,9 @@ class AppController(QObject):
             0 <= self.current_adsorbate_set_index < len(self.adsorbate_spot_sets):
             if self.adsorbate_spot_sets[self.current_adsorbate_set_index]:
                 self.adsorbate_spot_sets[self.current_adsorbate_set_index].clear()
+                if 0 <= self.current_adsorbate_set_index < len(self.corrected_adsorbate_spot_sets):
+                    self.corrected_adsorbate_spot_sets[self.current_adsorbate_set_index].clear()
+                self.adsorbate_spot_pairs[self.current_adsorbate_set_index] = []
                 logger.info(f"Cleared all spots from adsorbate set {self.current_adsorbate_set_index}.")
                 self.spot_lists_updated.emit()
         else: logger.debug("Not in adsorbate mode or invalid set index for reselect_current_adsorbate_set.") # pragma: no cover
@@ -963,6 +1076,8 @@ class AppController(QObject):
         while len(self.corrected_adsorbate_spot_sets) <= set_index:
             self.corrected_adsorbate_spot_sets.append([])
 
+        self.adsorbate_spot_pairs.setdefault(set_index, [])
+
         raw_changed = self.adsorbate_spot_sets[set_index] != raw_spots
         corrected_changed = self.corrected_adsorbate_spot_sets[set_index] != corrected_spots_ideal_system
 
@@ -974,11 +1089,20 @@ class AppController(QObject):
             self.corrected_adsorbate_spot_sets[set_index] = list(corrected_spots_ideal_system)
             logger.info(f"AppController: Updated corrected adsorbate spots (ideal sys) for set {set_index}. Count: {len(corrected_spots_ideal_system)}")
 
+        pair_count = min(len(self.adsorbate_spot_sets[set_index]), len(self.corrected_adsorbate_spot_sets[set_index]))
+        if pair_count > 0:
+            self.adsorbate_spot_pairs[set_index] = [
+                (tuple(self.adsorbate_spot_sets[set_index][i]), tuple(self.corrected_adsorbate_spot_sets[set_index][i]))
+                for i in range(pair_count)
+            ]
+        else:
+            self.adsorbate_spot_pairs[set_index] = []
+
         if raw_changed or corrected_changed:
             self.adsorbate_set_updated.emit(set_index)
             if raw_changed and hasattr(self, 'spot_lists_updated'):
                  self.spot_lists_updated.emit()
-    
+
         if set_index in self.adsorbate_real_space_results:
             del self.adsorbate_real_space_results[set_index]
             self.adsorbate_real_space_params_updated.emit(set_index, {})
@@ -1006,6 +1130,7 @@ class AppController(QObject):
         self.corrected_adsorbate_spot_sets.append([])
         self.current_adsorbate_set_index = len(self.adsorbate_spot_sets) - 1
         new_set_index = len(self.adsorbate_spot_sets) - 1
+        self.adsorbate_spot_pairs.setdefault(new_set_index, [])
         logger.info(f"Added new adsorbate set. Index: {self.current_adsorbate_set_index}")
         last_selected_type_in_panel = ADSORBATE_LATTICE_TYPE_UNKNOWN
         self.adsorbate_expected_lattice_types[new_set_index] = last_selected_type_in_panel
@@ -1041,10 +1166,17 @@ class AppController(QObject):
         self.substrate_t_m2i = None
         self.substrate_transform_analysis_m2i = None
         self.displayable_fitted_substrate_spots_on_fft.clear()
+        self.substrate_spot_pairs.clear()
         self.substrate_real_space_results = None
         self.adsorbate_expected_lattice_types = {0: ADSORBATE_LATTICE_TYPE_UNKNOWN}
+        self.adsorbate_spot_pairs = {0: []}
         self.domain_wall_analysis_results = None
         self.domain_wall_results_updated.emit(None)
+
+        self.set_substrate_raw_visibility(True)
+        self.set_substrate_transformed_visibility(True)
+        self.set_adsorbate_raw_visibility(True)
+        self.set_adsorbate_transformed_visibility(True)
 
         if hasattr(self, 'substrate_real_space_params_updated'): self.substrate_real_space_params_updated.emit({})
         if hasattr(self, 'spot_lists_updated'): self.spot_lists_updated.emit()

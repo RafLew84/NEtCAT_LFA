@@ -55,6 +55,18 @@ class VisualizationManager(QObject):
         self.substrate_spot_markers: Optional[pg.ScatterPlotItem] = None
         self.adsorbate_spot_set_markers: List[pg.ScatterPlotItem] = []
 
+        self.substrate_raw_markers: Optional[pg.ScatterPlotItem] = None
+        self.substrate_transformed_markers: Optional[pg.ScatterPlotItem] = None
+        self.substrate_pair_lines: List[pg.PlotDataItem] = []
+        self._substrate_raw_visible: bool = True
+        self._substrate_transformed_visible: bool = True
+
+        self.adsorbate_raw_markers: Dict[int, pg.ScatterPlotItem] = {}
+        self.adsorbate_transformed_markers: Dict[int, pg.ScatterPlotItem] = {}
+        self.adsorbate_pair_lines: Dict[int, List[pg.PlotDataItem]] = {}
+        self._adsorbate_raw_visible: bool = True
+        self._adsorbate_transformed_visible: bool = True
+
         self._current_fft_mouse_click_connection = None 
 
         logger.info("VisualizationManager initialized successfully.")
@@ -124,25 +136,311 @@ class VisualizationManager(QObject):
             self.image_item.clear()
             logger.debug("VisualizationManager: No node to display or node has no data. View cleared.")
 
+    def _remove_item_from_view(self, item):
+        """Safely removes a graphic item from the view box."""
+        if not item or not self.view_box:
+            return
+        try:
+            self.view_box.removeItem(item)
+        except RuntimeError:
+            pass
+
     def _clear_all_graphic_items(self):
         """Internal method for clearing all managed graphic items (overlays, markers)."""
         if not self.view_box: return
 
         if self.ideal_lattice_overlay_item:
-            try: self.view_box.removeItem(self.ideal_lattice_overlay_item)
-            except RuntimeError: pass
+            self._remove_item_from_view(self.ideal_lattice_overlay_item)
             self.ideal_lattice_overlay_item = None
-        
+
         if self.substrate_spot_markers:
-            try: self.view_box.removeItem(self.substrate_spot_markers)
-            except RuntimeError: pass
+            self._remove_item_from_view(self.substrate_spot_markers)
             self.substrate_spot_markers = None
+
+        if self.substrate_raw_markers:
+            self._remove_item_from_view(self.substrate_raw_markers)
+            self.substrate_raw_markers = None
+
+        if self.substrate_transformed_markers:
+            self._remove_item_from_view(self.substrate_transformed_markers)
+            self.substrate_transformed_markers = None
+
+        for line in self.substrate_pair_lines:
+            self._remove_item_from_view(line)
+        self.substrate_pair_lines = []
 
         for marker_set in self.adsorbate_spot_set_markers:
             if marker_set:
-                try: self.view_box.removeItem(marker_set)
-                except RuntimeError: pass
+                self._remove_item_from_view(marker_set)
         self.adsorbate_spot_set_markers = []
+
+        for marker in self.adsorbate_raw_markers.values():
+            self._remove_item_from_view(marker)
+        self.adsorbate_raw_markers = {}
+
+        for marker in self.adsorbate_transformed_markers.values():
+            self._remove_item_from_view(marker)
+        self.adsorbate_transformed_markers = {}
+
+        for line_list in self.adsorbate_pair_lines.values():
+            for line in line_list:
+                self._remove_item_from_view(line)
+        self.adsorbate_pair_lines = {}
+
+    def update_substrate_spot_pairs(
+        self,
+        spot_pairs: List[Tuple[Tuple[float, float], Tuple[float, float]]]
+    ) -> None:
+        """Render both raw and transformed substrate spots together with pair links."""
+        raw_coords = [raw for raw, _ in spot_pairs if raw is not None]
+        transformed_coords = [transformed for _, transformed in spot_pairs if transformed is not None]
+        self.update_substrate_raw_spots(raw_coords)
+        self.update_substrate_transformed_spots(transformed_coords)
+        self.update_substrate_pair_lines(spot_pairs)
+
+    def update_substrate_raw_spots(self, raw_points: List[Tuple[float, float]]) -> None:
+        """Render raw substrate spot markers."""
+        if not self.view_box:  # pragma: no cover - safety for headless usage
+            return
+
+        if self.substrate_raw_markers:
+            self._remove_item_from_view(self.substrate_raw_markers)
+            self.substrate_raw_markers = None
+
+        if not raw_points:
+            return
+
+        try:
+            marker = pg.ScatterPlotItem(
+                pos=np.asarray(raw_points, dtype=float),
+                symbol='x',
+                size=11,
+                pen=pg.mkPen((255, 215, 0), width=2),
+                brush=pg.mkBrush(None)
+            )
+            marker.setVisible(self._substrate_raw_visible)
+            self.view_box.addItem(marker)
+            self.substrate_raw_markers = marker
+        except Exception as exc:  # pragma: no cover
+            logger.exception("VisualizationManager: Failed to draw raw substrate spots: %s", exc)
+
+    def update_substrate_transformed_spots(self, transformed_points: List[Tuple[float, float]]) -> None:
+        """Render transformed substrate spot markers."""
+        if not self.view_box:  # pragma: no cover
+            return
+
+        if self.substrate_transformed_markers:
+            self._remove_item_from_view(self.substrate_transformed_markers)
+            self.substrate_transformed_markers = None
+
+        if not transformed_points:
+            return
+
+        try:
+            marker = pg.ScatterPlotItem(
+                pos=np.asarray(transformed_points, dtype=float),
+                symbol='o',
+                size=11,
+                pen=pg.mkPen((0, 200, 140), width=2),
+                brush=pg.mkBrush(None)
+            )
+            marker.setVisible(self._substrate_transformed_visible)
+            self.view_box.addItem(marker)
+            self.substrate_transformed_markers = marker
+        except Exception as exc:  # pragma: no cover
+            logger.exception("VisualizationManager: Failed to draw transformed substrate spots: %s", exc)
+
+    def update_substrate_pair_lines(
+        self,
+        spot_pairs: List[Tuple[Tuple[float, float], Tuple[float, float]]]
+    ) -> None:
+        """Draw connector lines between raw and transformed substrate spots."""
+        if not self.view_box:  # pragma: no cover
+            return
+
+        for line in self.substrate_pair_lines:
+            self._remove_item_from_view(line)
+        self.substrate_pair_lines = []
+
+        if not spot_pairs:
+            return
+
+        new_lines: List[pg.PlotDataItem] = []
+        for raw_point, transformed_point in spot_pairs:
+            if raw_point is None or transformed_point is None:
+                continue
+            try:
+                line_item = pg.PlotDataItem(
+                    x=[raw_point[0], transformed_point[0]],
+                    y=[raw_point[1], transformed_point[1]],
+                    pen=pg.mkPen((180, 180, 180, 180), width=1, style=Qt.PenStyle.DashLine)
+                )
+                line_item.setVisible(self._substrate_raw_visible and self._substrate_transformed_visible)
+                self.view_box.addItem(line_item)
+                new_lines.append(line_item)
+            except Exception as exc:  # pragma: no cover
+                logger.exception("VisualizationManager: Failed to draw substrate pair line: %s", exc)
+        self.substrate_pair_lines = new_lines
+
+    def set_substrate_raw_visible(self, visible: bool) -> None:
+        """Toggle visibility of raw substrate markers."""
+        self._substrate_raw_visible = visible
+        if self.substrate_raw_markers:
+            self.substrate_raw_markers.setVisible(visible)
+        self._update_substrate_pair_visibility()
+
+    def set_substrate_transformed_visible(self, visible: bool) -> None:
+        """Toggle visibility of transformed substrate markers."""
+        self._substrate_transformed_visible = visible
+        if self.substrate_transformed_markers:
+            self.substrate_transformed_markers.setVisible(visible)
+        self._update_substrate_pair_visibility()
+
+    def _update_substrate_pair_visibility(self) -> None:
+        """Ensure connector lines follow combined visibility state."""
+        should_show = self._substrate_raw_visible and self._substrate_transformed_visible
+        for line in self.substrate_pair_lines:
+            line.setVisible(should_show)
+
+    def update_adsorbate_spot_pairs(
+        self,
+        set_id: int,
+        spot_pairs: List[Tuple[Tuple[float, float], Tuple[float, float]]]
+    ) -> None:
+        """Render raw and transformed adsorbate spots plus connector lines for a given set."""
+        raw_coords = [raw for raw, _ in spot_pairs if raw is not None]
+        transformed_coords = [transformed for _, transformed in spot_pairs if transformed is not None]
+        self.update_adsorbate_raw_spots(set_id, raw_coords)
+        self.update_adsorbate_transformed_spots(set_id, transformed_coords)
+        self.update_adsorbate_pair_lines(set_id, spot_pairs)
+
+    def update_adsorbate_raw_spots(self, set_id: int, raw_points: List[Tuple[float, float]]) -> None:
+        """Render raw adsorbate spot markers for a given set."""
+        if not self.view_box:  # pragma: no cover
+            return
+
+        existing_marker = self.adsorbate_raw_markers.pop(set_id, None)
+        if existing_marker:
+            self._remove_item_from_view(existing_marker)
+
+        if not raw_points:
+            return
+
+        try:
+            marker = pg.ScatterPlotItem(
+                pos=np.asarray(raw_points, dtype=float),
+                symbol='x',
+                size=10,
+                pen=pg.mkPen((255, 140, 0), width=2),
+                brush=pg.mkBrush(None)
+            )
+            marker.setVisible(self._adsorbate_raw_visible)
+            self.view_box.addItem(marker)
+            self.adsorbate_raw_markers[set_id] = marker
+        except Exception as exc:  # pragma: no cover
+            logger.exception("VisualizationManager: Failed to draw raw adsorbate spots for set %s: %s", set_id, exc)
+
+    def update_adsorbate_transformed_spots(self, set_id: int, transformed_points: List[Tuple[float, float]]) -> None:
+        """Render transformed adsorbate spot markers for a given set."""
+        if not self.view_box:  # pragma: no cover
+            return
+
+        existing_marker = self.adsorbate_transformed_markers.pop(set_id, None)
+        if existing_marker:
+            self._remove_item_from_view(existing_marker)
+
+        if not transformed_points:
+            return
+
+        try:
+            marker = pg.ScatterPlotItem(
+                pos=np.asarray(transformed_points, dtype=float),
+                symbol='s',
+                size=10,
+                pen=pg.mkPen((70, 130, 180), width=2),
+                brush=pg.mkBrush(None)
+            )
+            marker.setVisible(self._adsorbate_transformed_visible)
+            self.view_box.addItem(marker)
+            self.adsorbate_transformed_markers[set_id] = marker
+        except Exception as exc:  # pragma: no cover
+            logger.exception("VisualizationManager: Failed to draw transformed adsorbate spots for set %s: %s", set_id, exc)
+
+    def update_adsorbate_pair_lines(
+        self,
+        set_id: int,
+        spot_pairs: List[Tuple[Tuple[float, float], Tuple[float, float]]]
+    ) -> None:
+        """Draw connector lines between raw and transformed adsorbate spots for a given set."""
+        if not self.view_box:  # pragma: no cover
+            return
+
+        existing_lines = self.adsorbate_pair_lines.pop(set_id, [])
+        for line in existing_lines:
+            self._remove_item_from_view(line)
+
+        if not spot_pairs:
+            return
+
+        new_lines: List[pg.PlotDataItem] = []
+        for raw_point, transformed_point in spot_pairs:
+            if raw_point is None or transformed_point is None:
+                continue
+            try:
+                line_item = pg.PlotDataItem(
+                    x=[raw_point[0], transformed_point[0]],
+                    y=[raw_point[1], transformed_point[1]],
+                    pen=pg.mkPen((255, 140, 0, 160), width=1, style=Qt.PenStyle.DashLine)
+                )
+                line_item.setVisible(self._adsorbate_raw_visible and self._adsorbate_transformed_visible)
+                self.view_box.addItem(line_item)
+                new_lines.append(line_item)
+            except Exception as exc:  # pragma: no cover
+                logger.exception("VisualizationManager: Failed to draw adsorbate pair line for set %s: %s", set_id, exc)
+
+        if new_lines:
+            self.adsorbate_pair_lines[set_id] = new_lines
+
+    def set_adsorbate_raw_visible(self, visible: bool) -> None:
+        """Toggle visibility of raw adsorbate markers."""
+        self._adsorbate_raw_visible = visible
+        for marker in self.adsorbate_raw_markers.values():
+            marker.setVisible(visible)
+        self._update_adsorbate_pair_visibility()
+
+    def set_adsorbate_transformed_visible(self, visible: bool) -> None:
+        """Toggle visibility of transformed adsorbate markers."""
+        self._adsorbate_transformed_visible = visible
+        for marker in self.adsorbate_transformed_markers.values():
+            marker.setVisible(visible)
+        self._update_adsorbate_pair_visibility()
+
+    def _update_adsorbate_pair_visibility(self) -> None:
+        """Ensure adsorbate connector lines respect combined visibility flags."""
+        should_show = self._adsorbate_raw_visible and self._adsorbate_transformed_visible
+        for line_list in self.adsorbate_pair_lines.values():
+            for line in line_list:
+                line.setVisible(should_show)
+
+    def clear_adsorbate_layers_for_set(self, set_id: int) -> None:
+        """Remove all overlay items associated with an adsorbate set."""
+        marker = self.adsorbate_raw_markers.pop(set_id, None)
+        if marker:
+            self._remove_item_from_view(marker)
+
+        marker = self.adsorbate_transformed_markers.pop(set_id, None)
+        if marker:
+            self._remove_item_from_view(marker)
+
+        line_items = self.adsorbate_pair_lines.pop(set_id, [])
+        for line in line_items:
+            self._remove_item_from_view(line)
+
+    def clear_adsorbate_layers(self) -> None:
+        """Remove overlays for all adsorbate sets."""
+        all_ids = set(self.adsorbate_raw_markers.keys()) | set(self.adsorbate_transformed_markers.keys()) | set(self.adsorbate_pair_lines.keys())
+        for set_id in all_ids:
+            self.clear_adsorbate_layers_for_set(set_id)
 
     def _set_image_display(self, image_data: np.ndarray, data_type: str):
         """Sets the image data in the ImageItem with the appropriate orientation and scaling."""
@@ -353,8 +651,33 @@ class VisualizationManager(QObject):
             try: self.view_box.removeItem(self.substrate_spot_markers)
             except RuntimeError: pass
             self.substrate_spot_markers = None
+        if self.substrate_raw_markers:
+            try: self.view_box.removeItem(self.substrate_raw_markers)
+            except RuntimeError: pass
+            self.substrate_raw_markers = None
+        if self.substrate_transformed_markers:
+            try: self.view_box.removeItem(self.substrate_transformed_markers)
+            except RuntimeError: pass
+            self.substrate_transformed_markers = None
+        for line in self.substrate_pair_lines:
+            try: self.view_box.removeItem(line)
+            except RuntimeError: pass
+        self.substrate_pair_lines = []
         for marker_set in self.adsorbate_spot_set_markers:
             if marker_set:
                 try: self.view_box.removeItem(marker_set)
                 except RuntimeError: pass
         self.adsorbate_spot_set_markers = []
+        for marker in self.adsorbate_raw_markers.values():
+            try: self.view_box.removeItem(marker)
+            except RuntimeError: pass
+        self.adsorbate_raw_markers = {}
+        for marker in self.adsorbate_transformed_markers.values():
+            try: self.view_box.removeItem(marker)
+            except RuntimeError: pass
+        self.adsorbate_transformed_markers = {}
+        for line_list in self.adsorbate_pair_lines.values():
+            for line in line_list:
+                try: self.view_box.removeItem(line)
+                except RuntimeError: pass
+        self.adsorbate_pair_lines = {}
