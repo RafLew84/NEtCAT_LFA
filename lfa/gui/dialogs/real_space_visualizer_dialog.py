@@ -127,6 +127,9 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         self.real_space_substrate_vector_items: List[PlotItem] = []
         self.real_space_adsorbate_lattice_items: Dict[int, ScatterPlotItem] = {}
         self.real_space_adsorbate_vector_items: Dict[int, List[PlotItem]] = {}
+        self.real_space_view_box: Optional[ViewBox] = None
+        self._real_space_last_view_range: Optional[Tuple[Tuple[float, float], Tuple[float, float]]] = None
+        self._real_space_force_autorange: bool = True
 
         self.fft_data_to_display: Optional[np.ndarray] = None
         if self.current_fft_node_id and self.history_manager:
@@ -163,6 +166,9 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         main_splitter.addWidget(self.fft_panel_widget)
 
         self.real_space_plot_widget = PlotWidget()
+        self.real_space_view_box = self.real_space_plot_widget.getViewBox()
+        if self.real_space_view_box:
+            self.real_space_view_box.sigRangeChanged.connect(self._on_real_space_view_range_changed)
         plot_item_rs = self.real_space_plot_widget.getPlotItem()
         if plot_item_rs:
             plot_item_rs.setAspectLocked(True)
@@ -441,6 +447,7 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         """
         logger.debug("Visualizer: Redraw all visuals requested by checkbox/combo change.")
         self._redraw_fft_overlays()
+        self._real_space_force_autorange = False
         self._redraw_real_space_lattices()
 
     @pyqtSlot(int)
@@ -461,6 +468,7 @@ class RealSpaceFFTVisualizerDialog(QDialog):
             logger.debug(f"Visualizer: Selected adsorbate set in combo changed to index {set_index}")
             self._update_real_space_param_labels()
             self._redraw_fft_overlays()
+            self._real_space_force_autorange = True
             self._redraw_real_space_lattices()
             self.angle_sub_ads_label.setText("- °")
         else: # pragma: no cover
@@ -502,6 +510,7 @@ class RealSpaceFFTVisualizerDialog(QDialog):
 
         self._populate_adsorbate_set_combo_and_checkboxes()
         self._redraw_fft_overlays()
+        self._real_space_force_autorange = True
         self._redraw_real_space_lattices()
         self._update_real_space_param_labels()
         self.angle_sub_ads_label.setText("- °")
@@ -702,6 +711,21 @@ class RealSpaceFFTVisualizerDialog(QDialog):
     #     else:
     #         logger.debug("Not drawing adsorbate g-vectors (checkbox off or no data).")
 
+
+
+    def _on_real_space_view_range_changed(self, view_box: ViewBox, view_range):
+        """
+        Track the current view range of the real-space plot so it can be restored after redraws.
+        """
+        if not view_range or len(view_range) != 2:
+            return
+        try:
+            x_range = tuple(float(v) for v in view_range[0])
+            y_range = tuple(float(v) for v in view_range[1])
+        except (TypeError, ValueError):
+            return
+        self._real_space_last_view_range = (x_range, y_range)
+
     def _redraw_real_space_lattices(self):
         """
         Redraw real space lattice visualizations.
@@ -714,8 +738,15 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         logger.debug("Visualizer: Redrawing real space lattices...")
         plot_item_rs = self.real_space_plot_widget.getPlotItem()
         if not plot_item_rs or not self.app_controller: return # pragma: no cover
+
+        view_box = self.real_space_view_box or plot_item_rs.getViewBox()
+        previous_range = self._real_space_last_view_range
+        force_autorange = self._real_space_force_autorange or previous_range is None
+
         plot_item_rs.clear()
         plot_item_rs.showGrid(x=True, y=True, alpha=0.3)
+
+        drew_any_lattice = False
 
         if self.cb_show_substrate_real_lattice.isChecked() and self.app_controller.substrate_real_space_results:
             sub_params = self.app_controller.substrate_real_space_results
@@ -731,6 +762,7 @@ class RealSpaceFFTVisualizerDialog(QDialog):
                     label_text="S",
                     n_cells=int(self.substrate_lattice_cells_spin.value())
                 )
+                drew_any_lattice = True
 
         for i, cb_ads_set in enumerate(self.adsorbate_set_checkboxes):
             if cb_ads_set.isChecked():
@@ -762,7 +794,15 @@ class RealSpaceFFTVisualizerDialog(QDialog):
                             offset_factor=0.0,
                             n_cells=int(self.adsorbate_lattice_cells_spin.value())
                         )
-        plot_item_rs.autoRange()
+                        drew_any_lattice = True
+
+        if view_box and drew_any_lattice:
+            if force_autorange:
+                view_box.autoRange(padding=0.02)
+            elif previous_range:
+                view_box.setRange(xRange=list(previous_range[0]), yRange=list(previous_range[1]), padding=0)
+
+        self._real_space_force_autorange = False
 
 
     def _draw_single_real_space_lattice(self,
