@@ -33,8 +33,8 @@ PyQt6 interface.
 - **Adsorbate lattice analysis**: Manage multiple adsorbate spot sets, apply the
   substrate correction automatically, and compute real space lattice vectors for
   each overlayer.
-- **Custom overlays**: Report overlays now let you define a custom real-space
-  adsorbate lattice (manual vectors plus offset) and toggle visibility per adsorbate set.
+- **Custom overlays**: Report overlays let you define a custom real-space
+  adsorbate lattice (manual vectors or length/angle input, custom offset and marker shape) and toggle visibility per adsorbate set.
 - **Advanced analysis tools**: Perform domain wall and superstructure analysis,
   generate Patterson (autocorrelation) maps, and reconstruct real space images
   from masked FFT components.
