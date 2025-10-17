@@ -127,6 +127,7 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         self.real_space_substrate_vector_items: List[PlotItem] = []
         self.real_space_adsorbate_lattice_items: Dict[int, ScatterPlotItem] = {}
         self.real_space_adsorbate_vector_items: Dict[int, List[PlotItem]] = {}
+        self.custom_adsorbate_definition: Optional[Dict[str, Any]] = None
         self.real_space_view_box: Optional[ViewBox] = None
         self._real_space_last_view_range: Optional[Tuple[Tuple[float, float], Tuple[float, float]]] = None
         self._real_space_force_autorange: bool = True
@@ -214,6 +215,13 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         self.display_options_form.addRow(QLabel("Adsorbate Sets (Real Space):"))
         self.display_options_form.addRow(self.adsorbate_display_checkbox_layout)
 
+        self.custom_adsorbate_visibility_checkbox = QCheckBox("Custom Adsorbate Lattice")
+        self.custom_adsorbate_visibility_checkbox.setChecked(False)
+        self.adsorbate_display_checkbox_layout.addWidget(self.custom_adsorbate_visibility_checkbox)
+
+        self.adsorbate_sets_checkbox_layout = QVBoxLayout()
+        self.adsorbate_display_checkbox_layout.addLayout(self.adsorbate_sets_checkbox_layout)
+
         self.cb_show_g_substrate_fft = QCheckBox("Substrate g* vectors (on FFT)")
         self.cb_show_g_substrate_fft.setChecked(True)
         self.display_options_form.addRow(self.cb_show_g_substrate_fft)
@@ -252,6 +260,54 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         self.adsorbate_atom_size_spin.setValue(7.0)
         self.adsorbate_atom_size_spin.setToolTip("Marker size used for adsorbate lattice points.")
         self.display_options_form.addRow("Adsorbate atom size:", self.adsorbate_atom_size_spin)
+
+        self.custom_adsorbate_group = QGroupBox("Custom Adsorbate Definition")
+        custom_adsorbate_form = QFormLayout(self.custom_adsorbate_group)
+
+        self.custom_a1_x_spin = QDoubleSpinBox()
+        self.custom_a1_x_spin.setRange(-1000.0, 1000.0)
+        self.custom_a1_x_spin.setSingleStep(0.1)
+        self.custom_a1_x_spin.setValue(1.0)
+        custom_adsorbate_form.addRow("a1 x (nm):", self.custom_a1_x_spin)
+
+        self.custom_a1_y_spin = QDoubleSpinBox()
+        self.custom_a1_y_spin.setRange(-1000.0, 1000.0)
+        self.custom_a1_y_spin.setSingleStep(0.1)
+        self.custom_a1_y_spin.setValue(0.0)
+        custom_adsorbate_form.addRow("a1 y (nm):", self.custom_a1_y_spin)
+
+        self.custom_a2_x_spin = QDoubleSpinBox()
+        self.custom_a2_x_spin.setRange(-1000.0, 1000.0)
+        self.custom_a2_x_spin.setSingleStep(0.1)
+        self.custom_a2_x_spin.setValue(0.0)
+        custom_adsorbate_form.addRow("a2 x (nm):", self.custom_a2_x_spin)
+
+        self.custom_a2_y_spin = QDoubleSpinBox()
+        self.custom_a2_y_spin.setRange(-1000.0, 1000.0)
+        self.custom_a2_y_spin.setSingleStep(0.1)
+        self.custom_a2_y_spin.setValue(1.0)
+        custom_adsorbate_form.addRow("a2 y (nm):", self.custom_a2_y_spin)
+
+        self.custom_offset_x_spin = QDoubleSpinBox()
+        self.custom_offset_x_spin.setRange(-1000.0, 1000.0)
+        self.custom_offset_x_spin.setSingleStep(0.1)
+        self.custom_offset_x_spin.setValue(0.0)
+        custom_adsorbate_form.addRow("Offset x (nm):", self.custom_offset_x_spin)
+
+        self.custom_offset_y_spin = QDoubleSpinBox()
+        self.custom_offset_y_spin.setRange(-1000.0, 1000.0)
+        self.custom_offset_y_spin.setSingleStep(0.1)
+        self.custom_offset_y_spin.setValue(0.0)
+        custom_adsorbate_form.addRow("Offset y (nm):", self.custom_offset_y_spin)
+
+        button_row = QHBoxLayout()
+        self.custom_adsorbate_apply_button = QPushButton("Apply Custom Adsorbate")
+        self.custom_adsorbate_clear_button = QPushButton("Clear Custom Definition")
+        button_row.addWidget(self.custom_adsorbate_apply_button)
+        button_row.addWidget(self.custom_adsorbate_clear_button)
+        custom_adsorbate_form.addRow(button_row)
+
+        self.display_options_form.addRow(self.custom_adsorbate_group)
 
         self.supercell_size_spinbox = QSpinBox()
         self.supercell_size_spinbox.setMinimum(1)
@@ -342,6 +398,9 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         self.adsorbate_lattice_cells_spin.valueChanged.connect(lambda _: self._trigger_redraw_all_visuals())
         self.substrate_atom_size_spin.valueChanged.connect(lambda _: self._trigger_redraw_all_visuals())
         self.adsorbate_atom_size_spin.valueChanged.connect(lambda _: self._trigger_redraw_all_visuals())
+        self.custom_adsorbate_visibility_checkbox.stateChanged.connect(self._on_custom_adsorbate_visibility_changed)
+        self.custom_adsorbate_apply_button.clicked.connect(self._on_custom_adsorbate_apply_clicked)
+        self.custom_adsorbate_clear_button.clicked.connect(self._on_custom_adsorbate_clear_clicked)
         self.supercell_size_spinbox.valueChanged.connect(self._on_3d_settings_changed)
         self.launch_3d_button.clicked.connect(self._launch_3d_viewer)
 
@@ -355,7 +414,68 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         if self.background_plotter and self.background_plotter.app_window.isVisible():
             logger.debug("3D settings changed, updating background plotter.")
             # self._launch_3d_viewer()
-    
+
+    @pyqtSlot(int)
+    def _on_custom_adsorbate_visibility_changed(self, _state: int):
+        if self.custom_adsorbate_definition is None and self.custom_adsorbate_visibility_checkbox.isChecked():
+            QMessageBox.information(
+                self,
+                "Custom Adsorbate",
+                "Please define custom lattice vectors before enabling its display."
+            )
+            self.custom_adsorbate_visibility_checkbox.blockSignals(True)
+            self.custom_adsorbate_visibility_checkbox.setChecked(False)
+            self.custom_adsorbate_visibility_checkbox.blockSignals(False)
+            return
+        self._trigger_redraw_all_visuals()
+
+    @pyqtSlot()
+    def _on_custom_adsorbate_apply_clicked(self):
+        a1_vec = np.array([self.custom_a1_x_spin.value(), self.custom_a1_y_spin.value()], dtype=float)
+        a2_vec = np.array([self.custom_a2_x_spin.value(), self.custom_a2_y_spin.value()], dtype=float)
+        offset_vec = np.array([self.custom_offset_x_spin.value(), self.custom_offset_y_spin.value()], dtype=float)
+
+        a1_norm = np.linalg.norm(a1_vec)
+        a2_norm = np.linalg.norm(a2_vec)
+        if a1_norm < 1e-9 or a2_norm < 1e-9:
+            QMessageBox.warning(self, "Invalid Custom Adsorbate", "Lattice vectors must be non-zero.")
+            return
+
+        determinant = a1_vec[0] * a2_vec[1] - a1_vec[1] * a2_vec[0]
+        if abs(determinant) < 1e-9:
+            QMessageBox.warning(self, "Invalid Custom Adsorbate", "Lattice vectors must be linearly independent.")
+            return
+
+        self.custom_adsorbate_definition = {
+            "a1_vec_nm": a1_vec,
+            "a2_vec_nm": a2_vec,
+            "offset_nm": offset_vec,
+        }
+        if not self.custom_adsorbate_visibility_checkbox.isChecked():
+            self.custom_adsorbate_visibility_checkbox.blockSignals(True)
+            self.custom_adsorbate_visibility_checkbox.setChecked(True)
+            self.custom_adsorbate_visibility_checkbox.blockSignals(False)
+
+        self._real_space_force_autorange = True
+        self._trigger_redraw_all_visuals()
+
+    @pyqtSlot()
+    def _on_custom_adsorbate_clear_clicked(self):
+        self.custom_adsorbate_definition = None
+        self.custom_a1_x_spin.setValue(1.0)
+        self.custom_a1_y_spin.setValue(0.0)
+        self.custom_a2_x_spin.setValue(0.0)
+        self.custom_a2_y_spin.setValue(1.0)
+        self.custom_offset_x_spin.setValue(0.0)
+        self.custom_offset_y_spin.setValue(0.0)
+
+        self.custom_adsorbate_visibility_checkbox.blockSignals(True)
+        self.custom_adsorbate_visibility_checkbox.setChecked(False)
+        self.custom_adsorbate_visibility_checkbox.blockSignals(False)
+
+        self._real_space_force_autorange = True
+        self._trigger_redraw_all_visuals()
+
     @pyqtSlot()
     def _launch_3d_viewer(self):
         """
@@ -446,8 +566,10 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         - Real space lattice visualizations
         """
         logger.debug("Visualizer: Redraw all visuals requested by checkbox/combo change.")
+        preserve_force_flag = self._real_space_force_autorange
         self._redraw_fft_overlays()
-        self._real_space_force_autorange = False
+        if not preserve_force_flag:
+            self._real_space_force_autorange = False
         self._redraw_real_space_lattices()
 
     @pyqtSlot(int)
@@ -528,8 +650,8 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         self.ads_set_combo_vis.blockSignals(True)
         self.ads_set_combo_vis.clear()
         
-        for i in reversed(range(self.adsorbate_display_checkbox_layout.count())): 
-            widget_item = self.adsorbate_display_checkbox_layout.itemAt(i)
+        for i in reversed(range(self.adsorbate_sets_checkbox_layout.count())):
+            widget_item = self.adsorbate_sets_checkbox_layout.itemAt(i)
             if widget_item and widget_item.widget():
                 widget_item.widget().deleteLater()
         self.adsorbate_set_checkboxes = []
@@ -544,7 +666,7 @@ class RealSpaceFFTVisualizerDialog(QDialog):
                 cb = QCheckBox(f"Adsorbate Set {i+1} Real Lattice")
                 cb.setChecked(True)
                 cb.stateChanged.connect(self._trigger_redraw_all_visuals)
-                self.adsorbate_display_checkbox_layout.addWidget(cb)
+                self.adsorbate_sets_checkbox_layout.addWidget(cb)
                 self.adsorbate_set_checkboxes.append(cb)
             
             current_app_controller_set_idx = self.app_controller.current_adsorbate_set_index
@@ -796,6 +918,34 @@ class RealSpaceFFTVisualizerDialog(QDialog):
                         )
                         drew_any_lattice = True
 
+        if self.custom_adsorbate_definition and self.custom_adsorbate_visibility_checkbox.isChecked():
+            custom_a1 = np.array(self.custom_adsorbate_definition["a1_vec_nm"], dtype=float)
+            custom_a2 = np.array(self.custom_adsorbate_definition["a2_vec_nm"], dtype=float)
+            custom_offset = np.array(self.custom_adsorbate_definition.get("offset_nm", np.zeros(2)), dtype=float)
+
+            if self.cb_visual_align.isChecked() and self.app_controller.substrate_real_space_results:
+                theta = self.visual_alignment_angle_rad
+                rotation_matrix = np.array([[np.cos(theta), -np.sin(theta)],
+                                            [np.sin(theta),  np.cos(theta)]])
+                custom_a1 = np.dot(rotation_matrix, custom_a1)
+                custom_a2 = np.dot(rotation_matrix, custom_a2)
+                custom_offset = np.dot(rotation_matrix, custom_offset)
+
+            self._draw_single_real_space_lattice(
+                plot_item_rs,
+                custom_a1,
+                custom_a2,
+                pen_color='orange',
+                symbol='star',
+                symbol_size=float(self.adsorbate_atom_size_spin.value()),
+                symbol_color='orange',
+                label_text="Custom",
+                offset_factor=0.0,
+                n_cells=int(self.adsorbate_lattice_cells_spin.value()),
+                absolute_offset=custom_offset
+            )
+            drew_any_lattice = True
+
         if view_box and drew_any_lattice:
             if force_autorange:
                 view_box.autoRange(padding=0.02)
@@ -815,7 +965,8 @@ class RealSpaceFFTVisualizerDialog(QDialog):
                                         symbol_color='k',
                                         label_text: str = "",
                                         offset_factor: float = 0.0,
-                                        n_cells: int = 10):
+                                        n_cells: int = 10,
+                                        absolute_offset: Optional[np.ndarray] = None):
         """
         Draw a single real space lattice visualization.
         
@@ -842,6 +993,10 @@ class RealSpaceFFTVisualizerDialog(QDialog):
 
         points_data = []
         offset = (a1_vec + a2_vec) * offset_factor
+        if absolute_offset is not None:
+            absolute_offset = np.asarray(absolute_offset, dtype=float)
+            if absolute_offset.shape == (2,):
+                offset = offset + absolute_offset
         origin_real = offset
         
         for m in range(-n_cells, n_cells + 1):
