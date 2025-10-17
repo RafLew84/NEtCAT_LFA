@@ -636,7 +636,7 @@ class AdsorbateSpotSelectionDialog(QDialog):
             eff_cky=np.clip(cky,pr,max_h-1-pr)
             eff_ckx=np.clip(ckx,pr,max_w-1-pr)
             fky,fkx=find_max_pixel_in_roi(self.fft_data,(eff_cky,eff_ckx),pr)
-            ref_kx,ref_ky=float(fkx),float(fky)
+            ref_kx,ref_ky=float(fkx)+0.5,float(fky)+0.5
         elif self.current_refinement_method == REFINEMENT_GAUSSIAN_FIT and PEAK_FITTING_MODULE_AVAILABLE and SCIPY_AVAILABLE:
             curr_roi_state=self.selection_roi.getState()
             roi_state_match = False

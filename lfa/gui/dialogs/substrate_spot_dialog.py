@@ -1015,7 +1015,7 @@ class SubstrateSpotSelectionDialog(QDialog):
             eff_center_kx = np.clip(center_kx, patch_radius, max_w - 1 - patch_radius)
 
             fit_ky, fit_kx = find_max_pixel_in_roi(self.fft_data, (eff_center_ky, eff_center_kx), patch_radius)
-            refined_kx, refined_ky = float(fit_kx), float(fit_ky)
+            refined_kx, refined_ky = float(fit_kx) + 0.5, float(fit_ky) + 0.5
             logger.info(f"Spot refined by Max Pixel: ({refined_kx:.2f}, {refined_ky:.2f})")
         elif self.current_refinement_method == REFINEMENT_GAUSSIAN_FIT and PEAK_FITTING_MODULE_AVAILABLE and SCIPY_AVAILABLE:
             current_selection_roi_state = self.selection_roi.getState() # type: ignore
