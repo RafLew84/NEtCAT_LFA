@@ -530,22 +530,38 @@ class RealSpaceFFTVisualizerDialog(QDialog):
             a1_ads_nm = np.array(ads_params["a1_vec_nm"])
             a2_ads_nm = np.array(ads_params["a2_vec_nm"])
 
+            rotation_matrix = None
             if self.cb_visual_align.isChecked():
                 theta = self.visual_alignment_angle_rad
                 rotation_matrix = np.array([[np.cos(theta), -np.sin(theta)],
                                             [np.sin(theta),  np.cos(theta)]])
                 a1_ads_nm = np.dot(rotation_matrix, a1_ads_nm)
                 a2_ads_nm = np.dot(rotation_matrix, a2_ads_nm)
-            fcc_hollow_offset = (0, 1/3)
+
             adsorbate_atoms = create_ase_supercell_from_2d_vectors(
                 a1_vec_nm=a1_ads_nm,
                 a2_vec_nm=a2_ads_nm,
                 atom_symbol='I',
                 size=size_tuple,
-                offset_fractional=fcc_hollow_offset,
+                offset_fractional=(0.0, 0.0),
                 z_height_nm=1.15
             )
             if adsorbate_atoms:
+                offset_xy_nm = np.zeros(2, dtype=float)
+                if self.app_controller.substrate_real_space_results:
+                    sub_params = self.app_controller.substrate_real_space_results
+                    if "a1_vec_nm" in sub_params and "a2_vec_nm" in sub_params:
+                        sub_a1 = np.array(sub_params["a1_vec_nm"], dtype=float)
+                        sub_a2 = np.array(sub_params["a2_vec_nm"], dtype=float)
+                        offset_fractional = np.array([0.0, 1.0 / 3.0], dtype=float)
+                        offset_xy_nm = offset_fractional[0] * sub_a1 + offset_fractional[1] * sub_a2
+                        if rotation_matrix is not None:
+                            offset_xy_nm = np.dot(rotation_matrix, offset_xy_nm)
+
+                if np.any(offset_xy_nm):
+                    adsorbate_atoms.positions[:, 0] += offset_xy_nm[0]
+                    adsorbate_atoms.positions[:, 1] += offset_xy_nm[1]
+
                 for atom in adsorbate_atoms:
                     sphere = pv.Sphere(center=atom.position, radius=0.1)
                     sphere.compute_normals(inplace=True)
