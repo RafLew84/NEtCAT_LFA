@@ -266,37 +266,43 @@ class RealSpaceFFTVisualizerDialog(QDialog):
 
         self.custom_a1_x_spin = QDoubleSpinBox()
         self.custom_a1_x_spin.setRange(-1000.0, 1000.0)
-        self.custom_a1_x_spin.setSingleStep(0.1)
+        self.custom_a1_x_spin.setDecimals(4)
+        self.custom_a1_x_spin.setSingleStep(0.01)
         self.custom_a1_x_spin.setValue(1.0)
         custom_adsorbate_form.addRow("a1 x (nm):", self.custom_a1_x_spin)
 
         self.custom_a1_y_spin = QDoubleSpinBox()
         self.custom_a1_y_spin.setRange(-1000.0, 1000.0)
-        self.custom_a1_y_spin.setSingleStep(0.1)
+        self.custom_a1_y_spin.setDecimals(4)
+        self.custom_a1_y_spin.setSingleStep(0.01)
         self.custom_a1_y_spin.setValue(0.0)
         custom_adsorbate_form.addRow("a1 y (nm):", self.custom_a1_y_spin)
 
         self.custom_a2_x_spin = QDoubleSpinBox()
         self.custom_a2_x_spin.setRange(-1000.0, 1000.0)
-        self.custom_a2_x_spin.setSingleStep(0.1)
+        self.custom_a2_x_spin.setDecimals(4)
+        self.custom_a2_x_spin.setSingleStep(0.01)
         self.custom_a2_x_spin.setValue(0.0)
         custom_adsorbate_form.addRow("a2 x (nm):", self.custom_a2_x_spin)
 
         self.custom_a2_y_spin = QDoubleSpinBox()
         self.custom_a2_y_spin.setRange(-1000.0, 1000.0)
-        self.custom_a2_y_spin.setSingleStep(0.1)
+        self.custom_a2_y_spin.setDecimals(4)
+        self.custom_a2_y_spin.setSingleStep(0.01)
         self.custom_a2_y_spin.setValue(1.0)
         custom_adsorbate_form.addRow("a2 y (nm):", self.custom_a2_y_spin)
 
         self.custom_offset_x_spin = QDoubleSpinBox()
         self.custom_offset_x_spin.setRange(-1000.0, 1000.0)
-        self.custom_offset_x_spin.setSingleStep(0.1)
+        self.custom_offset_x_spin.setDecimals(4)
+        self.custom_offset_x_spin.setSingleStep(0.01)
         self.custom_offset_x_spin.setValue(0.0)
         custom_adsorbate_form.addRow("Offset x (nm):", self.custom_offset_x_spin)
 
         self.custom_offset_y_spin = QDoubleSpinBox()
         self.custom_offset_y_spin.setRange(-1000.0, 1000.0)
-        self.custom_offset_y_spin.setSingleStep(0.1)
+        self.custom_offset_y_spin.setDecimals(4)
+        self.custom_offset_y_spin.setSingleStep(0.01)
         self.custom_offset_y_spin.setValue(0.0)
         custom_adsorbate_form.addRow("Offset y (nm):", self.custom_offset_y_spin)
 
@@ -307,7 +313,52 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         button_row.addWidget(self.custom_adsorbate_clear_button)
         custom_adsorbate_form.addRow(button_row)
 
-        self.display_options_form.addRow(self.custom_adsorbate_group)
+        length_angle_container = QWidget()
+        length_angle_vbox = QVBoxLayout(length_angle_container)
+        length_angle_vbox.setContentsMargins(0, 0, 0, 0)
+        length_angle_vbox.setSpacing(4)
+
+        self.custom_adsorbate_length_angle_group = QGroupBox("Custom Adsorbate Definition (Length/Angle)")
+        custom_length_form = QFormLayout(self.custom_adsorbate_length_angle_group)
+
+        self.custom_a1_length_spin = QDoubleSpinBox()
+        self.custom_a1_length_spin.setRange(0.0, 1000.0)
+        self.custom_a1_length_spin.setDecimals(4)
+        self.custom_a1_length_spin.setSingleStep(0.01)
+        self.custom_a1_length_spin.setValue(1.0)
+        custom_length_form.addRow("a1 length (nm):", self.custom_a1_length_spin)
+
+        self.custom_a2_length_spin = QDoubleSpinBox()
+        self.custom_a2_length_spin.setRange(0.0, 1000.0)
+        self.custom_a2_length_spin.setDecimals(4)
+        self.custom_a2_length_spin.setSingleStep(0.01)
+        self.custom_a2_length_spin.setValue(1.0)
+        custom_length_form.addRow("a2 length (nm):", self.custom_a2_length_spin)
+
+        self.custom_angle_a1_spin = QDoubleSpinBox()
+        self.custom_angle_a1_spin.setRange(-360.0, 360.0)
+        self.custom_angle_a1_spin.setDecimals(3)
+        self.custom_angle_a1_spin.setSingleStep(0.5)
+        self.custom_angle_a1_spin.setValue(0.0)
+        custom_length_form.addRow("a1 angle (deg):", self.custom_angle_a1_spin)
+
+        self.custom_angle_between_spin = QDoubleSpinBox()
+        self.custom_angle_between_spin.setRange(0.0, 360.0)
+        self.custom_angle_between_spin.setDecimals(3)
+        self.custom_angle_between_spin.setSingleStep(0.5)
+        self.custom_angle_between_spin.setValue(60.0)
+        custom_length_form.addRow("Angle(a1, a2) (deg):", self.custom_angle_between_spin)
+
+        self.custom_length_convert_button = QPushButton("Convert to X/Y")
+        custom_length_form.addRow(self.custom_length_convert_button)
+
+        length_angle_vbox.addWidget(self.custom_adsorbate_length_angle_group)
+
+        self.custom_componented_group = QGroupBox("Custom Adsorbate Definition (Components)")
+        custom_cart_form = QFormLayout(self.custom_componented_group)
+        custom_cart_form.addRow(self.custom_adsorbate_group)
+        custom_cart_form.addRow(length_angle_container)
+        self.display_options_form.addRow(self.custom_componented_group)
 
         self.supercell_size_spinbox = QSpinBox()
         self.supercell_size_spinbox.setMinimum(1)
@@ -402,6 +453,7 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         self.custom_adsorbate_apply_button.clicked.connect(self._on_custom_adsorbate_apply_clicked)
         self.custom_adsorbate_clear_button.clicked.connect(self._on_custom_adsorbate_clear_clicked)
         self.supercell_size_spinbox.valueChanged.connect(self._on_3d_settings_changed)
+        self.custom_length_convert_button.clicked.connect(self._on_custom_length_convert_clicked)
         self.launch_3d_button.clicked.connect(self._launch_3d_viewer)
 
     @pyqtSlot()
@@ -468,6 +520,10 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         self.custom_a2_y_spin.setValue(1.0)
         self.custom_offset_x_spin.setValue(0.0)
         self.custom_offset_y_spin.setValue(0.0)
+        self.custom_a1_length_spin.setValue(1.0)
+        self.custom_a2_length_spin.setValue(1.0)
+        self.custom_angle_a1_spin.setValue(0.0)
+        self.custom_angle_between_spin.setValue(60.0)
 
         self.custom_adsorbate_visibility_checkbox.blockSignals(True)
         self.custom_adsorbate_visibility_checkbox.setChecked(False)
@@ -475,6 +531,35 @@ class RealSpaceFFTVisualizerDialog(QDialog):
 
         self._real_space_force_autorange = True
         self._trigger_redraw_all_visuals()
+
+    @pyqtSlot()
+    def _on_custom_length_convert_clicked(self):
+        a1_length = self.custom_a1_length_spin.value()
+        a2_length = self.custom_a2_length_spin.value()
+        angle_a1_deg = self.custom_angle_a1_spin.value()
+        angle_between_deg = self.custom_angle_between_spin.value()
+
+        if a1_length <= 0.0 or a2_length <= 0.0:
+            QMessageBox.warning(self, "Invalid Length", "Vector lengths must be positive.")
+            return
+
+        angle_a1_rad = np.deg2rad(angle_a1_deg)
+        angle_a2_rad = np.deg2rad(angle_a1_deg + angle_between_deg)
+
+        a1_x = a1_length * np.cos(angle_a1_rad)
+        a1_y = a1_length * np.sin(angle_a1_rad)
+        a2_x = a2_length * np.cos(angle_a2_rad)
+        a2_y = a2_length * np.sin(angle_a2_rad)
+
+        for spin, value in (
+            (self.custom_a1_x_spin, a1_x),
+            (self.custom_a1_y_spin, a1_y),
+            (self.custom_a2_x_spin, a2_x),
+            (self.custom_a2_y_spin, a2_y),
+        ):
+            spin.blockSignals(True)
+            spin.setValue(value)
+            spin.blockSignals(False)
 
     @pyqtSlot()
     def _launch_3d_viewer(self):
