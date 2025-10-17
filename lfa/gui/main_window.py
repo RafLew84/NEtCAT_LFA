@@ -132,6 +132,10 @@ class MainWindow(QMainWindow):
         # 2. Managery logiki
         self.history_manager = HistoryManager(self.history_list_widget, self)
         self.app_controller = AppController(history_manager=self.history_manager)
+        self._adsorbate_raw_visibility_by_set: Dict[int, bool] = {}
+        self._adsorbate_transformed_visibility_by_set: Dict[int, bool] = {}
+        self._adsorbate_raw_visibility_by_set[0] = True
+        self._adsorbate_transformed_visibility_by_set[0] = True
         
         self._init_core_attributes()
 
@@ -975,21 +979,50 @@ class MainWindow(QMainWindow):
             self._update_action_states()
 
     @pyqtSlot()
+    def _ensure_adsorbate_visibility_defaults(self) -> None:
+        if not self.app_controller:
+            return
+        total_sets = len(self.app_controller.adsorbate_spot_sets)
+        if total_sets <= 0:
+            total_sets = 1
+        valid_indices = set(range(total_sets))
+        self._adsorbate_raw_visibility_by_set = {idx: self._adsorbate_raw_visibility_by_set.get(idx, True) for idx in valid_indices}
+        self._adsorbate_transformed_visibility_by_set = {idx: self._adsorbate_transformed_visibility_by_set.get(idx, True) for idx in valid_indices}
+
+    def _apply_adsorbate_visibility_for_set(self, set_index: int) -> None:
+        if not hasattr(self, 'visualization_manager') or not self.visualization_manager:
+            return
+        raw_visible = self._adsorbate_raw_visibility_by_set.get(set_index, True)
+        transformed_visible = self._adsorbate_transformed_visibility_by_set.get(set_index, True)
+        self.visualization_manager.set_adsorbate_raw_visible_for_set(set_index, raw_visible)
+        self.visualization_manager.set_adsorbate_transformed_visible_for_set(set_index, transformed_visible)
+
+    def _sync_adsorbate_visibility_checkboxes(self) -> None:
+        if not hasattr(self, 'fft_analysis_panel_widget') or not self.fft_analysis_panel_widget or not self.app_controller:
+            return
+        current_set = self.app_controller.current_adsorbate_set_index
+        raw_checked = self._adsorbate_raw_visibility_by_set.get(current_set, True)
+        transformed_checked = self._adsorbate_transformed_visibility_by_set.get(current_set, True)
+        self.fft_analysis_panel_widget.set_show_adsorbate_raw_checked(raw_checked)
+        self.fft_analysis_panel_widget.set_show_adsorbate_transformed_checked(transformed_checked)
+
     def _on_adsorbate_sets_structure_changed(self):
         """Handles the update of adsorbate sets structure in AppController."""
         logger.debug("MainWindow: Received adsorbate_sets_structure_changed signal.")
+        num_sets = len(self.app_controller.adsorbate_spot_sets) if self.app_controller else 0
         if hasattr(self, 'fft_analysis_panel_widget') and self.fft_analysis_panel_widget:
-            num_sets = len(self.app_controller.adsorbate_spot_sets)
             set_names_for_combo = [f"Set {i+1}" for i in range(num_sets)]
-            
             current_set_text = ""
             if 0 <= self.app_controller.current_adsorbate_set_index < num_sets:
                 current_set_text = f"Set {self.app_controller.current_adsorbate_set_index + 1}"
-            elif num_sets > 0 :
+            elif num_sets > 0:
                 current_set_text = "Set 1"
-            
             self.fft_analysis_panel_widget.update_adsorbate_set_combo(set_names_for_combo, current_set_text)
-        
+
+        self._ensure_adsorbate_visibility_defaults()
+        for set_index in range(num_sets):
+            self._apply_adsorbate_visibility_for_set(set_index)
+        self._sync_adsorbate_visibility_checkboxes()
         self._on_spot_lists_or_params_changed()
 
     @pyqtSlot(str)
@@ -1059,6 +1092,9 @@ class MainWindow(QMainWindow):
         
         if found_idx != -1:
             self.app_controller.set_current_adsorbate_set_by_index(found_idx)
+            self._ensure_adsorbate_visibility_defaults()
+            self._apply_adsorbate_visibility_for_set(found_idx)
+            self._sync_adsorbate_visibility_checkboxes()
             logger.info(f"MainWindow: Switched to adsorbate set '{set_name}' (Index: {self.app_controller.current_adsorbate_set_index}) via panel signal.")
         else: # pragma: no cover
              logger.warning(f"MainWindow: Could not map adsorbate set name '{set_name}' to an index.")
@@ -1086,12 +1122,24 @@ class MainWindow(QMainWindow):
             self.app_controller.set_substrate_transformed_visibility(is_visible)
 
     def _handle_adsorbate_raw_visibility_changed(self, is_visible: bool):
-        if self.app_controller:
-            self.app_controller.set_adsorbate_raw_visibility(is_visible)
+        if not self.app_controller:
+            return
+        current_set = self.app_controller.current_adsorbate_set_index
+        if current_set < 0:
+            return
+        self._adsorbate_raw_visibility_by_set[current_set] = is_visible
+        if hasattr(self, 'visualization_manager') and self.visualization_manager:
+            self.visualization_manager.set_adsorbate_raw_visible_for_set(current_set, is_visible)
 
     def _handle_adsorbate_transformed_visibility_changed(self, is_visible: bool):
-        if self.app_controller:
-            self.app_controller.set_adsorbate_transformed_visibility(is_visible)
+        if not self.app_controller:
+            return
+        current_set = self.app_controller.current_adsorbate_set_index
+        if current_set < 0:
+            return
+        self._adsorbate_transformed_visibility_by_set[current_set] = is_visible
+        if hasattr(self, 'visualization_manager') and self.visualization_manager:
+            self.visualization_manager.set_adsorbate_transformed_visible_for_set(current_set, is_visible)
 
     def _on_substrate_raw_visibility_updated(self, is_visible: bool):
         if hasattr(self, 'visualization_manager') and self.visualization_manager:
@@ -1106,12 +1154,24 @@ class MainWindow(QMainWindow):
             self.fft_analysis_panel_widget.set_show_substrate_transformed_checked(is_visible)
 
     def _on_adsorbate_raw_visibility_updated(self, is_visible: bool):
+        if self.app_controller:
+            total_sets = len(self.app_controller.adsorbate_spot_sets)
+            if total_sets <= 0:
+                total_sets = 1
+            for idx in range(total_sets):
+                self._adsorbate_raw_visibility_by_set[idx] = is_visible
         if hasattr(self, 'visualization_manager') and self.visualization_manager:
             self.visualization_manager.set_adsorbate_raw_visible(is_visible)
         if hasattr(self, 'fft_analysis_panel_widget') and self.fft_analysis_panel_widget:
             self.fft_analysis_panel_widget.set_show_adsorbate_raw_checked(is_visible)
 
     def _on_adsorbate_transformed_visibility_updated(self, is_visible: bool):
+        if self.app_controller:
+            total_sets = len(self.app_controller.adsorbate_spot_sets)
+            if total_sets <= 0:
+                total_sets = 1
+            for idx in range(total_sets):
+                self._adsorbate_transformed_visibility_by_set[idx] = is_visible
         if hasattr(self, 'visualization_manager') and self.visualization_manager:
             self.visualization_manager.set_adsorbate_transformed_visible(is_visible)
         if hasattr(self, 'fft_analysis_panel_widget') and self.fft_analysis_panel_widget:
@@ -1136,6 +1196,12 @@ class MainWindow(QMainWindow):
     def request_spot_markers_update(self):
         """Requests the update of spot markers in VisualizationManager."""
         self.display_image_data()
+        if hasattr(self, 'visualization_manager') and self.visualization_manager and self.app_controller:
+            total_sets = len(self.app_controller.adsorbate_spot_sets)
+            if total_sets <= 0:
+                total_sets = 1
+            for set_index in range(total_sets):
+                self._apply_adsorbate_visibility_for_set(set_index)
 
     @pyqtSlot()
     def _handle_add_new_adsorbate_set_request(self):

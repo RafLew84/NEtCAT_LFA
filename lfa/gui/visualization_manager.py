@@ -64,6 +64,8 @@ class VisualizationManager(QObject):
         self.adsorbate_pair_lines: Dict[int, List[pg.PlotDataItem]] = {}
         self._adsorbate_raw_visible: bool = True
         self._adsorbate_transformed_visible: bool = True
+        self._adsorbate_raw_visibility: Dict[int, bool] = {}
+        self._adsorbate_transformed_visibility: Dict[int, bool] = {}
 
         self._current_fft_mouse_click_connection = None 
 
@@ -296,6 +298,7 @@ class VisualizationManager(QObject):
         self.update_adsorbate_raw_spots(set_id, raw_coords)
         self.update_adsorbate_transformed_spots(set_id, transformed_coords)
         self.update_adsorbate_pair_lines(set_id, spot_pairs)
+        self._update_adsorbate_pair_visibility_for_set(set_id)
 
     def update_adsorbate_raw_spots(self, set_id: int, raw_points: List[Tuple[float, float]]) -> None:
         """Render raw adsorbate spot markers for a given set."""
@@ -317,7 +320,7 @@ class VisualizationManager(QObject):
                 pen=pg.mkPen((255, 140, 0), width=2),
                 brush=pg.mkBrush(None)
             )
-            marker.setVisible(self._adsorbate_raw_visible)
+            marker.setVisible(self._is_adsorbate_raw_visible(set_id))
             self.view_box.addItem(marker)
             self.adsorbate_raw_markers[set_id] = marker
         except Exception as exc:  # pragma: no cover
@@ -343,7 +346,7 @@ class VisualizationManager(QObject):
                 pen=pg.mkPen((70, 130, 180), width=2),
                 brush=pg.mkBrush(None)
             )
-            marker.setVisible(self._adsorbate_transformed_visible)
+            marker.setVisible(self._is_adsorbate_transformed_visible(set_id))
             self.view_box.addItem(marker)
             self.adsorbate_transformed_markers[set_id] = marker
         except Exception as exc:  # pragma: no cover
@@ -383,27 +386,53 @@ class VisualizationManager(QObject):
 
         if new_lines:
             self.adsorbate_pair_lines[set_id] = new_lines
+        self._update_adsorbate_pair_visibility_for_set(set_id)
 
     def set_adsorbate_raw_visible(self, visible: bool) -> None:
         """Toggle visibility of raw adsorbate markers."""
         self._adsorbate_raw_visible = visible
-        for marker in self.adsorbate_raw_markers.values():
+        self._adsorbate_raw_visibility.clear()
+        for set_id, marker in self.adsorbate_raw_markers.items():
             marker.setVisible(visible)
         self._update_adsorbate_pair_visibility()
+
+    def set_adsorbate_raw_visible_for_set(self, set_id: int, visible: bool) -> None:
+        self._adsorbate_raw_visibility[set_id] = visible
+        marker = self.adsorbate_raw_markers.get(set_id)
+        if marker:
+            marker.setVisible(visible)
+        self._update_adsorbate_pair_visibility_for_set(set_id)
 
     def set_adsorbate_transformed_visible(self, visible: bool) -> None:
         """Toggle visibility of transformed adsorbate markers."""
         self._adsorbate_transformed_visible = visible
-        for marker in self.adsorbate_transformed_markers.values():
+        self._adsorbate_transformed_visibility.clear()
+        for set_id, marker in self.adsorbate_transformed_markers.items():
             marker.setVisible(visible)
         self._update_adsorbate_pair_visibility()
 
+    def set_adsorbate_transformed_visible_for_set(self, set_id: int, visible: bool) -> None:
+        self._adsorbate_transformed_visibility[set_id] = visible
+        marker = self.adsorbate_transformed_markers.get(set_id)
+        if marker:
+            marker.setVisible(visible)
+        self._update_adsorbate_pair_visibility_for_set(set_id)
+
+    def _is_adsorbate_raw_visible(self, set_id: int) -> bool:
+        return self._adsorbate_raw_visibility.get(set_id, self._adsorbate_raw_visible)
+
+    def _is_adsorbate_transformed_visible(self, set_id: int) -> bool:
+        return self._adsorbate_transformed_visibility.get(set_id, self._adsorbate_transformed_visible)
+
+    def _update_adsorbate_pair_visibility_for_set(self, set_id: int) -> None:
+        should_show = self._is_adsorbate_raw_visible(set_id) and self._is_adsorbate_transformed_visible(set_id)
+        for line in self.adsorbate_pair_lines.get(set_id, []):
+            line.setVisible(should_show)
+
     def _update_adsorbate_pair_visibility(self) -> None:
         """Ensure adsorbate connector lines respect combined visibility flags."""
-        should_show = self._adsorbate_raw_visible and self._adsorbate_transformed_visible
-        for line_list in self.adsorbate_pair_lines.values():
-            for line in line_list:
-                line.setVisible(should_show)
+        for set_id in list(self.adsorbate_pair_lines.keys()):
+            self._update_adsorbate_pair_visibility_for_set(set_id)
 
     def clear_adsorbate_layers_for_set(self, set_id: int) -> None:
         """Remove all overlay items associated with an adsorbate set."""
@@ -418,6 +447,8 @@ class VisualizationManager(QObject):
         line_items = self.adsorbate_pair_lines.pop(set_id, [])
         for line in line_items:
             self._remove_item_from_view(line)
+        self._adsorbate_raw_visibility.pop(set_id, None)
+        self._adsorbate_transformed_visibility.pop(set_id, None)
 
     def clear_adsorbate_layers(self) -> None:
         """Remove overlays for all adsorbate sets."""
