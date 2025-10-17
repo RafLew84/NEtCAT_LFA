@@ -241,18 +241,6 @@ class RealSpaceFFTVisualizerDialog(QDialog):
 
         # 6. Add the configured group box to the main control layout
         controls_panel_layout.addWidget(display_options_group)
-
-        self.supercell_size_spinbox = QSpinBox()
-        self.supercell_size_spinbox.setMinimum(1)
-        self.supercell_size_spinbox.setMaximum(50)
-        self.supercell_size_spinbox.setValue(5) # Default size 5x5
-        self.supercell_size_spinbox.setToolTip("Sets the NxN size of the supercell for 3D visualization.")
-        self.display_options_form.addRow("3D Supercell Size (NxN):", self.supercell_size_spinbox)
-
-        self.launch_3d_button = QPushButton("Launch Interactive 3D Viewer")
-        self.launch_3d_button.setToolTip("Opens a new, interactive window with a 3D model of the lattices.")
-        self.display_options_form.addRow(self.launch_3d_button)
-
         transform_info_group = QGroupBox("Substrate Transformation Info")
         transform_info_layout = QFormLayout(transform_info_group)
         self.info_sub_rot_label = QLabel("-")
