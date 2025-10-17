@@ -1135,18 +1135,7 @@ class MainWindow(QMainWindow):
     
     def request_spot_markers_update(self):
         """Requests the update of spot markers in VisualizationManager."""
-        if hasattr(self, 'visualization_manager') and self.visualization_manager and \
-           hasattr(self, 'fft_analysis_panel_widget') and self.fft_analysis_panel_widget:
-            current_node = self.history_manager.get_current_node()
-            if current_node and current_node.data_type == "FFT":
-                substrate_spots_data = self.app_controller.substrate_spots
-                adsorbate_spot_sets_data = self.app_controller.adsorbate_spot_sets
-                self.visualization_manager.redraw_spot_markers(
-                    substrate_spots_data, True,
-                    adsorbate_spot_sets_data, True
-                )
-            else:
-                 self.visualization_manager._clear_spot_markers_only()
+        self.display_image_data()
 
     @pyqtSlot()
     def _handle_add_new_adsorbate_set_request(self):

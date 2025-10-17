@@ -52,8 +52,6 @@ class VisualizationManager(QObject):
         self.history_manager = history_manager
 
         self.ideal_lattice_overlay_item: Optional[pg.ScatterPlotItem] = None
-        self.substrate_spot_markers: Optional[pg.ScatterPlotItem] = None
-        self.adsorbate_spot_set_markers: List[pg.ScatterPlotItem] = []
 
         self.substrate_raw_markers: Optional[pg.ScatterPlotItem] = None
         self.substrate_transformed_markers: Optional[pg.ScatterPlotItem] = None
@@ -124,12 +122,6 @@ class VisualizationManager(QObject):
                         panel_custom_option_text=panel_custom_option_text
                     )
             
-            if data_type == "FFT":
-                self._draw_spot_markers(
-                    substrate_spots_data, show_substrate_markers,
-                    adsorbate_spot_sets_data, show_adsorbate_markers
-                )
-            
             self.view_box.autoRange() 
             logger.debug(f"VisualizationManager: View updated for node '{current_node.operation_name}'.")
         else:
@@ -153,10 +145,6 @@ class VisualizationManager(QObject):
             self._remove_item_from_view(self.ideal_lattice_overlay_item)
             self.ideal_lattice_overlay_item = None
 
-        if self.substrate_spot_markers:
-            self._remove_item_from_view(self.substrate_spot_markers)
-            self.substrate_spot_markers = None
-
         if self.substrate_raw_markers:
             self._remove_item_from_view(self.substrate_raw_markers)
             self.substrate_raw_markers = None
@@ -168,11 +156,6 @@ class VisualizationManager(QObject):
         for line in self.substrate_pair_lines:
             self._remove_item_from_view(line)
         self.substrate_pair_lines = []
-
-        for marker_set in self.adsorbate_spot_set_markers:
-            if marker_set:
-                self._remove_item_from_view(marker_set)
-        self.adsorbate_spot_set_markers = []
 
         for marker in self.adsorbate_raw_markers.values():
             self._remove_item_from_view(marker)
@@ -582,102 +565,3 @@ class VisualizationManager(QObject):
             logger.info(f"VisualizationManager: Displayed ideal lattice overlay for '{display_name}'.")
 
 
-    def _draw_spot_markers(self,
-                           substrate_spots: List[Tuple[float, float]], show_substrate: bool,
-                           adsorbate_sets: List[List[Tuple[float, float]]], show_adsorbate: bool):
-        """Draws markers for selected substrate and adsorbate spots."""
-        if not self.view_box: return
-
-        # --- Substrate Spots ---
-        if show_substrate and substrate_spots:
-            display_substrate_spots = [(kx, ky) for kx, ky in substrate_spots]
-            try:
-                self.substrate_spot_markers = pg.ScatterPlotItem(
-                    pos=np.array(display_substrate_spots), symbol='o', size=10,
-                    pen=pg.mkPen('g', width=2), brush=pg.mkBrush(None)
-                )
-                self.view_box.addItem(self.substrate_spot_markers)
-                logger.debug(f"VisualizationManager: Redrew {len(substrate_spots)} substrate spots.")
-            except Exception as e: # pragma: no cover
-                logger.exception(f"Error creating/adding substrate spot markers: {e}")
-
-        if show_adsorbate and adsorbate_sets:
-            adsorbate_colors = ['b', 'c', 'm', (255, 165, 0)] # Orange
-            new_markers_list = []
-            for i, spot_set in enumerate(adsorbate_sets):
-                if spot_set:
-                    display_spot_set = [(kx, ky) for kx, ky in spot_set]
-                    color = adsorbate_colors[i % len(adsorbate_colors)]
-                    try:
-                        markers = pg.ScatterPlotItem(
-                            pos=np.array(display_spot_set), symbol='s', size=10,
-                            pen=pg.mkPen(color, width=2), brush=pg.mkBrush(None)
-                        )
-                        self.view_box.addItem(markers)
-                        new_markers_list.append(markers)
-                    except Exception as e: # pragma: no cover
-                        logger.exception(f"Error creating/adding adsorbate spot markers for set {i}: {e}")
-            self.adsorbate_spot_set_markers = new_markers_list
-            if self.adsorbate_spot_set_markers:
-                logger.debug(f"VisualizationManager: Redrew adsorbate spots for {len(self.adsorbate_spot_set_markers)} sets.")
-
-    def redraw_spot_markers(self, 
-                            substrate_spots_data: List[Tuple[float, float]], 
-                            show_substrate: bool,
-                            adsorbate_spot_sets_data: List[List[Tuple[float, float]]], 
-                            show_adsorbate: bool):
-        """Redraws the spot markers."""
-        if not self._is_initialized_correctly: return
-        logger.debug("VisualizationManager: Redrawing spot markers.")
-        if self.substrate_spot_markers and self.view_box:
-            try: self.view_box.removeItem(self.substrate_spot_markers)
-            except RuntimeError: pass
-            self.substrate_spot_markers = None
-        if self.view_box:
-            for marker_set in self.adsorbate_spot_set_markers:
-                if marker_set: 
-                    try: 
-                        self.view_box.removeItem(marker_set)
-                    except RuntimeError: 
-                        pass
-        
-        self.adsorbate_spot_set_markers = []
-        self._draw_spot_markers(substrate_spots_data, show_substrate, adsorbate_spot_sets_data, show_adsorbate)
-
-    def _clear_spot_markers_only(self):
-        """Clears the spot markers."""
-        if not self.view_box: return
-        if self.substrate_spot_markers:
-            try: self.view_box.removeItem(self.substrate_spot_markers)
-            except RuntimeError: pass
-            self.substrate_spot_markers = None
-        if self.substrate_raw_markers:
-            try: self.view_box.removeItem(self.substrate_raw_markers)
-            except RuntimeError: pass
-            self.substrate_raw_markers = None
-        if self.substrate_transformed_markers:
-            try: self.view_box.removeItem(self.substrate_transformed_markers)
-            except RuntimeError: pass
-            self.substrate_transformed_markers = None
-        for line in self.substrate_pair_lines:
-            try: self.view_box.removeItem(line)
-            except RuntimeError: pass
-        self.substrate_pair_lines = []
-        for marker_set in self.adsorbate_spot_set_markers:
-            if marker_set:
-                try: self.view_box.removeItem(marker_set)
-                except RuntimeError: pass
-        self.adsorbate_spot_set_markers = []
-        for marker in self.adsorbate_raw_markers.values():
-            try: self.view_box.removeItem(marker)
-            except RuntimeError: pass
-        self.adsorbate_raw_markers = {}
-        for marker in self.adsorbate_transformed_markers.values():
-            try: self.view_box.removeItem(marker)
-            except RuntimeError: pass
-        self.adsorbate_transformed_markers = {}
-        for line_list in self.adsorbate_pair_lines.values():
-            for line in line_list:
-                try: self.view_box.removeItem(line)
-                except RuntimeError: pass
-        self.adsorbate_pair_lines = {}
