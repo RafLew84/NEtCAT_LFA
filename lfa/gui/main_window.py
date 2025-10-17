@@ -79,12 +79,12 @@ except ImportError: # pragma: no cover
     SPOT_SELECTION_DIALOGS_AVAILABLE = False
 
 try:
-    from .dialogs.domain_walls_analysis_dialog import DomainWallsAnalysisDialog
-    DOMAIN_WALL_DIALOG_AVAILABLE = True
+    from .dialogs.superstructure_periodicity_dialog import SuperstructurePeriodicityDialog
+    SUPERSTRUCTURE_PERIODICITY_DIALOG_AVAILABLE = True
 except ImportError: # pragma: no cover
-    DomainWallsAnalysisDialog = None
-    DOMAIN_WALL_DIALOG_AVAILABLE = False
-    logging.warning("Could not import DomainWallsAnalysisDialog.")
+    SuperstructurePeriodicityDialog = None
+    SUPERSTRUCTURE_PERIODICITY_DIALOG_AVAILABLE = False
+    logging.warning("Could not import SuperstructurePeriodicityDialog.")
 
 logger = logging.getLogger(__name__)
 
@@ -224,7 +224,7 @@ class MainWindow(QMainWindow):
 
             self.app_controller.substrate_real_space_params_updated.connect(self._on_substrate_real_space_params_updated)
             self.app_controller.adsorbate_real_space_params_updated.connect(self._on_adsorbate_real_space_params_updated)
-            self.app_controller.domain_wall_results_updated.connect(self._on_domain_wall_results_updated)
+            self.app_controller.superstructure_periodicity_results_updated.connect(self._on_superstructure_periodicity_results_updated)
             self.app_controller.substrate_raw_visibility_updated.connect(self._on_substrate_raw_visibility_updated)
             self.app_controller.substrate_transformed_visibility_updated.connect(self._on_substrate_transformed_visibility_updated)
             self.app_controller.adsorbate_raw_visibility_updated.connect(self._on_adsorbate_raw_visibility_updated)
@@ -412,15 +412,15 @@ class MainWindow(QMainWindow):
                 if self.app_controller.substrate_real_space_results:
                     can_visualize_real_space = True
 
-        can_analyze_domain_walls = False
-        if self.app_controller and DOMAIN_WALL_DIALOG_AVAILABLE:
+        can_analyze_superstructure_periodicity = False
+        if self.app_controller and SUPERSTRUCTURE_PERIODICITY_DIALOG_AVAILABLE:
             current_hist_node = self.history_manager.get_current_node()
             if current_hist_node and current_hist_node.data_type == "FFT" and \
                self.app_controller.substrate_F_m2i is not None:
-                can_analyze_domain_walls = True
+                can_analyze_superstructure_periodicity = True
         
-        if hasattr(self, 'domain_wall_analysis_action'):
-            self.domain_wall_analysis_action.setEnabled(can_analyze_domain_walls)
+        if hasattr(self, 'superstructure_periodicity_action'):
+            self.superstructure_periodicity_action.setEnabled(can_analyze_superstructure_periodicity)
         
         
         if hasattr(self, 'stm_transform_action'):
@@ -585,11 +585,11 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Lattice Fourier Analyzer (LFA)")
 
     @pyqtSlot(object) 
-    def _on_domain_wall_results_updated(self, results: Optional[Dict[str, Any]]):
-        """Updates the panel with the domain wall analysis results."""
+    def _on_superstructure_periodicity_results_updated(self, results: Optional[Dict[str, Any]]):
+        """Updates the panel with the superstructure periodicity analysis results."""
         if hasattr(self, 'fft_analysis_panel_widget') and self.fft_analysis_panel_widget:
-            logger.debug(f"MainWindow: Received domain wall results update: {results}")
-            self.fft_analysis_panel_widget.update_domain_wall_results_display(results)
+            logger.debug(f"MainWindow: Received superstructure periodicity results update: {results}")
+            self.fft_analysis_panel_widget.update_superstructure_periodicity_display(results)
 
     @pyqtSlot()
     def open_real_space_reconstruction_dialog(self):
@@ -729,24 +729,24 @@ class MainWindow(QMainWindow):
                     self.fft_analysis_panel_widget.update_adsorbate_real_space_display(params_dict)
                     self.statusBar().showMessage(f"Adsorbate Set {set_index+1} real space parameters calculated.", 3000)
     @pyqtSlot()
-    def open_domain_wall_analysis_dialog(self):
-        """Opens the dialog for domain wall analysis."""
-        logger.info("MainWindow: Opening Domain Wall Analysis dialog...")
-        if not DOMAIN_WALL_DIALOG_AVAILABLE: # pragma: no cover
-            QMessageBox.critical(self, "Dialog Error", "DomainWallsAnalysisDialog is not available."); return
+    def open_superstructure_periodicity_dialog(self):
+        """Opens the dialog for superstructure periodicity analysis."""
+        logger.info("MainWindow: Opening Superstructure Periodicity dialog...")
+        if not SUPERSTRUCTURE_PERIODICITY_DIALOG_AVAILABLE: # pragma: no cover
+            QMessageBox.critical(self, "Dialog Error", "SuperstructurePeriodicityDialog is not available."); return
 
         current_node_info = self.app_controller.get_current_node_info_for_dialogs()
         if not current_node_info:
-            QMessageBox.warning(self, "Incorrect Data", "Domain wall analysis requires an active FFT image."); return
+            QMessageBox.warning(self, "Incorrect Data", "Superstructure periodicity analysis requires an active FFT image."); return
 
         node_id, data_type, fft_image_data_copy, source_image_id, source_label = current_node_info
         if data_type != "FFT":
-            QMessageBox.warning(self, "Incorrect Data", "Domain wall analysis requires an active FFT image."); return
+            QMessageBox.warning(self, "Incorrect Data", "Superstructure periodicity analysis requires an active FFT image."); return
         
         if not (self.app_controller.substrate_F_m2i is not None and self.app_controller.substrate_t_m2i is not None):
             QMessageBox.warning(self, "Data Missing", "Substrate transformation (F, t) must be calculated first."); return
 
-        dialog = DomainWallsAnalysisDialog(
+        dialog = SuperstructurePeriodicityDialog(
             fft_image_data=fft_image_data_copy,
             history_manager=self.history_manager,
             current_fft_node_id=node_id,
@@ -763,13 +763,13 @@ class MainWindow(QMainWindow):
         if dialog.exec() == QDialog.DialogCode.Accepted:
             results = dialog.get_analysis_results()
             if results and self.app_controller:
-                logger.info(f"Domain wall analysis accepted with results: {results}")
-                self.app_controller.update_domain_wall_results(results)
+                logger.info(f"Superstructure periodicity analysis accepted with results: {results}")
+                self.app_controller.update_superstructure_periodicity_results(results)
             else:
-                logger.info("Domain wall analysis dialog closed without valid results.")
+                logger.info("Superstructure periodicity dialog closed without valid results.")
         else:
-            logger.info("Domain Wall Analysis dialog cancelled.")
-        logger.info("Domain Wall Analysis dialog closed.")
+            logger.info("Superstructure periodicity dialog cancelled.")
+        logger.info("Superstructure periodicity dialog closed.")
 
     @pyqtSlot()
     def _on_calculate_substrate_rs_params_button_clicked(self):

@@ -1,4 +1,4 @@
-# lfa/gui/dialogs/domain_walls_analysis_dialog.py
+# lfa/gui/dialogs/superstructure_periodicity_dialog.py
 import logging
 from typing import List, Tuple, Optional, Dict, Any
 import numpy as np
@@ -14,7 +14,7 @@ from PyQt6.QtCore import Qt, pyqtSlot, QTimer
 
 from ...analysis.drift_correction import apply_affine_transform
 from ...analysis.lattice import convert_g_vector_px_to_nm_inv
-from ...analysis.lattice import calculate_d_spacing_from_ideal_spot, calculate_domain_wall_parameters
+from ...analysis.lattice import calculate_d_spacing_from_ideal_spot, calculate_superstructure_periodicity_parameters
 
 try:
     import pyqtgraph as pg
@@ -28,7 +28,7 @@ except ImportError: # pragma: no cover
     RectROI = None
     ScatterPlotItem = None
     PYQTGRAPH_AVAILABLE = False
-    logging.error("DomainWallsAnalysisDialog: PyQtGraph not found.")
+    logging.error("SuperstructurePeriodicityDialog: PyQtGraph not found.")
 
 try:
     from ...logic.app_controller import AppController
@@ -59,9 +59,9 @@ except ImportError: # pragma: no cover
 
 logger = logging.getLogger(__name__)
 
-class DomainWallsAnalysisDialog(QDialog):
+class SuperstructurePeriodicityDialog(QDialog):
     """
-    Dialog for analyzing domain wall structures by selecting a main peak
+    Dialog for analyzing superstructure periodicity by selecting a main peak
     and one or more satellite peaks on an FFT image.
     (Szkielet - implementacja w kolejnych krokach)
     """
@@ -96,13 +96,13 @@ class DomainWallsAnalysisDialog(QDialog):
                 is_power_scale = True
         
         if not is_power_scale:
-            logger.warning("DomainWallsAnalysisDialog cannot be used: "
+            logger.warning("SuperstructurePeriodicityDialog cannot be used: "
                            "Active FFT was not calculated with 'Power' scaling.")
             
             QMessageBox.warning(
                 self, 
                 "Incorrect FFT Scaling", 
-                "Domain wall intensity analysis requires the FFT to be calculated "
+                "Superstructure periodicity analysis requires the FFT to be calculated "
                 "with the **'Power'** scaling mode (|F|²).\n\n"
                 "Please go back, recalculate the FFT with the correct setting, and try again."
             )
@@ -115,7 +115,7 @@ class DomainWallsAnalysisDialog(QDialog):
             self.setWindowTitle("Error")
             return
 
-        self.setWindowTitle("Domain Wall Analysis")
+        self.setWindowTitle("Superstructure Periodicity Analysis")
         self.setMinimumSize(1200, 700)
         current_flags=self.windowFlags()
         self.setWindowFlags(current_flags | Qt.WindowType.WindowMinimizeButtonHint | Qt.WindowType.WindowMaximizeButtonHint)
@@ -147,7 +147,7 @@ class DomainWallsAnalysisDialog(QDialog):
         self._display_substrate_transform_info() 
         self._update_all_ui_elements() 
 
-        logger.debug("DomainWallsAnalysisDialog initialized.")
+        logger.debug("SuperstructurePeriodicityDialog initialized.")
 
     def _init_ui(self):
         top_level_layout = QHBoxLayout(self)
@@ -266,7 +266,7 @@ class DomainWallsAnalysisDialog(QDialog):
         
         results_group = QGroupBox("Calculated Results")
         results_layout = QFormLayout(results_group)
-        self.calculate_distance_button = QPushButton("Calculate Domain Wall Parameters")
+        self.calculate_distance_button = QPushButton("Calculate Superstructure Periodicity Parameters")
         self.calculate_distance_button.setEnabled(False)
         results_layout.addRow(self.calculate_distance_button)
         self.distance_fft_label = QLabel("-")
@@ -353,7 +353,7 @@ class DomainWallsAnalysisDialog(QDialog):
              QMessageBox.critical(self, "Error", "Invalid calibration data (Lx, Ly).")
              return
         
-        results = calculate_domain_wall_parameters(
+        results = calculate_superstructure_periodicity_parameters(
             main_peak_data=main_peak_data,
             satellite_peak_data=satellite_peak_data,
             fft_shape=self.fft_data.shape,
@@ -371,7 +371,7 @@ class DomainWallsAnalysisDialog(QDialog):
             self.max_value_label.setText(f"{results['max_value_ratio']:.3f}")
             self.status_label.setText("Calculation successful.")
         else:
-            QMessageBox.critical(self, "Calculation Error", "Could not calculate domain wall parameters.")
+            QMessageBox.critical(self, "Calculation Error", "Could not calculate superstructure periodicity parameters.")
             self._final_results = None
             self.distance_fft_label.setText("Error"); self.distance_real_space_label.setText("Error")
             self.intensity_ratio_label.setText("Error"); self.amplitude_ratio_label.setText("Error"); self.max_value_label.setText("Error")
@@ -748,7 +748,7 @@ class DomainWallsAnalysisDialog(QDialog):
              if reply == QMessageBox.StandardButton.No:
                  return # Nie zamykaj dialogu
 
-        logger.info("DomainWallsAnalysisDialog accepted.")
+        logger.info("SuperstructurePeriodicityDialog accepted.")
         super().accept()
     
     def get_analysis_results(self) -> Optional[Dict[str, Any]]:

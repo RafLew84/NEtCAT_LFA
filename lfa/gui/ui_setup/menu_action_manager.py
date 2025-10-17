@@ -154,14 +154,15 @@ class MenuActionManager:
         self.main_window.select_adsorbate_spots_action = sel_ads_action
 
         analysis_menu.addSeparator()
-        domain_wall_action = self._create_action(
-            text="Analyze Supperstructure Periodicyty...",
-            status_tip="Analyze domain wall structures from spot splittings",
-            triggered_slot=self.main_window.open_domain_wall_analysis_dialog,
+        superstructure_action = self._create_action(
+            text="Analyze Superstructure Periodicity...",
+            status_tip="Analyze superstructure periodicity from satellite peak splittings",
+            triggered_slot=self.main_window.open_superstructure_periodicity_dialog,
             enabled=False
         )
-        analysis_menu.addAction(domain_wall_action)
-        setattr(self.main_window, "domain_wall_analysis_action", domain_wall_action)
+        analysis_menu.addAction(superstructure_action)
+        self.analysis_actions["superstructure_periodicity"] = superstructure_action
+        setattr(self.main_window, "superstructure_periodicity_action", superstructure_action)
 
 
         analysis_menu.addSeparator()

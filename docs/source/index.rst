@@ -16,7 +16,7 @@ Key Features
 * **Interactive Spot Selection**: Precise selection of reciprocal lattice spots with refinement methods like "Max Pixel" and "2D Gaussian Fit".
 * **Drift & Distortion Correction**: Automatic calculation of the affine transformation matrix that maps the distorted, measured lattice to an ideal one, providing quantitative data on rotation and strain.
 * **Adsorbate Lattice Analysis**: Correction of adsorbate spot positions using the calculated substrate transformation, enabling accurate analysis of overlayer structures.
-* **Advanced Tools**: Includes modules for domain wall analysis and real-space reconstruction from a masked FFT.
+* **Advanced Tools**: Includes modules for superstructure periodicity analysis and real-space reconstruction from a masked FFT.
 * **History Tracking**: A non-linear history system allows users to seamlessly switch between different stages of the analysis.
 
 Core Workflow
@@ -45,7 +45,7 @@ LFA allows you to quantify several physical properties of your sample:
     * **Rotation Angle**: The angle of rotation of the measured lattice relative to the ideal one.
     * **Principal Stretches**: The amount of stretching or compression along the principal axes of distortion.
     * **Fit Quality**: The Root Mean Square Error (RMSE) of the transformation fit, indicating how well the measured spots match an ideal lattice.
-* **Domain Wall Periodicity**: By analyzing the splitting of satellite peaks from main Bragg peaks, you can calculate the real-space periodicity of superstructures like domain walls.
+* **Superstructure Periodicity**: By analyzing the splitting of satellite peaks from main Bragg peaks, you can calculate the real-space periodicity of surface superstructures.
 * **Autocorrelation Map**: Generate a Patterson map from the FFT to visualize real-space periodicities and vector relationships.
 
 .. toctree::

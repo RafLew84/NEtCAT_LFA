@@ -763,7 +763,7 @@ def calculate_d_spacing_from_ideal_spot(
         logger.error(f"Error in calculate_d_spacing_from_ideal_spot: {e}")
         return None
 
-def calculate_domain_wall_parameters(
+def calculate_superstructure_periodicity_parameters(
     main_peak_data: Dict[str, Any],
     satellite_peak_data: Dict[str, Any],
     fft_shape: Tuple[int, int],
@@ -771,7 +771,7 @@ def calculate_domain_wall_parameters(
     ly_nm: float
 ) -> Optional[Dict[str, float]]:
     """
-    Calculates various domain wall parameters based on a main and satellite peak.
+    Calculates superstructure periodicity parameters based on a main and satellite peak.
 
     Args:
         main_peak_data: Dictionary containing data for the main peak.
@@ -787,7 +787,7 @@ def calculate_domain_wall_parameters(
         required_keys = ['corrected', 'intensity', 'amplitude', 'max_value']
         if not all(k in main_peak_data and main_peak_data[k] is not None for k in required_keys) or \
            not all(k in satellite_peak_data and satellite_peak_data[k] is not None for k in required_keys):
-            logger.warning("Domain wall parameter calculation failed: Incomplete peak data.")
+            logger.warning("Superstructure periodicity parameter calculation failed: Incomplete peak data.")
             return None
 
         main_corr_px = main_peak_data['corrected']
@@ -818,8 +818,11 @@ def calculate_domain_wall_parameters(
             "max_value_ratio": max_value_ratio
         }
     except Exception as e:
-        logger.error(f"Error in calculate_domain_wall_parameters: {e}")
+        logger.error(f"Error in calculate_superstructure_periodicity_parameters: {e}")
         return None
+
+# Backward compatibility alias; remove once legacy code is updated.
+calculate_domain_wall_parameters = calculate_superstructure_periodicity_parameters
     
 def create_ase_supercell_from_2d_vectors(
     a1_vec_nm: np.ndarray, 

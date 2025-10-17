@@ -20,10 +20,10 @@ lfa.gui.dialogs.custom\_lattice\_dialog module
    :show-inheritance:
    :undoc-members:
 
-lfa.gui.dialogs.domain\_walls\_analysis\_dialog module
-------------------------------------------------------
+lfa.gui.dialogs.superstructure\_periodicity\_dialog module
+----------------------------------------------------------
 
-.. automodule:: lfa.gui.dialogs.domain_walls_analysis_dialog
+.. automodule:: lfa.gui.dialogs.superstructure_periodicity_dialog
    :members:
    :show-inheritance:
    :undoc-members:

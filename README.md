@@ -35,7 +35,7 @@ PyQt6 interface.
   each overlayer.
 - **Custom overlays**: Report overlays let you define a custom real-space
   adsorbate lattice (manual vectors or length/angle input, custom offset and marker shape) and toggle visibility per adsorbate set.
-- **Advanced analysis tools**: Perform domain wall and superstructure analysis,
+- **Advanced analysis tools**: Perform superstructure periodicity analysis,
   generate Patterson (autocorrelation) maps, and reconstruct real space images
   from masked FFT components.
 - **Session persistence**: Save and restore complete analysis sessions,
@@ -92,7 +92,7 @@ explore the interface and analysis workflow.
    Spots...`, and mark overlayer peaks. You can reuse substrate transforms from
    one image on FFTs derived from another.
 7. **Obtain parameters**: Use the analysis dock and specialized dialogs to
-   compute lattice constants, domain wall periodicity, and real-space vectors.
+   compute lattice constants, superstructure periodicity, and real-space vectors.
 8. **Persist your work**: Save the session via `File > Save Analysis…`. Sessions
    now capture all images, history branches, and cross-image metadata. Reloading
    restores every “Original Image N” grouping so you can continue exactly where
@@ -109,7 +109,7 @@ LFA provides several measurable results:
   principal stretch values that describe instrumental drift or sample strain.
 - Fit quality metrics, including root mean square error (RMSE) for peak
   alignment.
-- Domain wall and superstructure periodicity derived from satellite peak
+- Superstructure periodicity derived from satellite peak
   analysis.
 - Patterson (autocorrelation) maps and masked FFT reconstructions to connect
   reciprocal features with real space motifs.

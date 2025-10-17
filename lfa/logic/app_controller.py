@@ -65,7 +65,7 @@ class AppController(QObject):
     spot_selection_parameters_changed = pyqtSignal()
     adsorbate_sets_structure_changed = pyqtSignal()
     substrate_transform_results_updated = pyqtSignal()
-    domain_wall_results_updated = pyqtSignal(object)
+    superstructure_periodicity_results_updated = pyqtSignal(object)
 
     substrate_definition_changed = pyqtSignal()
 
@@ -139,7 +139,7 @@ class AppController(QObject):
         self.adsorbate_real_space_results: Dict[int, Dict[str, Any]] = {}
         self.adsorbate_expected_lattice_types: Dict[int, str] = {0: ADSORBATE_LATTICE_TYPE_UNKNOWN}
 
-        self.domain_wall_analysis_results: Optional[Dict[str, Any]] = None
+        self.superstructure_periodicity_results: Optional[Dict[str, Any]] = None
 
         logger.info("AppController initialized.")
 
@@ -194,7 +194,7 @@ class AppController(QObject):
             'current_adsorbate_set_index': self.current_adsorbate_set_index,
             'adsorbate_real_space_results': self.adsorbate_real_space_results,
             'adsorbate_expected_lattice_types': self.adsorbate_expected_lattice_types,
-            'domain_wall_analysis_results': self.domain_wall_analysis_results,
+            'superstructure_periodicity_results': self.superstructure_periodicity_results,
             'adsorbate_spot_pairs': {
                 index: [
                     {'raw': raw, 'transformed': transformed}
@@ -268,7 +268,14 @@ class AppController(QObject):
         self.clear_all_spot_data()
 
         loaded_state = session_data.get("controller_state", {})
+        legacy_superstructure_results = loaded_state.get("domain_wall_analysis_results")
+        if legacy_superstructure_results is not None and "superstructure_periodicity_results" not in loaded_state:
+            logger.info("Migrating legacy domain wall analysis results to superstructure periodicity results.")
+            self.superstructure_periodicity_results = legacy_superstructure_results
+
         for key, value in loaded_state.items():
+            if key == "domain_wall_analysis_results":
+                continue
             if hasattr(self, key):
                 setattr(self, key, value)
             else:
@@ -366,7 +373,7 @@ class AppController(QObject):
         self.adsorbate_sets_structure_changed.emit()
         self.substrate_definition_changed.emit()
         self.substrate_transform_results_updated.emit()
-        self.domain_wall_results_updated.emit(self.domain_wall_analysis_results)
+        self.superstructure_periodicity_results_updated.emit(self.superstructure_periodicity_results)
         
         self.history_manager.current_node_changed.emit(self.history_manager.get_current_node())
 
@@ -470,7 +477,7 @@ class AppController(QObject):
         self.adsorbate_set_updated.emit(0)
         self.adsorbate_real_space_params_updated.emit(0, {})
         self.adsorbate_expected_type_updated.emit(0, ADSORBATE_LATTICE_TYPE_UNKNOWN)
-        self.domain_wall_results_updated.emit(None)
+        self.superstructure_periodicity_results_updated.emit(None)
         self.spot_lists_updated.emit()
         logger.info("AppController: Session reset complete.")
 
@@ -1108,11 +1115,11 @@ class AppController(QObject):
             self.adsorbate_real_space_params_updated.emit(set_index, {})
             if hasattr(self, 'adsorbate_real_space_params_updated'): self.adsorbate_real_space_params_updated.emit(set_index, {})
 
-    def update_domain_wall_results(self, results: Optional[Dict[str, Any]]):
-        """Updates and stores the domain wall analysis results."""
-        self.domain_wall_analysis_results = results
-        logger.info(f"AppController: Updated domain wall analysis results: {results}")
-        self.domain_wall_results_updated.emit(self.domain_wall_analysis_results)
+    def update_superstructure_periodicity_results(self, results: Optional[Dict[str, Any]]):
+        """Updates and stores the superstructure periodicity analysis results."""
+        self.superstructure_periodicity_results = results
+        logger.info(f"AppController: Updated superstructure periodicity results: {results}")
+        self.superstructure_periodicity_results_updated.emit(self.superstructure_periodicity_results)
 
     def add_new_node_to_history(self, new_node: HistoryNode):
         """
@@ -1170,8 +1177,8 @@ class AppController(QObject):
         self.substrate_real_space_results = None
         self.adsorbate_expected_lattice_types = {0: ADSORBATE_LATTICE_TYPE_UNKNOWN}
         self.adsorbate_spot_pairs = {0: []}
-        self.domain_wall_analysis_results = None
-        self.domain_wall_results_updated.emit(None)
+        self.superstructure_periodicity_results = None
+        self.superstructure_periodicity_results_updated.emit(None)
 
         self.set_substrate_raw_visibility(True)
         self.set_substrate_transformed_visibility(True)
