@@ -544,11 +544,16 @@ class VisualizationManager(QObject):
         if not self.view_box or not KNOWN_LATTICES: return
 
         lattice_info_to_use: Optional[Union[str, Dict[str, Any]]] = None
-        if selected_substrate_name == panel_custom_option_text and custom_lattice_definition:
+        if custom_lattice_definition and (
+            selected_substrate_name == panel_custom_option_text or
+            (isinstance(selected_substrate_name, str) and
+             selected_substrate_name not in ("None", panel_custom_option_text) and
+             selected_substrate_name not in KNOWN_LATTICES)
+        ):
             lattice_info_to_use = custom_lattice_definition
         elif isinstance(selected_substrate_name, str) and \
              selected_substrate_name != "None" and \
-             selected_substrate_name != panel_custom_option_text:
+             selected_substrate_name in KNOWN_LATTICES:
             lattice_info_to_use = selected_substrate_name
         
         if not lattice_info_to_use:

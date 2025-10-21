@@ -43,7 +43,7 @@ try:
         calculate_real_space_vectors_from_g, 
         convert_g_vector_px_to_nm_inv, 
         select_adsorbate_reciprocal_basis_vectors_px,
-        LATTICE_TYPE_HEXAGONAL, LATTICE_TYPE_SQUARE, 
+        LATTICE_TYPE_HEXAGONAL, LATTICE_TYPE_SQUARE, LATTICE_TYPE_CUSTOM,
     )
     LATTICE_ANALYSIS_FUNCTIONS_AVAILABLE = True
 except ImportError: # pragma: no cover
@@ -601,11 +601,21 @@ class AppController(QObject):
         new_t_m2i = results.get("translation_t_m2i")
         new_analysis_m2i = results.get("transform_analysis_m2i")
         new_displayable_fitted_spots = results.get("displayable_fitted_spots", [])
+        new_custom_definition = results.get("custom_definition")
+
+        if new_lattice_type == LATTICE_TYPE_CUSTOM and isinstance(new_custom_definition, dict):
+            new_a_length = new_custom_definition.get("a_length_nm")
+            if new_a_length:
+                new_a_surf = new_a_length
+
+        previous_custom_info = self.custom_lattice_info
 
         spots_changed = (self.user_selected_substrate_spots != new_user_spots)
         def_changed = (self.substrate_lattice_type != new_lattice_type or
                        self.substrate_a_surf != new_a_surf or
                        self.substrate_definition_name != new_def_name)
+        if new_def_name == PREDEFINED_SUBSTRATE_CUSTOM and new_lattice_type == LATTICE_TYPE_CUSTOM:
+            def_changed = def_changed or previous_custom_info != new_custom_definition
         transform_changed = (not np.array_equal(self.substrate_F_m2i, new_F_m2i) or
                              not np.array_equal(self.substrate_t_m2i, new_t_m2i) or
                              self.displayable_fitted_substrate_spots_on_fft != new_displayable_fitted_spots)
@@ -629,7 +639,14 @@ class AppController(QObject):
             self.substrate_spot_pairs = []
 
         if new_def_name == PREDEFINED_SUBSTRATE_CUSTOM:
-            self.custom_lattice_info = {"type": new_lattice_type, "a_surf": new_a_surf, "name": "Custom (Dialog)"}
+            if new_lattice_type == LATTICE_TYPE_CUSTOM and isinstance(new_custom_definition, dict):
+                self.custom_lattice_info = dict(new_custom_definition)
+                self.custom_lattice_info.setdefault("name", "Manual Definition")
+                self.custom_lattice_info.setdefault("source", "User Defined")
+            elif new_a_surf:
+                self.custom_lattice_info = {"type": new_lattice_type, "a_surf": new_a_surf, "name": "Custom (Dialog)"}
+            else:
+                self.custom_lattice_info = None
             self.last_selected_substrate = PREDEFINED_SUBSTRATE_CUSTOM
         elif new_def_name != PREDEFINED_SUBSTRATE_NONE:
             self.custom_lattice_info = None
@@ -669,7 +686,12 @@ class AppController(QObject):
 
         logger.info("AppController: Attempting to calculate substrate real space parameters from fitted spots.")
 
-        if not (self.substrate_lattice_type and self.substrate_a_surf and self.substrate_a_surf > 0):
+        if self.substrate_lattice_type == LATTICE_TYPE_CUSTOM:
+            if not isinstance(self.custom_lattice_info, dict):
+                logger.warning("Custom lattice definition missing; cannot calculate real space params.")
+                self.substrate_real_space_params_updated.emit({"error": "Custom lattice definition missing."})
+                return
+        elif not (self.substrate_lattice_type and self.substrate_a_surf and self.substrate_a_surf > 0):
             logger.warning("Substrate definition (type/a_surf) used for fitting not set. Cannot calculate real space params.")
             self.substrate_real_space_params_updated.emit({"error": "Substrate definition for fit missing."})
             return
@@ -717,7 +739,7 @@ class AppController(QObject):
             self.substrate_real_space_params_updated.emit({"error": f"Need {expected_spot_count} fitted spots."})
             return
         if expected_spot_count == 0 and len(fitted_g_vectors_relative_px) < 2 :
-             logger.warning(f"Not enough fitted spots to define basis for unknown lattice type.")
+             logger.warning("Not enough fitted spots to define basis for non-standard lattice type.")
              self.substrate_real_space_params_updated.emit({"error": "Need >=2 fitted spots."})
              return
 

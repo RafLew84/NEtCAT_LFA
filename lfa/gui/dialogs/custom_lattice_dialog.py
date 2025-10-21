@@ -7,14 +7,14 @@ for substrate analysis. It supports hexagonal and square lattice types and allow
 users to specify the surface constant (a_surf) in nanometers.
 """
 import logging
+import math
 from typing import Optional, Dict, Any
 
 try:
     from PyQt6.QtWidgets import (
-        QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QLabel, QLineEdit,
+        QDialog, QVBoxLayout, QFormLayout, QLabel, QLineEdit,
         QComboBox, QDialogButtonBox, QDoubleSpinBox, QMessageBox
     )
-    from PyQt6.QtCore import pyqtSlot
 except ImportError:
     logging.critical("Failed to import necessary PyQt6 modules for CustomLatticeDialog.")
     raise
@@ -57,20 +57,60 @@ class CustomLatticeDialog(QDialog):
 
         # Initialize lattice name input
         self.name_edit = QLineEdit("Custom Lattice")
-        form_layout.addRow("Lattice Name:", self.name_edit)
+        self.name_label = QLabel("Lattice Name:")
+        form_layout.addRow(self.name_label, self.name_edit)
 
-        # Initialize lattice type selection
+        # Mode selection
+        self.mode_label = QLabel("Definition Mode:")
+        self.mode_combo = QComboBox()
+        self.mode_combo.addItems([
+            "Lattice type with a_surf",
+            "Manual vectors"
+        ])
+        form_layout.addRow(self.mode_label, self.mode_combo)
+
+        # Lattice type selection
+        self.type_label = QLabel("Lattice Type:")
         self.type_combo = QComboBox()
-        self.type_combo.addItems(["hexagonal", "square"]) # Supported lattice types
-        form_layout.addRow("Lattice Type:", self.type_combo)
+        self.type_combo.addItems(["hexagonal", "square"])
+        form_layout.addRow(self.type_label, self.type_combo)
 
-        # Initialize surface constant input
+        # Surface constant input
+        self.a_surf_label = QLabel("Surface Constant 'a_surf' (nm):")
         self.a_surf_spinbox = QDoubleSpinBox()
-        self.a_surf_spinbox.setDecimals(4) # Precision for nanometer values
-        self.a_surf_spinbox.setRange(0.0001, 10.0) # Reasonable range in nanometers
+        self.a_surf_spinbox.setDecimals(4)
+        self.a_surf_spinbox.setRange(0.0001, 10.0)
         self.a_surf_spinbox.setSingleStep(0.001)
-        self.a_surf_spinbox.setValue(0.300) # Default example value
-        form_layout.addRow("Surface Constant 'a_surf' (nm):", self.a_surf_spinbox)
+        self.a_surf_spinbox.setValue(0.300)
+        form_layout.addRow(self.a_surf_label, self.a_surf_spinbox)
+
+        # Manual vector inputs
+        self.vector_a_label = QLabel("Vector |a| (nm):")
+        self.vector_a_spinbox = QDoubleSpinBox()
+        self.vector_a_spinbox.setDecimals(4)
+        self.vector_a_spinbox.setRange(0.0001, 20.0)
+        self.vector_a_spinbox.setSingleStep(0.001)
+        self.vector_a_spinbox.setValue(0.300)
+        form_layout.addRow(self.vector_a_label, self.vector_a_spinbox)
+
+        self.vector_b_label = QLabel("Vector |b| (nm):")
+        self.vector_b_spinbox = QDoubleSpinBox()
+        self.vector_b_spinbox.setDecimals(4)
+        self.vector_b_spinbox.setRange(0.0001, 20.0)
+        self.vector_b_spinbox.setSingleStep(0.001)
+        self.vector_b_spinbox.setValue(0.300)
+        form_layout.addRow(self.vector_b_label, self.vector_b_spinbox)
+
+        self.vector_gamma_label = QLabel("Angle γ (deg):")
+        self.vector_gamma_spinbox = QDoubleSpinBox()
+        self.vector_gamma_spinbox.setDecimals(2)
+        self.vector_gamma_spinbox.setRange(1.0, 179.0)
+        self.vector_gamma_spinbox.setSingleStep(0.1)
+        self.vector_gamma_spinbox.setValue(60.0)
+        form_layout.addRow(self.vector_gamma_label, self.vector_gamma_spinbox)
+
+        self.mode_combo.currentIndexChanged.connect(self._update_mode_widgets)
+        self._update_mode_widgets()
 
         layout.addLayout(form_layout)
 
@@ -81,6 +121,16 @@ class CustomLatticeDialog(QDialog):
         self.button_box.accepted.connect(self.accept_input)
         self.button_box.rejected.connect(self.reject)
         layout.addWidget(self.button_box)
+
+    def _update_mode_widgets(self):
+        manual_mode = self.mode_combo.currentIndex() == 1
+
+        for widget in (self.type_label, self.type_combo, self.a_surf_label, self.a_surf_spinbox):
+            widget.setVisible(not manual_mode)
+        for widget in (self.vector_a_label, self.vector_a_spinbox,
+                       self.vector_b_label, self.vector_b_spinbox,
+                       self.vector_gamma_label, self.vector_gamma_spinbox):
+            widget.setVisible(manual_mode)
 
     def accept_input(self):
         """
@@ -99,24 +149,58 @@ class CustomLatticeDialog(QDialog):
         - source: Indicates this is a user-defined lattice
         """
         name = self.name_edit.text().strip()
-        lattice_type = self.type_combo.currentText()
-        a_surf = self.a_surf_spinbox.value()
-
         if not name:
             QMessageBox.warning(self, "Input Error", "Lattice name cannot be empty.")
             return
-        if a_surf <= 0:
-            QMessageBox.warning(self, "Input Error", "'a_surf' must be positive.")
-            return
 
-        self._lattice_definition = {
-            "name": name,
-            "type": lattice_type,
-            "a_surf": a_surf,
-            "source": "User Defined"
-        }
+        manual_mode = self.mode_combo.currentIndex() == 1
+
+        if manual_mode:
+            a_length = self.vector_a_spinbox.value()
+            b_length = self.vector_b_spinbox.value()
+            gamma_deg = self.vector_gamma_spinbox.value()
+
+            if a_length <= 0 or b_length <= 0:
+                QMessageBox.warning(self, "Input Error", "Vector lengths must be positive.")
+                return
+
+            gamma_rad = math.radians(gamma_deg)
+            if abs(math.sin(gamma_rad)) < 1e-6:
+                QMessageBox.warning(self, "Input Error", "Angle must not produce collinear vectors.")
+                return
+
+            a_vec = (float(a_length), 0.0)
+            b_vec = (
+                float(b_length * math.cos(gamma_rad)),
+                float(b_length * math.sin(gamma_rad))
+            )
+
+            self._lattice_definition = {
+                "name": name,
+                "type": "custom",
+                "a_length_nm": float(a_length),
+                "b_length_nm": float(b_length),
+                "gamma_deg": float(gamma_deg),
+                "a_vec_nm": a_vec,
+                "b_vec_nm": b_vec,
+                "preferred_point_count": 6,
+                "source": "User Defined"
+            }
+        else:
+            lattice_type = self.type_combo.currentText()
+            a_surf = self.a_surf_spinbox.value()
+            if a_surf <= 0:
+                QMessageBox.warning(self, "Input Error", "'a_surf' must be positive.")
+                return
+            self._lattice_definition = {
+                "name": name,
+                "type": lattice_type,
+                "a_surf": float(a_surf),
+                "source": "User Defined"
+            }
+
         logger.info(f"Custom lattice defined: {self._lattice_definition}")
-        super().accept() # Call the original accept to close with QDialog.Accepted
+        super().accept()
 
     def get_lattice_definition(self) -> Optional[Dict[str, Any]]:
         """

@@ -32,7 +32,7 @@ from ..logic.app_controller import AppController, LATTICE_ANALYSIS_FUNCTIONS_AVA
 from ..core.history import HistoryNode
 from .ui_setup.menu_action_manager import MenuActionManager
 from .ui_setup.dock_panel_manager import DockPanelManager
-from ..gui.dialogs.substrate_spot_dialog import PREDEFINED_SUBSTRATE_NONE, PREDEFINED_SUBSTRATE_CUSTOM, LATTICE_TYPE_HEXAGONAL, LATTICE_TYPE_SQUARE
+from ..gui.dialogs.substrate_spot_dialog import PREDEFINED_SUBSTRATE_NONE, PREDEFINED_SUBSTRATE_CUSTOM, LATTICE_TYPE_HEXAGONAL, LATTICE_TYPE_SQUARE, LATTICE_TYPE_CUSTOM
 from ..logic.app_controller import ADSORBATE_LATTICE_TYPE_UNKNOWN
 
 try:
@@ -483,15 +483,26 @@ class MainWindow(QMainWindow):
                 panel.set_clear_all_adsorbate_sets_button_enabled(can_clear_all_adsorbate_sets_from_panel)
 
                 ac = self.app_controller
-                if (ac.substrate_lattice_type and ac.substrate_a_surf and ac.substrate_a_surf > 0 and
+                has_substrate_definition = False
+                if ac.substrate_lattice_type == LATTICE_TYPE_CUSTOM:
+                    has_substrate_definition = isinstance(ac.custom_lattice_info, dict)
+                else:
+                    has_substrate_definition = (
+                        ac.substrate_lattice_type and ac.substrate_a_surf and ac.substrate_a_surf > 0
+                    )
+
+                if (has_substrate_definition and
                     ac.reference_ideal_substrate_spots_px and ac.current_fft_data_shape and
                     LATTICE_ANALYSIS_FUNCTIONS_AVAILABLE):
-                    
+
                     expected_sub_spot_count = 0
                     if ac.substrate_lattice_type == LATTICE_TYPE_HEXAGONAL: expected_sub_spot_count = 6
                     elif ac.substrate_lattice_type == LATTICE_TYPE_SQUARE: expected_sub_spot_count = 4
-                    
-                    if len(ac.reference_ideal_substrate_spots_px) == expected_sub_spot_count and expected_sub_spot_count > 0:
+
+                    if expected_sub_spot_count > 0:
+                        if len(ac.reference_ideal_substrate_spots_px) == expected_sub_spot_count:
+                            can_calculate_substrate_rs = True
+                    elif len(ac.reference_ideal_substrate_spots_px) >= 2:
                         can_calculate_substrate_rs = True
                 
                 if (0 <= current_ads_idx < len(ac.corrected_adsorbate_spot_sets) and
@@ -847,7 +858,15 @@ class MainWindow(QMainWindow):
             current_spots=self.app_controller.user_selected_substrate_spots, 
             initial_lattice_type=self.app_controller.substrate_lattice_type if self.app_controller.substrate_lattice_type else LATTICE_TYPE_HEXAGONAL,
             initial_selected_substrate_name=self.app_controller.substrate_definition_name,
-            initial_custom_a_surf=self.app_controller.substrate_a_surf if self.app_controller.substrate_definition_name == PREDEFINED_SUBSTRATE_CUSTOM else None,
+            initial_custom_a_surf=self.app_controller.substrate_a_surf if (
+                self.app_controller.substrate_definition_name == PREDEFINED_SUBSTRATE_CUSTOM and
+                self.app_controller.substrate_lattice_type != LATTICE_TYPE_CUSTOM
+            ) else None,
+            initial_custom_definition=dict(self.app_controller.custom_lattice_info) if (
+                self.app_controller.substrate_definition_name == PREDEFINED_SUBSTRATE_CUSTOM and
+                self.app_controller.substrate_lattice_type == LATTICE_TYPE_CUSTOM and
+                isinstance(self.app_controller.custom_lattice_info, dict)
+            ) else None,
             default_refinement_method=self.app_controller.spot_refinement_method,
             default_refinement_roi_size=self.app_controller.refinement_roi_size,
             initial_transform_F = self.app_controller.substrate_F_m2i,

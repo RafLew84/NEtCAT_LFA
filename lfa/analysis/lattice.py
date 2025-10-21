@@ -13,6 +13,7 @@ from ase.build import make_supercell
 
 LATTICE_TYPE_HEXAGONAL = "hexagonal"
 LATTICE_TYPE_SQUARE = "square"
+LATTICE_TYPE_CUSTOM = "custom"
 LATTICE_TYPE_UNKNOWN = "Unknown"
 
 ADSORBATE_LATTICE_TYPE_UNKNOWN = "Unknown"
@@ -102,6 +103,51 @@ KNOWN_LATTICES: Dict[str, Dict] = {
 
 # --- Reciprocal Lattice Calculation ---
 
+def _compute_reciprocal_from_direct_vectors(
+    a_vec_nm: np.ndarray,
+    b_vec_nm: np.ndarray
+) -> Optional[Tuple[np.ndarray, np.ndarray]]:
+    """
+    Builds reciprocal basis vectors (without 2pi factor) from two direct vectors.
+    """
+    if a_vec_nm.shape != (2,) or b_vec_nm.shape != (2,):
+        logger.error("Direct lattice vectors must be 2D arrays.")
+        return None
+
+    area = a_vec_nm[0] * b_vec_nm[1] - a_vec_nm[1] * b_vec_nm[0]
+    if abs(area) < 1e-9:
+        logger.error("Direct lattice vectors are collinear; reciprocal basis undefined.")
+        return None
+
+    b1_star = np.array([b_vec_nm[1], -b_vec_nm[0]]) / area
+    b2_star = np.array([-a_vec_nm[1], a_vec_nm[0]]) / area
+    return b1_star, b2_star
+
+def _build_direct_vectors_from_lengths(
+    a_length_nm: Optional[float],
+    b_length_nm: Optional[float],
+    gamma_deg: Optional[float]
+) -> Optional[Tuple[np.ndarray, np.ndarray]]:
+    """
+    Returns 2D direct lattice vectors from lengths and enclosed angle.
+    """
+    if not (a_length_nm and b_length_nm and gamma_deg is not None):
+        logger.error("Manual lattice definition needs a, b, and gamma.")
+        return None
+    if a_length_nm <= 0 or b_length_nm <= 0:
+        logger.error("Manual lattice vector lengths must be positive.")
+        return None
+
+    gamma_rad = np.deg2rad(gamma_deg)
+    if abs(np.sin(gamma_rad)) < 1e-6:
+        logger.error("Manual lattice angle produces nearly collinear vectors.")
+        return None
+
+    a_vec = np.array([a_length_nm, 0.0], dtype=float)
+    b_vec = np.array([b_length_nm * np.cos(gamma_rad),
+                      b_length_nm * np.sin(gamma_rad)], dtype=float)
+    return a_vec, b_vec
+
 def get_reciprocal_vectors(lattice_info: Dict) -> Optional[Tuple[np.ndarray, np.ndarray]]:
     """
     Calculates the primary reciprocal lattice vectors b1*, b2* (without 2pi).
@@ -113,27 +159,45 @@ def get_reciprocal_vectors(lattice_info: Dict) -> Optional[Tuple[np.ndarray, np.
         Optional[Tuple[np.ndarray, np.ndarray]]: Tuple of (b1*, b2*) vectors or None on error.
     """
     l_type = lattice_info.get("type")
-    a = lattice_info.get("a_surf") # Use surface lattice constant
 
+    if lattice_info.get("a_vec_nm") is not None and lattice_info.get("b_vec_nm") is not None:
+        try:
+            a_vec = np.array(lattice_info["a_vec_nm"], dtype=float)
+            b_vec = np.array(lattice_info["b_vec_nm"], dtype=float)
+        except Exception:  # pragma: no cover
+            logger.exception("Failed parsing manual lattice vectors.")
+            return None
+        return _compute_reciprocal_from_direct_vectors(a_vec, b_vec)
+
+    if l_type == LATTICE_TYPE_CUSTOM:
+        direct_vectors = _build_direct_vectors_from_lengths(
+            lattice_info.get("a_length_nm"),
+            lattice_info.get("b_length_nm"),
+            lattice_info.get("gamma_deg")
+        )
+        if direct_vectors is None:
+            return None
+        a_vec, b_vec = direct_vectors
+        return _compute_reciprocal_from_direct_vectors(a_vec, b_vec)
+
+    a = lattice_info.get("a_surf")  # Use surface lattice constant
     if not l_type or not a:
         logger.error("Lattice info missing 'type' or 'a_surf'.")
         return None
 
-    if l_type == "hexagonal":
+    if l_type == LATTICE_TYPE_HEXAGONAL:
         b_mag = (1.0 / a) * (2.0 / np.sqrt(3))
-        # Define b1* along x-axis
         b1_star = np.array([b_mag, 0.0])
-        # b2* is rotated by 60 degrees
         b2_star = np.array([b_mag * np.cos(np.pi / 3), b_mag * np.sin(np.pi / 3)])
         return b1_star, b2_star
-    elif l_type == "square":
+    if l_type == LATTICE_TYPE_SQUARE:
         b_mag = 1.0 / a
         b1_star = np.array([b_mag, 0.0])
         b2_star = np.array([0.0, b_mag])
         return b1_star, b2_star
-    else:
-        logger.error(f"Unsupported lattice type: {l_type}")
-        return None
+
+    logger.error(f"Unsupported lattice type: {l_type}")
+    return None
 
 def get_reciprocal_points(lattice_name_or_info: Union[str, Dict],
                            max_hk: int = 2) -> Optional[List[Tuple[float, float]]]:
@@ -223,9 +287,12 @@ def get_nearest_reciprocal_points(
         return None
 
     lattice_type = lattice_info_dict.get("type")
-    if not lattice_type: # pragma: no cover
-        logger.error(f"get_nearest_reciprocal_points: Lattice type not specified in info for '{display_name}'.")
-        return None
+    if not lattice_type:
+        if lattice_info_dict.get("a_vec_nm") is not None and lattice_info_dict.get("b_vec_nm") is not None:
+            lattice_type = LATTICE_TYPE_CUSTOM
+        else: # pragma: no cover
+            logger.error(f"get_nearest_reciprocal_points: Lattice type not specified in info for '{display_name}'.")
+            return None
 
     candidate_points = get_reciprocal_points(lattice_info_dict, max_hk=1)
 
@@ -235,14 +302,13 @@ def get_nearest_reciprocal_points(
 
     sorted_points = sorted(candidate_points, key=lambda p: p[0]**2 + p[1]**2)
 
-    num_points_to_return = 0
+    preferred_count = lattice_info_dict.get("preferred_point_count")
     if lattice_type == LATTICE_TYPE_HEXAGONAL:
         num_points_to_return = num_points_hex
     elif lattice_type == LATTICE_TYPE_SQUARE:
         num_points_to_return = num_points_square
-    else: # pragma: no cover
-        logger.warning(f"get_nearest_reciprocal_points: Unsupported lattice type '{lattice_type}' for specific point count. Returning all from max_hk=1.")
-        return sorted_points[:min(len(sorted_points), 6)]
+    else:
+        num_points_to_return = preferred_count if isinstance(preferred_count, int) and preferred_count > 0 else max(num_points_hex, num_points_square)
 
 
     if len(sorted_points) < num_points_to_return: # pragma: no cover
@@ -368,7 +434,18 @@ def select_reciprocal_lattice_basis_vectors(
         logger.info(f"Square basis: g1_px={g1_px}, g2_px={g2_px} (avg_len={avg_len_px:.2f}px)")
         return g1_px, g2_px
     else:
-        logger.error(f"Unsupported lattice type for basis vector selection: {lattice_type}")
+        if len(g_vectors_relative_px) < 2:
+            logger.warning("Custom lattice requires at least two reciprocal vectors for basis selection.")
+            return None
+        for i in range(len(g_vectors_relative_px)):
+            for j in range(i + 1, len(g_vectors_relative_px)):
+                g1 = g_vectors_relative_px[i]
+                g2 = g_vectors_relative_px[j]
+                cross = g1[0] * g2[1] - g1[1] * g2[0]
+                if abs(cross) > 1e-6:
+                    logger.info(f"Custom lattice basis chosen using vectors at indices {i} and {j}.")
+                    return g1, g2
+        logger.warning("Custom lattice: provided reciprocal vectors are collinear; cannot form a basis.")
         return None
 
 def convert_g_vector_px_to_nm_inv(

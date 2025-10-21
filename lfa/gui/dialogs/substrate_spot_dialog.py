@@ -1,5 +1,6 @@
 # lfa/gui/dialogs/substrate_spot_dialog.py
 import logging
+import math
 from typing import List, Tuple, Optional, Dict, Any
 import numpy as np
 
@@ -71,9 +72,10 @@ REFINEMENT_GAUSSIAN_FIT = "2D Gaussian Fit"
 
 LATTICE_TYPE_HEXAGONAL = "hexagonal"
 LATTICE_TYPE_SQUARE = "square"
+LATTICE_TYPE_CUSTOM = "custom"
 
 PREDEFINED_SUBSTRATE_NONE = "None (Define a_surf below)"
-PREDEFINED_SUBSTRATE_CUSTOM = "<Custom a_surf...>"
+PREDEFINED_SUBSTRATE_CUSTOM = "<Manual Definition...>"
 PREDEFINED_SUBSTRATE_FROM_SELECTION = "<From Selection (Future)>"
 
 class SubstrateSpotSelectionDialog(QDialog):
@@ -87,6 +89,7 @@ class SubstrateSpotSelectionDialog(QDialog):
                  initial_lattice_type: str = LATTICE_TYPE_HEXAGONAL,
                  initial_selected_substrate_name: Optional[str] = None, 
                  initial_custom_a_surf: Optional[float] = None,
+                 initial_custom_definition: Optional[Dict[str, Any]] = None,
                  initial_transform_F: Optional[np.ndarray] = None, 
                  initial_transform_t: Optional[np.ndarray] = None,
                  initial_fitted_spots: Optional[List[Tuple[float, float]]] = None,
@@ -117,12 +120,22 @@ class SubstrateSpotSelectionDialog(QDialog):
 
         self.current_lattice_type: str = initial_lattice_type
         self.current_a_surf: Optional[float] = None
-        self.limits_per_lattice = {LATTICE_TYPE_HEXAGONAL: 6, LATTICE_TYPE_SQUARE: 4}
+        self.current_custom_definition: Optional[Dict[str, Any]] = None
+        self.limits_per_lattice = {
+            LATTICE_TYPE_HEXAGONAL: 6,
+            LATTICE_TYPE_SQUARE: 4,
+            LATTICE_TYPE_CUSTOM: 0
+        }
         self.ideal_lattice_overlay_item: Optional[ScatterPlotItem] = None
         
         # Store initial substrate info to set combo boxes
         self._initial_selected_substrate_name = initial_selected_substrate_name
         self._initial_custom_a_surf = initial_custom_a_surf
+        self._initial_custom_definition = dict(initial_custom_definition) if initial_custom_definition else None
+        if self._initial_custom_definition:
+            self.current_custom_definition = dict(self._initial_custom_definition)
+            if self._initial_custom_definition.get("a_length_nm"):
+                self.current_a_surf = self._initial_custom_definition.get("a_length_nm")
 
         self.last_preview_gauss_fit_popt: Optional[np.ndarray] = None
         self.last_preview_gauss_fit_center_abs: Optional[Tuple[float, float]] = None
@@ -167,7 +180,11 @@ class SubstrateSpotSelectionDialog(QDialog):
         substrate_def_group = QGroupBox("Substrate Definition & Overlay")
         substrate_def_layout = QFormLayout(substrate_def_group)
         self.lattice_type_combo = QComboBox()
-        self.lattice_type_combo.addItems([LATTICE_TYPE_HEXAGONAL.capitalize(), LATTICE_TYPE_SQUARE.capitalize()])
+        self.lattice_type_combo.addItems([
+            LATTICE_TYPE_HEXAGONAL.capitalize(),
+            LATTICE_TYPE_SQUARE.capitalize(),
+            LATTICE_TYPE_CUSTOM.capitalize()
+        ])
         substrate_def_layout.addRow("Lattice Type:", self.lattice_type_combo)
         self.substrate_definition_combo = QComboBox()
         substrate_def_layout.addRow("Predefined/Custom:", self.substrate_definition_combo)
@@ -181,6 +198,36 @@ class SubstrateSpotSelectionDialog(QDialog):
         substrate_def_layout.addRow(self.custom_a_surf_label, self.custom_a_surf_spinbox)
         self.custom_a_surf_label.setVisible(False)
         self.custom_a_surf_spinbox.setVisible(False)
+
+        self.custom_vec_a_label = QLabel("Vector |a| (nm):")
+        self.custom_vec_a_spinbox = QDoubleSpinBox()
+        self.custom_vec_a_spinbox.setDecimals(4)
+        self.custom_vec_a_spinbox.setRange(0.0001, 50.0)
+        self.custom_vec_a_spinbox.setSingleStep(0.001)
+        self.custom_vec_a_spinbox.setValue(0.300)
+        substrate_def_layout.addRow(self.custom_vec_a_label, self.custom_vec_a_spinbox)
+
+        self.custom_vec_b_label = QLabel("Vector |b| (nm):")
+        self.custom_vec_b_spinbox = QDoubleSpinBox()
+        self.custom_vec_b_spinbox.setDecimals(4)
+        self.custom_vec_b_spinbox.setRange(0.0001, 50.0)
+        self.custom_vec_b_spinbox.setSingleStep(0.001)
+        self.custom_vec_b_spinbox.setValue(0.300)
+        substrate_def_layout.addRow(self.custom_vec_b_label, self.custom_vec_b_spinbox)
+
+        self.custom_vec_angle_label = QLabel("Angle γ (deg):")
+        self.custom_vec_angle_spinbox = QDoubleSpinBox()
+        self.custom_vec_angle_spinbox.setDecimals(2)
+        self.custom_vec_angle_spinbox.setRange(1.0, 179.0)
+        self.custom_vec_angle_spinbox.setSingleStep(0.1)
+        self.custom_vec_angle_spinbox.setValue(60.0)
+        substrate_def_layout.addRow(self.custom_vec_angle_label, self.custom_vec_angle_spinbox)
+
+        for widget in (self.custom_vec_a_label, self.custom_vec_a_spinbox,
+                       self.custom_vec_b_label, self.custom_vec_b_spinbox,
+                       self.custom_vec_angle_label, self.custom_vec_angle_spinbox):
+            widget.setVisible(False)
+
         self.show_ideal_lattice_checkbox = QCheckBox("Show Ideal Lattice Overlay")
         self.show_ideal_lattice_checkbox.setChecked(True)
         substrate_def_layout.addRow(self.show_ideal_lattice_checkbox)
@@ -392,6 +439,9 @@ class SubstrateSpotSelectionDialog(QDialog):
         self.lattice_type_combo.currentTextChanged.connect(self._on_lattice_type_changed)
         self.substrate_definition_combo.currentTextChanged.connect(self._on_substrate_definition_combo_changed)
         self.custom_a_surf_spinbox.valueChanged.connect(self._on_custom_a_surf_changed)
+        self.custom_vec_a_spinbox.valueChanged.connect(self._on_custom_vectors_changed)
+        self.custom_vec_b_spinbox.valueChanged.connect(self._on_custom_vectors_changed)
+        self.custom_vec_angle_spinbox.valueChanged.connect(self._on_custom_vectors_changed)
         self.show_ideal_lattice_checkbox.stateChanged.connect(self._redraw_ideal_lattice_overlay)
 
         self.add_spot_button.clicked.connect(self._add_current_roi_spot)
@@ -420,16 +470,32 @@ class SubstrateSpotSelectionDialog(QDialog):
         selected_type = self.lattice_type_combo.currentText().lower()
         
         self.substrate_definition_combo.addItem(PREDEFINED_SUBSTRATE_NONE)
-        
-        if KNOWN_LATTICES:
-            for name, details in KNOWN_LATTICES.items():
-                if details.get("type") == selected_type:
-                    self.substrate_definition_combo.addItem(name)
-        
-        self.substrate_definition_combo.addItem(PREDEFINED_SUBSTRATE_CUSTOM)
+
+        if selected_type == LATTICE_TYPE_CUSTOM:
+            self.substrate_definition_combo.addItem(PREDEFINED_SUBSTRATE_CUSTOM)
+        else:
+            if KNOWN_LATTICES:
+                for name, details in KNOWN_LATTICES.items():
+                    if details.get("type") == selected_type:
+                        self.substrate_definition_combo.addItem(name)
+            self.substrate_definition_combo.addItem(PREDEFINED_SUBSTRATE_CUSTOM)
 
         initial_set = False
-        if self._initial_selected_substrate_name:
+        if selected_type == LATTICE_TYPE_CUSTOM:
+            if self._initial_custom_definition:
+                self.substrate_definition_combo.setCurrentText(PREDEFINED_SUBSTRATE_CUSTOM)
+                self.custom_vec_a_spinbox.blockSignals(True)
+                self.custom_vec_b_spinbox.blockSignals(True)
+                self.custom_vec_angle_spinbox.blockSignals(True)
+                self.custom_vec_a_spinbox.setValue(self._initial_custom_definition.get("a_length_nm", 0.300))
+                self.custom_vec_b_spinbox.setValue(self._initial_custom_definition.get("b_length_nm", 0.300))
+                self.custom_vec_angle_spinbox.setValue(self._initial_custom_definition.get("gamma_deg", 60.0))
+                self.custom_vec_a_spinbox.blockSignals(False)
+                self.custom_vec_b_spinbox.blockSignals(False)
+                self.custom_vec_angle_spinbox.blockSignals(False)
+                self._update_custom_definition_from_inputs()
+                initial_set = True
+        elif self._initial_selected_substrate_name:
             if self._initial_selected_substrate_name == PREDEFINED_SUBSTRATE_CUSTOM and self._initial_custom_a_surf is not None:
                 self.substrate_definition_combo.setCurrentText(PREDEFINED_SUBSTRATE_CUSTOM)
                 self.custom_a_surf_spinbox.setValue(self._initial_custom_a_surf)
@@ -439,10 +505,9 @@ class SubstrateSpotSelectionDialog(QDialog):
                 if idx != -1:
                     self.substrate_definition_combo.setCurrentIndex(idx)
                     initial_set = True
-        
-        if not initial_set:
-             self.substrate_definition_combo.setCurrentText(PREDEFINED_SUBSTRATE_NONE)
 
+        if not initial_set:
+            self.substrate_definition_combo.setCurrentText(PREDEFINED_SUBSTRATE_NONE)
 
         self.substrate_definition_combo.blockSignals(False)
         self._on_substrate_definition_combo_changed(self.substrate_definition_combo.currentText())
@@ -455,6 +520,9 @@ class SubstrateSpotSelectionDialog(QDialog):
             row = self.spots_list_widget.row(current_item)
             if 0 <= row < len(self.selected_spots):
                 del self.selected_spots[row]
+                if self.current_lattice_type == LATTICE_TYPE_CUSTOM and \
+                   self.substrate_definition_combo.currentText() == PREDEFINED_SUBSTRATE_CUSTOM:
+                    self._update_custom_definition_from_inputs()
                 self._update_spots_list_widget()
                 self._redraw_all_spot_markers()
                 logger.debug(f"Removed spot at index {row}")
@@ -463,6 +531,9 @@ class SubstrateSpotSelectionDialog(QDialog):
     @pyqtSlot()
     def _clear_all_spots_in_dialog(self):
         self.selected_spots.clear()
+        if self.current_lattice_type == LATTICE_TYPE_CUSTOM and \
+           self.substrate_definition_combo.currentText() == PREDEFINED_SUBSTRATE_CUSTOM:
+            self._update_custom_definition_from_inputs()
         self._update_spots_list_widget()
         self._redraw_all_spot_markers()
         self._update_transform_button_state()
@@ -554,6 +625,88 @@ class SubstrateSpotSelectionDialog(QDialog):
             self._update_transform_button_state()
             self._redraw_ideal_lattice_overlay()
 
+    def _update_custom_definition_from_inputs(self):
+        """Refreshes the cached manual lattice definition from spinbox values."""
+        if self.current_lattice_type != LATTICE_TYPE_CUSTOM:
+            self.current_custom_definition = None
+            return
+        if self.substrate_definition_combo.currentText() != PREDEFINED_SUBSTRATE_CUSTOM:
+            self.current_custom_definition = None
+            return
+
+        a_length = self.custom_vec_a_spinbox.value()
+        b_length = self.custom_vec_b_spinbox.value()
+        gamma_deg = self.custom_vec_angle_spinbox.value()
+
+        if a_length <= 0 or b_length <= 0:
+            self.current_custom_definition = None
+            return
+
+        gamma_rad = math.radians(gamma_deg)
+        if abs(math.sin(gamma_rad)) < 1e-6:
+            self.current_custom_definition = None
+            return
+
+        a_vec = (float(a_length), 0.0)
+        b_vec = (
+            float(b_length * math.cos(gamma_rad)),
+            float(b_length * math.sin(gamma_rad))
+        )
+
+        self.current_custom_definition = {
+            "name": "Manual Definition",
+            "type": LATTICE_TYPE_CUSTOM,
+            "a_length_nm": float(a_length),
+            "b_length_nm": float(b_length),
+            "gamma_deg": float(gamma_deg),
+            "a_vec_nm": a_vec,
+            "b_vec_nm": b_vec,
+            "preferred_point_count": max(len(self.selected_spots), 6) if self.selected_spots else 6
+        }
+        self.current_a_surf = float(a_length)
+
+    @pyqtSlot(float)
+    def _on_custom_vectors_changed(self, _value: float):
+        if self.current_lattice_type == LATTICE_TYPE_CUSTOM and \
+           self.substrate_definition_combo.currentText() == PREDEFINED_SUBSTRATE_CUSTOM:
+            self._update_custom_definition_from_inputs()
+            self._update_transform_button_state()
+            self._redraw_ideal_lattice_overlay()
+
+    def _update_lattice_definition_inputs_visibility(self):
+        is_custom_type = self.current_lattice_type == LATTICE_TYPE_CUSTOM
+        custom_selected = (self.substrate_definition_combo.currentText() == PREDEFINED_SUBSTRATE_CUSTOM)
+
+        show_a_surf = (not is_custom_type) and custom_selected
+        self.custom_a_surf_label.setVisible(show_a_surf)
+        self.custom_a_surf_spinbox.setVisible(show_a_surf)
+
+        show_vectors = is_custom_type and custom_selected
+        for widget in (
+            self.custom_vec_a_label, self.custom_vec_a_spinbox,
+            self.custom_vec_b_label, self.custom_vec_b_spinbox,
+            self.custom_vec_angle_label, self.custom_vec_angle_spinbox
+        ):
+            widget.setVisible(show_vectors)
+
+    def _build_lattice_info_dict(self, preferred_point_count: Optional[int] = None) -> Optional[Dict[str, Any]]:
+        if self.current_lattice_type == LATTICE_TYPE_CUSTOM:
+            if not self.current_custom_definition:
+                return None
+            info = dict(self.current_custom_definition)
+            if preferred_point_count and preferred_point_count > 0:
+                info["preferred_point_count"] = preferred_point_count
+            return info
+
+        if self.current_lattice_type in (LATTICE_TYPE_HEXAGONAL, LATTICE_TYPE_SQUARE) and \
+           self.current_a_surf and self.current_a_surf > 0:
+            info: Dict[str, Any] = {"type": self.current_lattice_type, "a_surf": self.current_a_surf}
+            if preferred_point_count and preferred_point_count > 0:
+                info["preferred_point_count"] = preferred_point_count
+            return info
+
+        return None
+
     def _update_transform_button_state(self):
         """Enable/disable the Calculate Transformation button and update the status label."""
         if not hasattr(self, 'calculate_transform_button'):
@@ -563,7 +716,16 @@ class SubstrateSpotSelectionDialog(QDialog):
         required_spots = 0
         status_message = "Define lattice and select spots for transformation."
 
-        if self.current_lattice_type and self.current_a_surf is not None and self.current_a_surf > 0:
+        if self.current_lattice_type == LATTICE_TYPE_CUSTOM:
+            required_spots = 3
+            if not self.current_custom_definition:
+                status_message = "Define custom lattice vectors first."
+            elif len(self.selected_spots) >= required_spots:
+                can_transform = True
+                status_message = f"Ready to transform for {len(self.selected_spots)} spots (Custom)."
+            else:
+                status_message = f"Select {required_spots - len(self.selected_spots)} more spot(s) for Custom."
+        elif self.current_lattice_type and self.current_a_surf is not None and self.current_a_surf > 0:
             if self.current_lattice_type == LATTICE_TYPE_HEXAGONAL:
                 required_spots = 6
                 if len(self.selected_spots) == required_spots:
@@ -585,7 +747,7 @@ class SubstrateSpotSelectionDialog(QDialog):
             else: # pragma: no cover 
                 status_message = "Unknown lattice type selected for spot limit."
         else:
-            status_message = "Define lattice type and 'a_surf' first."
+            status_message = "Define lattice parameters first."
         
         self.calculate_transform_button.setEnabled(can_transform)
         self.transform_status_label.setText(status_message)
@@ -854,13 +1016,16 @@ class SubstrateSpotSelectionDialog(QDialog):
         self.transform_status_label.setText("Calculating transformation...")
         QApplication.processEvents()
 
-        if not (self.current_lattice_type and self.current_a_surf and self.current_a_surf > 0):
-            QMessageBox.warning(self, "Missing Lattice Info", "Please define lattice type and 'a_surf' first.")
-            self.transform_status_label.setText("Define lattice first.")
-            return
-        if len(self.selected_spots) < 3:
+        num_selected_spots = len(self.selected_spots)
+        if num_selected_spots < 3:
             QMessageBox.warning(self, "Not Enough Spots", "Please select at least 3 substrate spots for transformation.")
             self.transform_status_label.setText("Select >= 3 spots.")
+            return
+
+        lattice_info_for_calc = self._build_lattice_info_dict(preferred_point_count=max(num_selected_spots, 6))
+        if lattice_info_for_calc is None:
+            QMessageBox.warning(self, "Missing Lattice Info", "Please define lattice parameters first.")
+            self.transform_status_label.setText("Define lattice first.")
             return
 
         measured_spots_px = np.array(self.selected_spots, dtype=float)
@@ -885,7 +1050,6 @@ class SubstrateSpotSelectionDialog(QDialog):
             self.transform_status_label.setText("Error: Invalid Lx/Ly.")
             return
 
-        lattice_info_for_calc = {"type": self.current_lattice_type, "a_surf": self.current_a_surf}
         ideal_points_g_nm_inv = get_nearest_reciprocal_points(lattice_info_for_calc)
         if not ideal_points_g_nm_inv:
             QMessageBox.critical(self, "Error", "Could not generate ideal reciprocal points.")
@@ -994,7 +1158,7 @@ class SubstrateSpotSelectionDialog(QDialog):
 
         # Check spot limit
         max_spots = self.limits_per_lattice.get(self.current_lattice_type, 6)
-        if len(self.selected_spots) >= max_spots:
+        if max_spots > 0 and len(self.selected_spots) >= max_spots:
             QMessageBox.warning(self, "Limit Reached",
                                 f"Maximum number of spots ({max_spots}) for {self.current_lattice_type} lattice already selected.")
             return
@@ -1050,6 +1214,9 @@ class SubstrateSpotSelectionDialog(QDialog):
         new_spot = (refined_kx, refined_ky)
         if new_spot not in self.selected_spots:
             self.selected_spots.append(new_spot)
+            if self.current_lattice_type == LATTICE_TYPE_CUSTOM and \
+               self.substrate_definition_combo.currentText() == PREDEFINED_SUBSTRATE_CUSTOM:
+                self._update_custom_definition_from_inputs()
             self._update_spots_list_widget()
             self._redraw_all_spot_markers()
             self._update_transform_button_state()
@@ -1065,36 +1232,49 @@ class SubstrateSpotSelectionDialog(QDialog):
             self.current_lattice_type = LATTICE_TYPE_HEXAGONAL
         elif LATTICE_TYPE_SQUARE in selected_type_text:
             self.current_lattice_type = LATTICE_TYPE_SQUARE
+        elif LATTICE_TYPE_CUSTOM in selected_type_text:
+            self.current_lattice_type = LATTICE_TYPE_CUSTOM
         else: # pragma: no cover
             self.current_lattice_type = None
         
         logger.debug(f"Dialog: General lattice type selected: {self.current_lattice_type}")
         self._populate_substrate_definition_combo()
+        if self.current_lattice_type == LATTICE_TYPE_CUSTOM:
+            self._update_custom_definition_from_inputs()
+        self._update_lattice_definition_inputs_visibility()
         self._update_transform_button_state()
 
     @pyqtSlot(str)
     def _on_substrate_definition_combo_changed(self, text: str):
         """Handles change in the specific substrate definition or custom option."""
         self.current_a_surf = None
+        if self.current_lattice_type != LATTICE_TYPE_CUSTOM:
+            self.current_custom_definition = None
+
         is_custom = (text == PREDEFINED_SUBSTRATE_CUSTOM)
         is_none_selection = (text == PREDEFINED_SUBSTRATE_NONE)
 
-        self.custom_a_surf_label.setVisible(is_custom)
-        self.custom_a_surf_spinbox.setVisible(is_custom)
+        if self.current_lattice_type == LATTICE_TYPE_CUSTOM:
+            if is_custom:
+                self._update_custom_definition_from_inputs()
+                logger.debug("Dialog: Using manual custom lattice definition.")
+            else:
+                logger.debug("Dialog: Custom lattice definition disabled via combo selection.")
+                self.current_custom_definition = None
+        else:
+            if is_custom:
+                self.current_a_surf = self.custom_a_surf_spinbox.value()
+                logger.debug(f"Dialog: Switched to custom a_surf definition. Current a_surf: {self.current_a_surf}")
+            elif is_none_selection:
+                logger.debug("Dialog: Substrate definition set to None. No a_surf.")
+            elif KNOWN_LATTICES and text in KNOWN_LATTICES:
+                self.current_a_surf = KNOWN_LATTICES[text].get("a_surf")
+                known_type = KNOWN_LATTICES[text].get("type")
+                if known_type != self.current_lattice_type: # pragma: no cover
+                    logger.warning(f"Mismatch between combo lattice type ({self.current_lattice_type}) and known lattice type for '{text}' ({known_type}). Using type from combo.")
+                logger.debug(f"Dialog: Selected predefined substrate '{text}'. a_surf: {self.current_a_surf}, type: {self.current_lattice_type}")
 
-        if is_custom:
-            self.current_a_surf = self.custom_a_surf_spinbox.value()
-            logger.debug(f"Dialog: Switched to custom a_surf definition. Current a_surf: {self.current_a_surf}")
-        elif is_none_selection:
-            logger.debug(f"Dialog: Substrate definition set to None. No a_surf.")
-            pass 
-        elif KNOWN_LATTICES and text in KNOWN_LATTICES:
-            self.current_a_surf = KNOWN_LATTICES[text].get("a_surf")
-            known_type = KNOWN_LATTICES[text].get("type")
-            if known_type != self.current_lattice_type: # pragma: no cover
-                logger.warning(f"Mismatch between combo lattice type ({self.current_lattice_type}) and known lattice type for '{text}' ({known_type}). Using type from combo.")
-            logger.debug(f"Dialog: Selected predefined substrate '{text}'. a_surf: {self.current_a_surf}, type: {self.current_lattice_type}")
-        
+        self._update_lattice_definition_inputs_visibility()
         self._update_add_spot_button_state()
         self._update_transform_button_state()
         self._redraw_ideal_lattice_overlay()
@@ -1102,17 +1282,22 @@ class SubstrateSpotSelectionDialog(QDialog):
     def _update_add_spot_button_state(self):
         if self.current_lattice_type:
             limit = self.limits_per_lattice.get(self.current_lattice_type, 0)
-            can_add_more = len(self.selected_spots) < limit
+            unlimited = limit <= 0
+            can_add_more = unlimited or len(self.selected_spots) < limit
             self.add_spot_button.setEnabled(self.selection_roi.isVisible() and can_add_more) # type: ignore
 
-            if not can_add_more and limit > 0:
-                self.status_label.setText(f"Max {limit} spots for {self.current_lattice_type} lattice reached.")
-            elif not self.selection_roi.isVisible() and len(self.selected_spots) < limit and limit > 0: # type: ignore
-                 self.status_label.setText(f"Click on FFT to place ROI. {limit - len(self.selected_spots)} spots remaining.")
-            elif self.selection_roi.isVisible() and can_add_more and limit > 0: # type: ignore
-                self.status_label.setText(f"Adjust ROI and click 'Add Spot'. {limit - len(self.selected_spots)} spots remaining.")
-            elif limit == 0 : 
-                self.status_label.setText("Select lattice type to define spot limit.") # pragma: no cover
+            if unlimited:
+                if not self.selection_roi.isVisible():
+                    self.status_label.setText("Click on FFT to place ROI for custom lattice.")
+                else:
+                    self.status_label.setText("Adjust ROI and click 'Add Spot'.")
+            else:
+                if not can_add_more and limit > 0:
+                    self.status_label.setText(f"Max {limit} spots for {self.current_lattice_type} lattice reached.")
+                elif not self.selection_roi.isVisible() and len(self.selected_spots) < limit:
+                    self.status_label.setText(f"Click on FFT to place ROI. {limit - len(self.selected_spots)} spots remaining.")
+                elif self.selection_roi.isVisible() and can_add_more:
+                    self.status_label.setText(f"Adjust ROI and click 'Add Spot'. {limit - len(self.selected_spots)} spots remaining.")
         else:
             self.add_spot_button.setEnabled(False) # pragma: no cover
             self.status_label.setText("Select a lattice type first.") # pragma: no cover
@@ -1126,8 +1311,10 @@ class SubstrateSpotSelectionDialog(QDialog):
 
         if not self.show_ideal_lattice_checkbox.isChecked() or self.fft_data is None:
             return
-        if not self.current_lattice_type or self.current_a_surf is None or self.current_a_surf <= 0:
-            logger.debug("Cannot draw ideal lattice: type or a_surf not defined or invalid.")
+
+        lattice_info_for_calc = self._build_lattice_info_dict()
+        if not lattice_info_for_calc:
+            logger.debug("Cannot draw ideal lattice: definition not available.")
             return
 
         # Get Lx, Ly from "Original" node
@@ -1144,10 +1331,6 @@ class SubstrateSpotSelectionDialog(QDialog):
             logger.warning("Missing calibration data (Lx, Ly) or invalid FFT shape for lattice overlay.")
             return
 
-        lattice_info_for_calc = {
-            "type": self.current_lattice_type,
-            "a_surf": self.current_a_surf
-        }
         ideal_points_g_nm_inv = get_nearest_reciprocal_points(lattice_info_for_calc)
 
         if not ideal_points_g_nm_inv:
@@ -1157,6 +1340,7 @@ class SubstrateSpotSelectionDialog(QDialog):
         pixel_coords_for_scatter = []
         center_display_kx = fft_data_cols_kx / 2.0
         center_display_ky = fft_data_rows_ky / 2.0
+        self.calculated_ideal_substrate_spots_px.clear()
 
         for Gx_nm_inv, Gy_nm_inv in ideal_points_g_nm_inv:
             display_y_px = center_display_kx + (Gx_nm_inv * Lx_nm)
@@ -1176,7 +1360,7 @@ class SubstrateSpotSelectionDialog(QDialog):
             self.ideal_lattice_overlay_item = ScatterPlotItem()
             self.ideal_lattice_overlay_item.setData(spots=pixel_coords_for_scatter)
             self.fft_view_box.addItem(self.ideal_lattice_overlay_item)
-            logger.info(f"Displayed ideal lattice overlay for type '{self.current_lattice_type}' with a_surf={self.current_a_surf:.3f} nm.")
+            logger.info("Displayed ideal lattice overlay for current definition.")
 
 
     def get_selected_spots(self) -> List[Tuple[float, float]]:
@@ -1188,6 +1372,7 @@ class SubstrateSpotSelectionDialog(QDialog):
             "lattice_type": self.current_lattice_type,
             "a_surf": self.current_a_surf,
             "substrate_definition": self.substrate_definition_combo.currentText(),
+            "custom_definition": dict(self.current_custom_definition) if self.current_custom_definition else None,
             "transformation_F_m2i": self.substrate_transformation_matrix_F, 
             "translation_t_m2i": self.substrate_translation_vector_t,
             "transform_analysis_m2i": self.substrate_transform_analysis,    
