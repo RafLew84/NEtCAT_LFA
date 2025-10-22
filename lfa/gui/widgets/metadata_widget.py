@@ -35,9 +35,6 @@ class MetadataWidget(QWidget):
         self.layout.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         self.layout.setFormAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
-
-        # --- Labels for displaying metadata ---
-        # Original File Info Section
         self.filename_label = QLabel("-")
         self.orig_label_label = QLabel("-")
         self.orig_dims_px_label = QLabel("-")
@@ -46,17 +43,14 @@ class MetadataWidget(QWidget):
         self.orig_setpoint_label = QLabel("-")
         self.orig_angle_label = QLabel("-")
 
-        # Current Node Info Section
         self.node_op_label = QLabel("-")
         self.node_type_label = QLabel("-")
         self.node_params_label = QLabel("-")
-        self.node_params_label.setWordWrap(True) # Allow wrapping
+        self.node_params_label.setWordWrap(True)
         self.node_roi_label = QLabel("-")
         self.node_shape_label = QLabel("-")
         self.node_source_label = QLabel("-")
 
-        # --- Add rows to layout ---
-        # Use QLabel directly for section headers for easier styling if needed
         self.layout.addRow(QLabel("<b>Original File:</b>"))
         self.layout.addRow("Filename:", self.filename_label)
         self.layout.addRow("Image Label:", self.orig_label_label)
@@ -66,8 +60,7 @@ class MetadataWidget(QWidget):
         self.layout.addRow("Setpoint (A):", self.orig_setpoint_label)
         self.layout.addRow("Scan Angle (°):", self.orig_angle_label)
 
-        # Add spacing or a line between sections
-        self.layout.addRow(QWidget()) # Empty row for spacing
+        self.layout.addRow(QWidget())
 
         self.layout.addRow(QLabel("<b>Current State:</b>"))
         self.layout.addRow("Operation:", self.node_op_label)
@@ -121,16 +114,13 @@ class MetadataWidget(QWidget):
             self.clear_labels()
             return
 
-        # --- Display Current Node Info ---
         self.node_op_label.setText(f"<i>{node.operation_name}</i>")
         self.node_type_label.setText(node.data_type)
         shape_str = str(node.image_data.shape) if node.image_data is not None else "N/A"
         self.node_shape_label.setText(shape_str)
 
-        # Format ROI slice
         if node.source_roi_slice:
             rs, cs = node.source_roi_slice
-            # Ensure start/stop are not None before accessing attributes
             r_start = rs.start if rs.start is not None else '0'
             r_stop = rs.stop if rs.stop is not None else 'end'
             c_start = cs.start if cs.start is not None else '0'
@@ -149,8 +139,6 @@ class MetadataWidget(QWidget):
             source_label = root_node.parameters.get("original_label")
         self.node_source_label.setText(source_label or "-")
 
-        # Format parameters
-        # Filter out internal flags unless needed, format nicely
         params_to_show = {
             k: v for k, v in node.parameters.items()
             if k not in ['apply_roi_only', 'source_image_id', 'source_image_label', 'original_label']
