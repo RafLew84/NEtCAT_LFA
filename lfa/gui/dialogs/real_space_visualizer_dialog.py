@@ -13,7 +13,7 @@ try:
     import pyqtgraph as pg
     from pyqtgraph import GraphicsLayoutWidget, ImageItem, PlotWidget, PlotItem, ViewBox, ScatterPlotItem, ArrowItem, TextItem
     PYQTGRAPH_AVAILABLE = True
-except ImportError: # pragma: no cover
+except ImportError:
     pg = None
     GraphicsLayoutWidget = None
     ImageItem = None
@@ -37,14 +37,13 @@ except ImportError:
     PYVISTA_AVAILABLE = False
     logging.error("RealSpaceFFTVisualizerDialog: PyVista or PyVistaQT not found.")
 
-# Project imports (adjust paths if different)
 try:
     from ...logic.app_controller import AppController
     from ...logic.history_manager import HistoryManager
     from ...core.history import HistoryNode
     from ...analysis.drift_correction import apply_affine_transform
     from ...analysis.lattice import LATTICE_TYPE_HEXAGONAL, LATTICE_TYPE_SQUARE
-except ImportError as e: # pragma: no cover
+except ImportError as e:
     AppController = None
     HistoryManager = None
     HistoryNode = None
@@ -105,7 +104,7 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         self.current_fft_node_id = current_fft_node_id
         self.visual_alignment_angle_rad = 0.0
 
-        if not PYQTGRAPH_AVAILABLE or not self.app_controller or not self.history_manager: # pragma: no cover
+        if not PYQTGRAPH_AVAILABLE or not self.app_controller or not self.history_manager:
             QVBoxLayout(self).addWidget(QLabel("Critical Error: PyQtGraph or App/History Controller not available."))
             self.setWindowTitle("Error")
             return
@@ -179,34 +178,21 @@ class RealSpaceFFTVisualizerDialog(QDialog):
             plot_item_rs.showGrid(x=True, y=True, alpha=0.3)
         main_splitter.addWidget(self.real_space_plot_widget)
 
-        # if PYVISTA_AVAILABLE:
-        #     self.plotter = QtInteractor(self)
-        #     self.plotter.set_background('white')
-        #     self.plotter.enable_anti_aliasing()
-        #     self.plotter.enable_shadows() 
-        #     main_splitter.addWidget(self.plotter.interactor)
-        # else:
-        #     # Fallback if PyVista is unavailable
-        #     main_splitter.addWidget(QLabel("PyVista is not installed.\n3D visualization is unavailable."))
-
         controls_panel_widget = QWidget()
         controls_panel_layout = QVBoxLayout(controls_panel_widget)
         controls_panel_widget.setMinimumWidth(350)
         controls_panel_widget.setMaximumWidth(450)
 
         display_options_group = QGroupBox("Display Options")
-        group_box_layout = QVBoxLayout(display_options_group) # Layout for this group box itself
+        group_box_layout = QVBoxLayout(display_options_group)
 
-        # 1. Create a QScrollArea to provide scrolling
         scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True) # Critical so the content adapts to the width
+        scroll_area.setWidgetResizable(True)
         scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
 
-        # 2. Create a container widget for the scrollable content
         scroll_content_widget = QWidget()
-        self.display_options_form = QFormLayout(scroll_content_widget) # Layout now lives inside the container
+        self.display_options_form = QFormLayout(scroll_content_widget)
 
-        # 3. Populate the layout (logic unchanged)
         self.cb_show_substrate_real_lattice = QCheckBox("Substrate Real Lattice")
         self.cb_show_substrate_real_lattice.setChecked(True)
         self.display_options_form.addRow(self.cb_show_substrate_real_lattice)
@@ -401,15 +387,11 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         self.launch_3d_button = QPushButton("Launch Interactive 3D Viewer")
         self.launch_3d_button.setToolTip("Opens a new, interactive window with a 3D model of the lattices.")
         self.display_options_form.addRow(self.launch_3d_button)
-        # --- End of scroll content ---
 
-        # 4. Place the content widget inside the QScrollArea
         scroll_area.setWidget(scroll_content_widget)
 
-        # 5. Embed the QScrollArea inside the group box
         group_box_layout.addWidget(scroll_area)
 
-        # 6. Add the configured group box to the main control layout
         controls_panel_layout.addWidget(display_options_group)
         transform_info_group = QGroupBox("Substrate Transformation Info")
         transform_info_layout = QFormLayout(transform_info_group)
@@ -509,7 +491,7 @@ class RealSpaceFFTVisualizerDialog(QDialog):
                 if self.background_plotter.app_window.isVisible():
                     logger.debug("Refreshing existing 3D plotter.")
                     self._launch_3d_viewer()
-            except AttributeError: # pragma: no cover - defensive in case plotter lacks app_window
+            except AttributeError:
                 logger.debug("Background plotter missing app_window attribute during refresh.")
 
     @pyqtSlot(int)
@@ -628,7 +610,6 @@ class RealSpaceFFTVisualizerDialog(QDialog):
             QMessageBox.warning(self, "Dependency Error", "PyVista is not installed. 3D visualization is unavailable.")
             return
 
-        # Create the plotter once; reuse it on subsequent clicks
         if self.background_plotter is None or self.background_plotter._closed:
             logger.info("Creating a new BackgroundPlotter instance.")
             self.background_plotter = BackgroundPlotter(show=True, title="Interactive 3D Lattice Viewer")
@@ -636,9 +617,8 @@ class RealSpaceFFTVisualizerDialog(QDialog):
             logger.info("Using existing BackgroundPlotter instance.")
         
         plotter = self.background_plotter
-        plotter.clear() # Clear the scene before redrawing
+        plotter.clear()
 
-        # Configure lighting and background
         plotter.set_background('white')
         plotter.remove_all_lights()
         plotter.add_light(pv.Light(position=(5, 5, 10), intensity=1.5))
@@ -647,8 +627,6 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         supercell_size = self.supercell_size_spinbox.value()
         size_tuple = (supercell_size, supercell_size)
 
-        # --- Logika renderowania (taka sama jak poprzednio) ---
-        # Renderowanie substratu
         if self.app_controller.substrate_real_space_results:
             sub_params = self.app_controller.substrate_real_space_results
             substrate_atoms = create_ase_supercell_from_2d_vectors(
@@ -670,7 +648,6 @@ class RealSpaceFFTVisualizerDialog(QDialog):
                     actor = plotter.add_mesh(sphere, color='gold', smooth_shading=True)
                     actor.prop.metallic = 0.8; actor.prop.roughness = 0.2
 
-        # Renderowanie wybranego zestawu adsorbatu
         current_set_idx = self.ads_set_combo_vis.currentData()
         ads_params = self.app_controller.adsorbate_real_space_results.get(current_set_idx)
         if ads_params:
@@ -721,7 +698,7 @@ class RealSpaceFFTVisualizerDialog(QDialog):
 
         plotter.camera_position = 'xy'
         plotter.reset_camera()
-        plotter.app_window.show() # Ensure the window stays visible and focused
+        plotter.app_window.show()
 
     @pyqtSlot()
     def _trigger_redraw_all_visuals(self):
@@ -751,7 +728,7 @@ class RealSpaceFFTVisualizerDialog(QDialog):
             Updates parameter labels and redraws visualizations for the selected set.
             Resets the substrate-adsorbate angle display.
         """
-        if combo_box_index < 0: return # No selection
+        if combo_box_index < 0: return
         set_index = self.ads_set_combo_vis.itemData(combo_box_index)
         if set_index is not None:
             logger.debug(f"Visualizer: Selected adsorbate set in combo changed to index {set_index}")
@@ -761,7 +738,7 @@ class RealSpaceFFTVisualizerDialog(QDialog):
             self._real_space_force_autorange = True
             self._redraw_real_space_lattices()
             self.angle_sub_ads_label.setText("- °")
-        else: # pragma: no cover
+        else:
              logger.warning(f"Visualizer: No user data for combo box index {combo_box_index}")
 
 
@@ -857,7 +834,6 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         logger.debug("Visualizer: Redrawing FFT overlays...")
         plot_item = self.fft_view_box # Use the view box directly
 
-        # Remove old vector overlays
         for item in self.g_substrate_vector_lines: plot_item.removeItem(item)
         self.g_substrate_vector_lines.clear()
         for item in self.g_adsorbate_vector_lines: plot_item.removeItem(item)
@@ -869,7 +845,6 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         center_kx_px = fft_cols_kx / 2.0
         center_ky_px = fft_rows_ky / 2.0
 
-        # Draw substrate vectors (unchanged)
         if self.cb_show_g_substrate_fft.isChecked() and self.app_controller.substrate_real_space_results:
             sub_params = self.app_controller.substrate_real_space_results
             g1s_px = sub_params.get("g1_vec_px")
@@ -881,18 +856,15 @@ class RealSpaceFFTVisualizerDialog(QDialog):
                 plot_item.addItem(line1s); plot_item.addItem(line2s)
                 self.g_substrate_vector_lines.extend([line1s, line2s])
 
-        # --- Begin improved adsorbate plotting logic ---
         current_ads_set_idx_vis = self.ads_set_combo_vis.currentData()
         if self.cb_show_g_adsorbate_fft.isChecked() and current_ads_set_idx_vis is not None:
             
-            # Retrieve all corrected peak positions for this set
             if 0 <= current_ads_set_idx_vis < len(self.app_controller.corrected_adsorbate_spot_sets):
                 corrected_spots = self.app_controller.corrected_adsorbate_spot_sets[current_ads_set_idx_vis]
                 
                 if corrected_spots:
                     pen_ads = pg.mkPen(color='b', width=2.5, style=Qt.PenStyle.DashLine)
                     
-                    # Draw vectors from the center to each corrected position
                     for spot_kx, spot_ky in corrected_spots:
                         line_ads = pg.PlotDataItem(
                             x=[center_kx_px, spot_kx], 
@@ -903,105 +875,6 @@ class RealSpaceFFTVisualizerDialog(QDialog):
                         self.g_adsorbate_vector_lines.append(line_ads)
                     
                     logger.debug(f"Drew {len(corrected_spots)} vectors to corrected adsorbate positions.")
-        # --- End of improved adsorbate plotting logic ---
-
-
-    # def _redraw_fft_overlays(self):
-    #     """
-    #     Redraw FFT overlays including g* vectors.
-        
-    #     Handles:
-    #     - Substrate g* vector visualization
-    #     - Adsorbate g* vector visualization
-    #     - Vector transformation between ideal and distorted systems
-    #     """
-    #     logger.debug("Visualizer: Redrawing FFT overlays...")
-        
-    #     for item in self.g_substrate_vector_lines:
-    #         if item.scene() is self.fft_view_box.scene(): self.fft_view_box.removeItem(item)
-    #     self.g_substrate_vector_lines.clear()
-
-    #     for item in self.g_adsorbate_vector_lines:
-    #         if item.scene() is self.fft_view_box.scene(): self.fft_view_box.removeItem(item)
-    #     self.g_adsorbate_vector_lines.clear()
-
-    #     if not self.app_controller or self.fft_data_to_display is None: return
-
-    #     fft_rows_ky, fft_cols_kx = self.fft_data_to_display.shape
-    #     center_kx_px = fft_cols_kx / 2.0
-    #     center_ky_px = fft_rows_ky / 2.0
-
-    #     if self.cb_show_g_substrate_fft.isChecked() and \
-    #        self.app_controller.substrate_real_space_results and \
-    #        "g1_vec_px" in self.app_controller.substrate_real_space_results:
-            
-    #         g1s_px = self.app_controller.substrate_real_space_results.get("g1_vec_px")
-    #         g2s_px = self.app_controller.substrate_real_space_results.get("g2_vec_px")
-            
-    #         if g1s_px and g2s_px:
-    #             pen_sub = pg.mkPen(color='r', width=2.5, style=Qt.PenStyle.SolidLine)
-    #             line1s = pg.PlotDataItem(
-    #                 x=[center_kx_px, center_kx_px + g1s_px[0]], 
-    #                 y=[center_ky_px, center_ky_px + g1s_px[1]], 
-    #                 pen=pen_sub,
-    #                 name="g_sub1"
-    #             )
-    #             self.fft_view_box.addItem(line1s)
-    #             self.g_substrate_vector_lines.append(line1s)
-    #             line2s = pg.PlotDataItem(
-    #                 x=[center_kx_px, center_kx_px + g2s_px[0]], 
-    #                 y=[center_ky_px, center_ky_px + g2s_px[1]], 
-    #                 pen=pen_sub,
-    #                 name="g_sub2"
-    #             )
-    #             self.fft_view_box.addItem(line2s)
-    #             self.g_substrate_vector_lines.append(line2s)
-    #             logger.debug(f"Drew substrate g-vectors: g1_px={g1s_px}, g2_px={g2s_px}")
-
-    #     current_ads_set_idx_vis = self.ads_set_combo_vis.currentData() # Pobierz int z userData
-        
-    #     if self.cb_show_g_adsorbate_fft.isChecked() and \
-    #        current_ads_set_idx_vis is not None and \
-    #        self.app_controller.adsorbate_real_space_results and \
-    #        current_ads_set_idx_vis in self.app_controller.adsorbate_real_space_results:
-            
-    #         ads_params = self.app_controller.adsorbate_real_space_results.get(current_ads_set_idx_vis)
-    #         if ads_params and "g1_vec_px_ideal_sys" in ads_params:
-    #             g1a_ideal_px = ads_params["g1_vec_px_ideal_sys"]
-    #             g2a_ideal_px = ads_params["g2_vec_px_ideal_sys"]
-
-    #             if self.app_controller.substrate_F_m2i is not None and \
-    #                self.app_controller.substrate_t_m2i is not None and \
-    #                apply_affine_transform is not None:
-    #                 try:
-    #                     F_inv = np.linalg.inv(self.app_controller.substrate_F_m2i)
-    #                     g1a_distorted_px = np.dot(np.array(g1a_ideal_px), F_inv.T)
-    #                     g2a_distorted_px = np.dot(np.array(g2a_ideal_px), F_inv.T)
-                        
-    #                     pen_ads = pg.mkPen(color='b', width=2.5, style=Qt.PenStyle.DashLine)
-    #                     line1a = pg.PlotDataItem(
-    #                         x=[center_kx_px, center_kx_px + g1a_distorted_px[0]], 
-    #                         y=[center_ky_px, center_ky_px + g1a_distorted_px[1]], 
-    #                         pen=pen_ads, name=f"g_ads{current_ads_set_idx_vis+1}_1"
-    #                     )
-    #                     line2a = pg.PlotDataItem(
-    #                         x=[center_kx_px, center_kx_px + g2a_distorted_px[0]], 
-    #                         y=[center_ky_px, center_ky_px + g2a_distorted_px[1]], 
-    #                         pen=pen_ads, name=f"g_ads{current_ads_set_idx_vis+1}_2"
-    #                     )
-    #                     self.fft_view_box.addItem(line1a)
-    #                     self.fft_view_box.addItem(line2a)
-    #                     self.g_adsorbate_vector_lines.extend([line1a, line2a])
-    #                     logger.debug(f"Drew adsorbate set {current_ads_set_idx_vis} g-vectors (distorted for FFT view): "
-    #                                  f"g1_dist_px={g1a_distorted_px}, g2_dist_px={g2a_distorted_px}")
-    #                 except np.linalg.LinAlgError: # pragma: no cover
-    #                     logger.error("LinAlgError when inverting substrate transform for adsorbate g-vector display.")
-    #                 except Exception as e: # pragma: no cover
-    #                     logger.error(f"Error transforming/drawing adsorbate g-vectors: {e}")
-    #         else: # pragma: no cover
-    #             logger.debug(f"No adsorbate g-vector data for set {current_ads_set_idx_vis} or transform missing.")
-    #     else:
-    #         logger.debug("Not drawing adsorbate g-vectors (checkbox off or no data).")
 
 
 
@@ -1253,7 +1126,6 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         logger.debug("Visualizer: Calculate Sub-Ads Angle button clicked.")
         if not self.app_controller: return
 
-        # Pobranie danych (bez zmian)
         current_ads_set_idx_vis = self.ads_set_combo_vis.currentData()
         if current_ads_set_idx_vis is None:
             QMessageBox.information(self, "Info", "Please select an adsorbate set.")
@@ -1271,7 +1143,6 @@ class RealSpaceFFTVisualizerDialog(QDialog):
             a1_a_vec = np.array(ads_params["a1_vec_nm"])
             a2_a_vec = np.array(ads_params["a2_vec_nm"])
 
-            # --- PART 1: Compute angle for display (existing behaviour) ---
             norm_s = np.linalg.norm(a1_s_vec)
             norm_a = np.linalg.norm(a1_a_vec)
             if norm_s > 1e-9 and norm_a > 1e-9:
@@ -1283,7 +1154,6 @@ class RealSpaceFFTVisualizerDialog(QDialog):
             else:
                 self.angle_sub_ads_label.setText("N/A (Zero vector)")
 
-            # --- PART 2: Compute minimal alignment angle in the background ---
             y_axis_vector = np.array([0.0, 1.0])
             
             def find_most_vertical_vector(a1, a2):
@@ -1314,10 +1184,8 @@ class RealSpaceFFTVisualizerDialog(QDialog):
                 self.visual_alignment_angle_rad = alignment_angle_rad
                 logger.info(f"Stored visual alignment angle (background): {np.degrees(self.visual_alignment_angle_rad):.3f}°")
             else:
-                # Reset the alignment angle on failure
                 self.visual_alignment_angle_rad = 0.0
             
-            # Refresh view with the new angle when alignment is enabled
             if self.cb_visual_align.isChecked():
                 self._trigger_redraw_all_visuals()
 
@@ -1325,145 +1193,6 @@ class RealSpaceFFTVisualizerDialog(QDialog):
             logger.error(f"Error calculating substrate-adsorbate angle: {e}")
             self.angle_sub_ads_label.setText("Error")
             QMessageBox.critical(self, "Calculation Error", f"Could not calculate angle: {e}")
-
-    # @pyqtSlot()
-    # def _on_calculate_sub_ads_angle_clicked(self):
-    #     """
-    #     Calculates the angle needed to visually align the adsorbate lattice with the substrate lattice
-    #     along the direction closest to the Y axis.
-    #     """
-    #     logger.debug("Visualizer: Calculating Y-axis alignment angle.")
-    #     if not self.app_controller: return
-
-    #     # Pobranie danych (bez zmian)
-    #     current_ads_set_idx_vis = self.ads_set_combo_vis.currentData()
-    #     if current_ads_set_idx_vis is None:
-    #         QMessageBox.information(self, "Info", "Please select an adsorbate set.")
-    #         return
-
-    #     sub_params = self.app_controller.substrate_real_space_results
-    #     ads_params = self.app_controller.adsorbate_real_space_results.get(current_ads_set_idx_vis)
-
-    #     if not (sub_params and "a1_vec_nm" in sub_params and ads_params and "a1_vec_nm" in ads_params):
-    #         self.angle_sub_ads_label.setText("N/A (Params missing)")
-    #         return
-
-    #     try:
-    #         y_axis_vector = np.array([0.0, 1.0])
-
-    #         def find_most_vertical_vector(a1, a2):
-    #             candidate_vectors = [
-    #                 a1, a2, a1 + a2, a1 - a2, a2 - a1,
-    #                 2*a1 - a2, a1 - 2*a2, 2*a1 + a2, a1 + 2*a2
-    #             ]
-                
-    #             best_vector = None
-    #             max_dot_product = -1
-
-    #             for vec in candidate_vectors:
-    #                 norm = np.linalg.norm(vec)
-    #                 if norm < 1e-9: continue
-                    
-    #                 dot_product = abs(np.dot(vec / norm, y_axis_vector))
-                    
-    #                 if dot_product > max_dot_product:
-    #                     max_dot_product = dot_product
-    #                     best_vector = vec
-                
-    #             return best_vector
-
-    #         a1_s = np.array(sub_params["a1_vec_nm"])
-    #         a2_s = np.array(sub_params["a2_vec_nm"])
-    #         vertical_sub_vec = find_most_vertical_vector(a1_s, a2_s)
-
-    #         a1_a = np.array(ads_params["a1_vec_nm"])
-    #         a2_a = np.array(ads_params["a2_vec_nm"])
-    #         vertical_ads_vec = find_most_vertical_vector(a1_a, a2_a)
-
-    #         if vertical_sub_vec is None or vertical_ads_vec is None:
-    #             raise ValueError("Could not determine alignment vectors.")
-
-    #         angle_sub_rad = np.arctan2(vertical_sub_vec[1], vertical_sub_vec[0])
-    #         angle_ads_rad = np.arctan2(vertical_ads_vec[1], vertical_ads_vec[0])
-            
-    #         alignment_angle_rad = angle_sub_rad - angle_ads_rad
-            
-    #         while alignment_angle_rad <= -np.pi: alignment_angle_rad += 2 * np.pi
-    #         while alignment_angle_rad > np.pi: alignment_angle_rad -= 2 * np.pi
-            
-    #         self.visual_alignment_angle_rad = alignment_angle_rad
-    #         angle_to_display_deg = np.degrees(alignment_angle_rad)
-            
-    #         self.angle_sub_ads_label.setText(f"{angle_to_display_deg:.3f}°")
-    #         logger.info(f"Computed visual alignment angle along Y axis: {angle_to_display_deg:.3f}°")
-            
-    #         if self.cb_visual_align.isChecked():
-    #             self._trigger_redraw_all_visuals()
-
-    #     except Exception as e:
-    #         logger.error(f"Error calculating Y-axis alignment angle: {e}")
-    #         self.angle_sub_ads_label.setText("Error")
-    #         QMessageBox.critical(self, "Calculation Error", f"Could not calculate alignment angle: {e}")
-        
-    # @pyqtSlot()
-    # def _on_calculate_sub_ads_angle_clicked(self):
-    #     """
-    #     Calculate and display the angle between substrate and adsorbate lattices.
-        
-    #     Note:
-    #         The angle is calculated between the first basis vectors (a1)
-    #         of the substrate and adsorbate lattices.
-    #     """
-    #     logger.debug("Visualizer: Calculate Substrate-Adsorbate Angle clicked.")
-    #     if not self.app_controller: return
-
-    #     current_ads_set_idx_vis = self.ads_set_combo_vis.currentData()
-    #     if current_ads_set_idx_vis is None:
-    #         QMessageBox.information(self, "Info", "Please select an adsorbate set.")
-    #         return
-
-    #     sub_params = self.app_controller.substrate_real_space_results
-    #     ads_params = self.app_controller.adsorbate_real_space_results.get(current_ads_set_idx_vis)
-
-    #     if not (sub_params and "a1_vec_nm" in sub_params and ads_params and "a1_vec_nm" in ads_params):
-    #         self.angle_sub_ads_label.setText("N/A (Params missing)")
-    #         QMessageBox.warning(self, "Data Missing", "Substrate or adsorbate real space parameters not calculated yet.")
-    #         return
-
-    #     try:
-    #         a1_s_vec = np.array(sub_params["a1_vec_nm"])
-    #         a1_a_vec = np.array(ads_params["a1_vec_nm"])
-
-    #         norm_s = np.linalg.norm(a1_s_vec)
-    #         norm_a = np.linalg.norm(a1_a_vec)
-
-    #         if norm_s < 1e-9 or norm_a < 1e-9: # pragma: no cover
-    #             self.angle_sub_ads_label.setText("N/A (Zero vector)")
-    #             return
-            
-    #         dot_product = np.dot(a1_s_vec, a1_a_vec)
-    #         cos_theta = np.clip(dot_product / (norm_s * norm_a), -1.0, 1.0)
-    #         angle_rad = np.arccos(cos_theta)
-    #         angle_deg = np.degrees(angle_rad)
-            
-    #         self.angle_sub_ads_label.setText(f"{angle_deg:.2f} °")
-
-    #         angle_s = np.arctan2(a1_s_vec[1], a1_s_vec[0])
-    #         angle_a = np.arctan2(a1_a_vec[1], a1_a_vec[0])
-    #         self.visual_alignment_angle_rad = angle_a - angle_s 
-    #         angle_deg = np.degrees(self.visual_alignment_angle_rad)
-    #         print(f"=================={angle_deg}===========================")
-
-    #         logger.info(f"Calculated angle between substrate a1 and adsorbate set {current_ads_set_idx_vis} a1: {angle_deg:.2f}°")
-
-    #         if self.cb_visual_align.isChecked():
-    #             self._trigger_redraw_all_visuals()
-
-    #     except Exception as e: # pragma: no cover
-    #         logger.error(f"Error calculating substrate-adsorbate angle: {e}")
-    #         self.angle_sub_ads_label.setText("Error")
-    #         QMessageBox.critical(self, "Calculation Error", f"Could not calculate angle: {e}")
-
 
     def get_dialog_results(self) -> Dict[str, Any]: 
         return {}

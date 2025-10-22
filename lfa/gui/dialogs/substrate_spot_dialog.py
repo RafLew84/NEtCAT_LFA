@@ -15,8 +15,6 @@ from PyQt6.QtGui import QPen
 
 try:
     import pyqtgraph as pg
-    # import pyqtgraph.opengl as gl # For 3D preview
-    # from pyqtgraph.opengl import GLViewWidget, GLSurfacePlotItem
     ImageView = pg.ImageView
     PlotItem = pg.PlotItem
     ImageItem = pg.ImageItem
@@ -25,11 +23,7 @@ try:
     ViewBox = pg.ViewBox
     GraphicsLayoutWidget = pg.GraphicsLayoutWidget
     PYQTGRAPH_AVAILABLE = True
-except ImportError: # pragma: no cover
-    # pg = None
-    # gl = None
-    # GLViewWidget = None
-    # GLSurfacePlotItem = None
+except ImportError:
     ImageView = None
     PlotItem = None
     ImageItem = None
@@ -43,7 +37,7 @@ except ImportError: # pragma: no cover
 try:
     from scipy.optimize import curve_fit as scipy_curve_fit 
     SCIPY_OPTIMIZE_AVAILABLE = True
-except ImportError: # pragma: no cover
+except ImportError:
     logging.error("SubstrateSpotSelectionDialog: SciPy (for curve_fit) not found.")
     SCIPY_OPTIMIZE_AVAILABLE = False
     def scipy_curve_fit(*args, **kwargs): raise ImportError("scipy.optimize.curve_fit is not available")
@@ -128,7 +122,6 @@ class SubstrateSpotSelectionDialog(QDialog):
         }
         self.ideal_lattice_overlay_item: Optional[ScatterPlotItem] = None
         
-        # Store initial substrate info to set combo boxes
         self._initial_selected_substrate_name = initial_selected_substrate_name
         self._initial_custom_a_surf = initial_custom_a_surf
         self._initial_custom_definition = dict(initial_custom_definition) if initial_custom_definition else None
@@ -307,7 +300,6 @@ class SubstrateSpotSelectionDialog(QDialog):
         preview_group = QGroupBox("Live Previews")
         preview_grid_layout = QGridLayout(preview_group)
 
-        # 2D ROI Preview
         roi_2d_container = QWidget()
         roi_2d_v_layout = QVBoxLayout(roi_2d_container)
         roi_2d_v_layout.addWidget(QLabel("ROI 2D Preview:"))
@@ -324,23 +316,6 @@ class SubstrateSpotSelectionDialog(QDialog):
         roi_2d_v_layout.addWidget(self.roi_preview_2d_widget, 1)
         preview_grid_layout.addWidget(roi_2d_container, 0, 0)
 
-        # # 3D ROI Preview
-        # roi_3d_container = QWidget()
-        # roi_3d_v_layout = QVBoxLayout(roi_3d_container)
-        # roi_3d_v_layout.addWidget(QLabel("ROI 3D Preview:"))
-        # self.enable_3d_roi_preview_checkbox = QCheckBox("Enable")
-        # self.enable_3d_roi_preview_checkbox.setChecked(False)
-        # roi_3d_v_layout.addWidget(self.enable_3d_roi_preview_checkbox)
-
-        # self.gl_roi_view_widget = GLViewWidget()
-        # self.gl_roi_view_widget.setMinimumHeight(150)
-        # self.gl_roi_view_widget.setMaximumHeight(200)
-        # self.gl_roi_surface_plot_item = GLSurfacePlotItem(color=(0.5,0.5,1,0.7)) 
-        # self.gl_roi_view_widget.addItem(self.gl_roi_surface_plot_item)
-        # roi_3d_v_layout.addWidget(self.gl_roi_view_widget, 1)
-        # preview_grid_layout.addWidget(roi_3d_container, 0, 1)
-
-        # 2D Gaussian Fit Preview
         gauss_2d_container = QWidget()
         gauss_2d_v_layout = QVBoxLayout(gauss_2d_container)
         gauss_2d_v_layout.addWidget(QLabel("Gaussian Fit 2D Preview:"))
@@ -357,30 +332,13 @@ class SubstrateSpotSelectionDialog(QDialog):
         gauss_2d_v_layout.addWidget(self.gaussian_preview_2d_widget, 1)
         preview_grid_layout.addWidget(gauss_2d_container, 1, 0)
         
-        # # 3D Gaussian Fit Preview
-        # gauss_3d_container = QWidget()
-        # gauss_3d_v_layout = QVBoxLayout(gauss_3d_container)
-        # gauss_3d_v_layout.addWidget(QLabel("Gaussian Fit 3D Preview:"))
-        # self.enable_gauss_3d_preview_checkbox = QCheckBox("Enable")
-        # self.enable_gauss_3d_preview_checkbox.setChecked(False)
-        # gauss_3d_v_layout.addWidget(self.enable_gauss_3d_preview_checkbox)
-        # self.gl_gauss_view_widget = GLViewWidget()
-        # self.gl_gauss_view_widget.setMinimumHeight(150)
-        # self.gl_gauss_view_widget.setMaximumHeight(200)
-        # self.gl_gauss_surface_plot_item = GLSurfacePlotItem(color=(1,0.5,0.5,0.7)) 
-        # self.gl_gauss_view_widget.addItem(self.gl_gauss_surface_plot_item)
-        # gauss_3d_v_layout.addWidget(self.gl_gauss_view_widget, 1)
-        # preview_grid_layout.addWidget(gauss_3d_container, 1, 1)
-        
         preview_grid_layout.setColumnStretch(0,1)
         preview_grid_layout.setColumnStretch(1,1)
         preview_grid_layout.setRowStretch(0,1)
         preview_grid_layout.setRowStretch(1,1)
         
         self.gauss_2d_container = gauss_2d_container
-        # self.gauss_3d_container = gauss_3d_container
         self.gauss_2d_container.setVisible(False)
-        # self.gauss_3d_container.setVisible(False)
         right_panel_layout.addWidget(preview_group)
 
         spots_list_group = QGroupBox("Selected Spots Management")
@@ -408,25 +366,11 @@ class SubstrateSpotSelectionDialog(QDialog):
         main_splitter.setSizes([320, 500, 380])
         main_splitter.setStretchFactor(1, 1)
 
-    # def _clear_3d_surface(self, surface_item: Optional[GLSurfacePlotItem]):
-    #     """Reset surface plot to minimal valid state."""
-    #     if surface_item:
-    #         try:
-    #             x = np.array([0, 1], dtype=np.float32)
-    #             y = np.array([0, 1], dtype=np.float32)
-    #             z = np.zeros((2, 2), dtype=np.float32)
-    #             colors = np.zeros((2, 2, 4), dtype=np.float32)
-                
-    #             surface_item.setData(x=x, y=y, z=z, colors=colors)
-    #             surface_item.meshDataChanged()
-    #         except Exception as e:
-    #             logger.error(f"Error clearing 3D surface: {e}")
-
     def _connect_signals(self):
         self.button_box.accepted.connect(self.accept)
         self.button_box.rejected.connect(self.reject)
         self.remove_spot_button.clicked.connect(self._remove_selected_spot)
-        self.clear_all_spots_button.clicked.connect(self._clear_all_spots_in_dialog) # Zmieniona nazwa slotu
+        self.clear_all_spots_button.clicked.connect(self._clear_all_spots_in_dialog)
 
         self.fft_view_box.scene().sigMouseClicked.connect(self._handle_fft_image_click)
         self.selection_roi.sigRegionChanged.connect(self._handle_roi_region_changing)
@@ -450,9 +394,7 @@ class SubstrateSpotSelectionDialog(QDialog):
         self.show_ideal_lattice_checkbox.stateChanged.connect(self._redraw_ideal_lattice_overlay)
 
         self.enable_2d_roi_preview_checkbox.stateChanged.connect(self._update_roi_previews)
-        # self.enable_3d_roi_preview_checkbox.stateChanged.connect(self._update_roi_previews)
         self.enable_gauss_2d_preview_checkbox.stateChanged.connect(self._update_roi_previews)
-        # self.enable_gauss_3d_preview_checkbox.stateChanged.connect(self._update_roi_previews)
 
         if hasattr(self, 'calculate_transform_button'): 
             self.calculate_transform_button.clicked.connect(self._on_calculate_transform_clicked)
@@ -543,78 +485,22 @@ class SubstrateSpotSelectionDialog(QDialog):
         """Update data on existing ScatterPlotItem objects."""
         logger.debug("Redrawing substrate spot markers by updating data.")
 
-        # 1. Prepare data for selected peaks
         if self.selected_spots:
             spots_to_draw = [{'pos': spot, 'symbol': 'o', 'size': 10, 
                             'pen': pg.mkPen('g', width=1.5), 'brush': pg.mkBrush(50,205,50,120)} 
                             for spot in self.selected_spots]
             self.spot_markers_on_image.setData(spots=spots_to_draw)
         else:
-            # If no peaks are present, simply clear the data
             self.spot_markers_on_image.clear()
 
-        # 2. Prepare data for fitted peaks
         if self.fitted_substrate_spots_px:
             spots_fitted_data = [{'pos': spot, 'symbol': 'x', 'size': 12,
                                 'pen': pg.mkPen('c', width=2.0)}
                                 for spot in self.fitted_substrate_spots_px]
             self.fitted_spot_markers_on_image.setData(spots=spots_fitted_data)
         else:
-            # If fitted peaks are absent, clear the data
             self.fitted_spot_markers_on_image.clear()
             self.fft_view_box.scene().update()
-
-    # def _redraw_all_spot_markers(self):
-    #     """Removes old marker (if exists) and draws new ones based on self.selected_spots."""
-    #     if self.spot_markers_on_image is not None:
-    #         try:
-    #             self.fft_view_box.removeItem(self.spot_markers_on_image)
-    #         except RuntimeError: # pragma: no cover
-    #             pass
-    #         self.spot_markers_on_image = None
-
-    #     if self.fitted_spot_markers_on_image is not None:
-    #         try: self.fft_view_box.removeItem(self.fitted_spot_markers_on_image)
-    #         except RuntimeError: pass
-    #         self.fitted_spot_markers_on_image = None
-
-    #     if self.selected_spots:
-    #         spots_orig_data = [{'pos': spot, 'symbol': 'o', 'size': 10, 
-    #                             'pen': pg.mkPen('g', width=1.5), 'brush': pg.mkBrush(50,205,50,120)} 
-    #                            for spot in self.selected_spots]
-    #         if spots_orig_data:
-    #             if self.spot_markers_on_image:
-    #                 try: self.fft_view_box.removeItem(self.spot_markers_on_image)
-    #                 except RuntimeError: pass
-    #             self.spot_markers_on_image = ScatterPlotItem(spots=spots_orig_data)
-    #             self.fft_view_box.addItem(self.spot_markers_on_image)
-
-    #     spots_to_draw_final = [{'pos': spot, 
-    #                             'symbol': 'o', 
-    #                             'size': 10, 
-    #                             'pen': pg.mkPen('g', width=1.5),
-    #                             'brush': pg.mkBrush(50,205,50,120)}
-    #                            for spot in self.selected_spots]
-        
-
-    #     if spots_to_draw_final:
-    #         new_scatter_item = ScatterPlotItem()
-    #         new_scatter_item.setData(spots=spots_to_draw_final)
-    #         self.fft_view_box.addItem(new_scatter_item)
-    #         self.spot_markers_on_image = new_scatter_item
-    #         logger.debug(f"Redrawn {len(self.selected_spots)} substrate spot markers.")
-    #     else: # pragma: no cover
-    #         logger.debug("No substrate spots to draw.")
-
-    #     if self.fitted_substrate_spots_px:
-            
-    #         spots_fitted_data = [{'pos': spot, 'symbol': 'x', 'size': 12,
-    #                                'pen': pg.mkPen('c', width=2.0)}
-    #                               for spot in self.fitted_substrate_spots_px]
-    #         if spots_fitted_data:
-    #             self.fitted_spot_markers_on_image = ScatterPlotItem(spots=spots_fitted_data)
-    #             self.fft_view_box.addItem(self.fitted_spot_markers_on_image)
-    #             logger.debug(f"Redrawn {len(self.fitted_substrate_spots_px)} fitted substrate spot markers.")
 
     @pyqtSlot(float)
     def _on_custom_a_surf_changed(self, value: float):
@@ -846,9 +732,6 @@ class SubstrateSpotSelectionDialog(QDialog):
             self._clear_last_preview_gauss_fit()
             if hasattr(self, 'roi_preview_2d_image_item'): self.roi_preview_2d_image_item.clear()
             if hasattr(self, 'gaussian_preview_2d_image_item'): self.gaussian_preview_2d_image_item.clear()
-            # if hasattr(self, 'gl_roi_surface_item'): self.gl_roi_surface_item.setData(z=np.array([[0,0],[0,0]]))
-            # if hasattr(self, 'gl_roi_surface_plot_item'): self._clear_3d_surface(self.gl_roi_surface_plot_item)
-            # if hasattr(self, 'gl_gauss_surface_plot_item'): self._clear_3d_surface(self.gl_gauss_surface_plot_item)
             return
 
         roi_state_for_comparison = self.selection_roi.getState() # type: ignore
@@ -865,7 +748,7 @@ class SubstrateSpotSelectionDialog(QDialog):
         x0_cl = np.clip(x0_roi, 0, max_kx)
         x1_cl = np.clip(x1_roi, 0, max_kx)
 
-        if y1_cl <= y0_cl or x1_cl <= x0_cl : # pragma: no cover
+        if y1_cl <= y0_cl or x1_cl <= x0_cl :
              logger.warning("Invalid ROI slice for preview.")
              return
 
@@ -878,12 +761,6 @@ class SubstrateSpotSelectionDialog(QDialog):
             elif hasattr(self, 'roi_preview_2d_image_item'): 
                 self.roi_preview_2d_image_item.clear()
 
-            # if self.enable_3d_roi_preview_checkbox.isChecked() and hasattr(self, 'gl_roi_surface_plot_item') and self.gl_roi_surface_plot_item:
-            #     self._update_3d_surface_plot(self.gl_roi_surface_plot_item, roi_patch)
-            # elif hasattr(self, 'gl_roi_surface_plot_item') and self.gl_roi_surface_plot_item: 
-            #     self._clear_3d_surface(self.gl_roi_surface_plot_item)
-
-            # Gaussian previews
             if self.rb_refine_gaussian.isChecked():
                 fitted_gauss_params = None
                 fitted_gauss_2d_for_preview = None
@@ -906,13 +783,12 @@ class SubstrateSpotSelectionDialog(QDialog):
                             fitted_gauss_flat = _gaussian_2d(p_xy_flat, *popt_gauss)
                             fitted_gauss_2d_for_preview = fitted_gauss_flat.reshape(patch_h, patch_w)
                             fitted_gauss_params = popt_gauss 
-                        else: # pragma: no cover
+                        else:
                             self._clear_last_preview_gauss_fit()
-                    except Exception as e_fit: # pragma: no cover
+                    except Exception as e_fit:
                         logger.warning(f"Gaussian fit for preview failed: {e_fit}")
                         fitted_gauss_2d_for_preview = roi_patch 
 
-                # 2D Gaussian preview
                 if self.enable_gauss_2d_preview_checkbox.isChecked() and hasattr(self, 'gaussian_preview_2d_image_item'):
                     if fitted_gauss_2d_for_preview is not None:
                         self.gaussian_preview_2d_image_item.setImage(fitted_gauss_2d_for_preview.T)
@@ -922,45 +798,12 @@ class SubstrateSpotSelectionDialog(QDialog):
                         self.gaussian_preview_2d_plot.autoRange()
                 elif hasattr(self, 'gaussian_preview_2d_image_item'): self.gaussian_preview_2d_image_item.clear()
 
-                # # 3D Gaussian preview
-                # if self.enable_gauss_3d_preview_checkbox.isChecked() and hasattr(self, 'gl_gauss_surface_plot_item') and self.gl_gauss_surface_plot_item:
-                #     if fitted_gauss_2d_for_preview is not None: 
-                #         self._update_3d_surface_plot(self.gl_gauss_surface_plot_item, fitted_gauss_2d_for_preview)
-                #     else: 
-                #          self._update_3d_surface_plot(self.gl_gauss_surface_plot_item, roi_patch)
-                # elif hasattr(self, 'gl_gauss_surface_plot_item') and self.gl_gauss_surface_plot_item: 
-                #     self._clear_3d_surface(self.gl_gauss_surface_plot_item)
-
             else: 
                 self._clear_last_preview_gauss_fit()
                 if hasattr(self, 'gaussian_preview_2d_image_item'): self.gaussian_preview_2d_image_item.clear()
-                # if hasattr(self, 'gl_gauss_surface_item') and self.gl_gauss_surface_item: self.gl_gauss_surface_item.setData(z=np.array([[0,0],[0,0]]))
-        else: # pragma: no cover
+        else:
             if hasattr(self, 'roi_preview_2d_image_item'): self.roi_preview_2d_image_item.clear()
             if hasattr(self, 'gaussian_preview_2d_image_item'): self.gaussian_preview_2d_image_item.clear()
-            # if hasattr(self, 'gl_roi_surface_item') and self.gl_roi_surface_plot_item: self.gl_roi_surface_plot_item.setData(z=np.array([[0,0],[0,0]]))
-            # if hasattr(self, 'gl_gauss_surface_item') and self.gl_gauss_surface_plot_item: self.gl_gauss_surface_plot_item.setData(z=np.array([[0,0],[0,0]]))
-
-
-
-    # def _update_3d_surface_plot(self, surface_item: GLSurfacePlotItem, data_2d: np.ndarray):
-    #     """Aktualizuje GLSurfacePlotItem danymi 2D."""
-    #     if data_2d is None or data_2d.size == 0 or data_2d.ndim != 2:
-    #         self._clear_3d_surface(surface_item) 
-    #         return
-
-    #     h, w = data_2d.shape
-    #     x = np.linspace(-w/2, w/2, w)
-    #     y = np.linspace(-h/2, h/2, h)
-
-    #     colors = np.empty((w,h,4), dtype=np.float32)
-    #     z_norm = (data_2d - data_2d.min()) / (data_2d.max() - data_2d.min() + 1e-9)
-    #     colors[..., 0] = z_norm.T # R
-    #     colors[..., 1] = 0       # G
-    #     colors[..., 2] = 1 - z_norm.T # B
-    #     colors[..., 3] = 0.7     # Alpha
-
-    #     surface_item.setData(x=x, y=y, z=data_2d.T, colors=colors)
 
     @pyqtSlot()
     def _on_refinement_method_changed(self):
@@ -983,10 +826,8 @@ class SubstrateSpotSelectionDialog(QDialog):
             self.status_label.setText("Drag ROI to desired spot, then click 'Add/Update Spot'.")
             if self.current_refinement_method == REFINEMENT_GAUSSIAN_FIT:
                 self.gauss_2d_container.setVisible(True)
-                # self.gauss_3d_container.setVisible(True)
             else:
                 self.gauss_2d_container.setVisible(False)
-                # self.gauss_3d_container.setVisible(False)
         
         self._update_roi_previews()
         logger.debug(f"Refinement method changed to: {self.current_refinement_method}")
@@ -1042,7 +883,7 @@ class SubstrateSpotSelectionDialog(QDialog):
         Ly_nm = root_node.parameters.get("size_nm_y")
         if self.fft_data is None: 
             self.transform_status_label.setText("Error: No FFT data.")
-            return # pragma: no cover
+            return
         fft_rows_ky, fft_cols_kx = self.fft_data.shape
 
         if not (Lx_nm and Ly_nm and Lx_nm > 0 and Ly_nm > 0):
@@ -1122,10 +963,9 @@ class SubstrateSpotSelectionDialog(QDialog):
             
             if transformed_measured_to_ideal_space is not None:
                 self.fitted_substrate_spots_px = [tuple(pt) for pt in transformed_measured_to_ideal_space]
-            else: # pragma: no cover
+            else:
                 self.fitted_substrate_spots_px = []
 
-            # Update labels
             self.rotation_angle_label.setText(f"Rotation: {analysis.get('rotation_angle_deg', 'N/A'):.2f}°")
             s_x = analysis.get('principal_stretches', [np.nan, np.nan])[0]
             s_y = analysis.get('principal_stretches', [np.nan, np.nan])[1]
@@ -1133,15 +973,15 @@ class SubstrateSpotSelectionDialog(QDialog):
             self.rmse_label.setText(f"RMSE (px): {analysis.get('rmse', 'N/A'):.3f}")
             self.transform_status_label.setText("Transformation calculated.")
 
-        except ImportError: # pragma: no cover
+        except ImportError:
             QMessageBox.critical(self, "Error", "Drift correction module not available.")
             self.transform_status_label.setText("Error: Module missing.")
             return
-        except np.linalg.LinAlgError: # pragma: no cover
+        except np.linalg.LinAlgError:
             QMessageBox.warning(self, "Transform Error", "Linear algebra error (e.g., singular matrix). Cannot invert F.")
             self.transform_status_label.setText("LinAlg Error.")
             return
-        except Exception as e: # pragma: no cover
+        except Exception as e:
             logger.exception("Error during transformation calculation")
             QMessageBox.critical(self, "Error", f"An error occurred: {e}")
             self.transform_status_label.setText("Error.")
@@ -1152,11 +992,10 @@ class SubstrateSpotSelectionDialog(QDialog):
     @pyqtSlot()
     def _add_current_roi_spot(self):
         """Adds a spot based on the current ROI and selected refinement method."""
-        if not self.selection_roi.isVisible() or self.fft_data is None: # pragma: no cover
+        if not self.selection_roi.isVisible() or self.fft_data is None:
             self.status_label.setText("Error: No ROI selected or no FFT data.")
             return
 
-        # Check spot limit
         max_spots = self.limits_per_lattice.get(self.current_lattice_type, 6)
         if max_spots > 0 and len(self.selected_spots) >= max_spots:
             QMessageBox.warning(self, "Limit Reached",
@@ -1208,7 +1047,7 @@ class SubstrateSpotSelectionDialog(QDialog):
                     _popt, (fit_ky_abs, fit_kx_abs), _patch = fit_output
                     refined_kx, refined_ky = float(fit_kx_abs), float(fit_ky_abs)
                     logger.info(f"Spot refined by NEW 2D Gaussian Fit: ({refined_kx:.2f}, {refined_ky:.2f})")
-                else: # pragma: no cover
+                else:
                     logger.warning("2D Gaussian fit failed for Add Spot. Using ROI center.")
 
         new_spot = (refined_kx, refined_ky)
@@ -1221,7 +1060,7 @@ class SubstrateSpotSelectionDialog(QDialog):
             self._redraw_all_spot_markers()
             self._update_transform_button_state()
             self.status_label.setText(f"Spot {len(self.selected_spots)} added: ({refined_kx:.2f}, {refined_ky:.2f}).")
-        else: # pragma: no cover
+        else:
             self.status_label.setText(f"Spot ({refined_kx:.2f}, {refined_ky:.2f}) already selected.")
 
     @pyqtSlot(str)
@@ -1234,7 +1073,7 @@ class SubstrateSpotSelectionDialog(QDialog):
             self.current_lattice_type = LATTICE_TYPE_SQUARE
         elif LATTICE_TYPE_CUSTOM in selected_type_text:
             self.current_lattice_type = LATTICE_TYPE_CUSTOM
-        else: # pragma: no cover
+        else:
             self.current_lattice_type = None
         
         logger.debug(f"Dialog: General lattice type selected: {self.current_lattice_type}")
@@ -1270,7 +1109,7 @@ class SubstrateSpotSelectionDialog(QDialog):
             elif KNOWN_LATTICES and text in KNOWN_LATTICES:
                 self.current_a_surf = KNOWN_LATTICES[text].get("a_surf")
                 known_type = KNOWN_LATTICES[text].get("type")
-                if known_type != self.current_lattice_type: # pragma: no cover
+                if known_type != self.current_lattice_type:
                     logger.warning(f"Mismatch between combo lattice type ({self.current_lattice_type}) and known lattice type for '{text}' ({known_type}). Using type from combo.")
                 logger.debug(f"Dialog: Selected predefined substrate '{text}'. a_surf: {self.current_a_surf}, type: {self.current_lattice_type}")
 
@@ -1299,14 +1138,14 @@ class SubstrateSpotSelectionDialog(QDialog):
                 elif self.selection_roi.isVisible() and can_add_more:
                     self.status_label.setText(f"Adjust ROI and click 'Add Spot'. {limit - len(self.selected_spots)} spots remaining.")
         else:
-            self.add_spot_button.setEnabled(False) # pragma: no cover
-            self.status_label.setText("Select a lattice type first.") # pragma: no cover
+            self.add_spot_button.setEnabled(False)
+            self.status_label.setText("Select a lattice type first.")
 
     def _redraw_ideal_lattice_overlay(self):
         """Redraws the ideal lattice overlay based on current lattice type and parameters."""
         if self.ideal_lattice_overlay_item:
             try: self.fft_view_box.removeItem(self.ideal_lattice_overlay_item)
-            except RuntimeError: pass # pragma: no cover
+            except RuntimeError: pass
             self.ideal_lattice_overlay_item = None
 
         if not self.show_ideal_lattice_checkbox.isChecked() or self.fft_data is None:
@@ -1317,9 +1156,8 @@ class SubstrateSpotSelectionDialog(QDialog):
             logger.debug("Cannot draw ideal lattice: definition not available.")
             return
 
-        # Get Lx, Ly from "Original" node
         root_node = self.history_manager.get_root_node_for_node(self.current_fft_node_id)
-        if not (root_node and root_node.operation_name == "Original" and root_node.parameters): # pragma: no cover
+        if not (root_node and root_node.operation_name == "Original" and root_node.parameters):
             logger.warning("Could not trace to Original node or missing parameters for lattice overlay.")
             return
         
@@ -1327,7 +1165,7 @@ class SubstrateSpotSelectionDialog(QDialog):
         Ly_nm = root_node.parameters.get("size_nm_y")
         fft_data_rows_ky, fft_data_cols_kx = self.fft_data.shape 
 
-        if not (Lx_nm and Ly_nm and Lx_nm > 0 and Ly_nm > 0 and fft_data_cols_kx > 0 and fft_data_rows_ky > 0): # pragma: no cover
+        if not (Lx_nm and Ly_nm and Lx_nm > 0 and Ly_nm > 0 and fft_data_cols_kx > 0 and fft_data_rows_ky > 0):
             logger.warning("Missing calibration data (Lx, Ly) or invalid FFT shape for lattice overlay.")
             return
 
@@ -1368,7 +1206,7 @@ class SubstrateSpotSelectionDialog(QDialog):
 
     def get_dialog_results(self) -> Dict[str, Any]:
         return {
-            "spots": list(self.selected_spots), # Original clicks collected in the dialog
+            "spots": list(self.selected_spots),
             "lattice_type": self.current_lattice_type,
             "a_surf": self.current_a_surf,
             "substrate_definition": self.substrate_definition_combo.currentText(),
@@ -1396,24 +1234,4 @@ class SubstrateSpotSelectionDialog(QDialog):
 def closeEvent(self, event):
     """Handle dialog close event to clean up OpenGL resources."""
     logger.debug("SubstrateSpotSelectionDialog closing. Cleaning up GL items.")
-    
-    # if hasattr(self, 'gl_roi_surface_plot_item') and self.gl_roi_surface_plot_item:
-    #     if self.gl_roi_view_widget:
-    #         self.gl_roi_view_widget.removeItem(self.gl_roi_surface_plot_item)
-    #     self.gl_roi_surface_plot_item = None
-    
-    # if hasattr(self, 'gl_gauss_surface_plot_item') and self.gl_gauss_surface_plot_item:
-    #     if self.gl_gauss_view_widget:
-    #         self.gl_gauss_view_widget.removeItem(self.gl_gauss_surface_plot_item)
-    #     self.gl_gauss_surface_plot_item = None
-    
-    # # Removing OpenGL widgets
-    # if hasattr(self, 'gl_roi_view_widget'):
-    #     self.gl_roi_view_widget.deleteLater()
-    #     self.gl_roi_view_widget = None
-    
-    # if hasattr(self, 'gl_gauss_view_widget'):
-    #     self.gl_gauss_view_widget.deleteLater()
-    #     self.gl_gauss_view_widget = None
-    
     super().closeEvent(event)

@@ -15,26 +15,21 @@ from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QDialogButtonBox,
     QLabel, QListWidget, QAbstractItemView, QWidget, QGroupBox,
     QFormLayout, QRadioButton, QSpinBox, QCheckBox, QMessageBox, QComboBox,
-    QGridLayout, QSplitter # QSplitter is used for layout management
+    QGridLayout, QSplitter
 )
 from PyQt6.QtGui import QPen, QVector3D
 from PyQt6.QtCore import Qt, pyqtSlot 
 
 try:
     import pyqtgraph as pg
-    # import pyqtgraph.opengl as gl
-    # from pyqtgraph.opengl import GLViewWidget, GLSurfacePlotItem
     ImageItem = pg.ImageItem
     RectROI = pg.RectROI
     ScatterPlotItem = pg.ScatterPlotItem
     ViewBox = pg.ViewBox
     GraphicsLayoutWidget = pg.GraphicsLayoutWidget
     PYQTGRAPH_AVAILABLE = True
-except ImportError: # pragma: no cover
+except ImportError:
     pg = None
-    # gl = None
-    # GLViewWidget = None
-    # GLSurfacePlotItem = None
     ImageItem = None
     RectROI = None
     ScatterPlotItem = None
@@ -57,7 +52,7 @@ try:
     from ...core.history import HistoryNode
     from ...logic.history_manager import HistoryManager
     PEAK_FITTING_MODULE_AVAILABLE = True
-except ImportError: # pragma: no cover
+except ImportError:
     PEAK_FITTING_MODULE_AVAILABLE = False
     SCIPY_AVAILABLE = False
     KNOWN_LATTICES = {}
@@ -138,49 +133,36 @@ class AdsorbateSpotSelectionDialog(QDialog):
         current_flags=self.windowFlags()
         self.setWindowFlags(current_flags | Qt.WindowType.WindowMinimizeButtonHint | Qt.WindowType.WindowMaximizeButtonHint)
 
-
-        # Store input parameters
         self.fft_data = fft_image_data
         self.history_manager = history_manager
         self.current_fft_node_id = current_fft_node_id
         self.adsorbate_set_index = adsorbate_set_index
 
-        # Initialize spot tracking
         self.selected_adsorbate_spots_raw: List[Tuple[float, float]] = list(current_adsorbate_spots) if current_adsorbate_spots else []
         self.raw_adsorbate_spot_markers: Optional[ScatterPlotItem] = None
 
-        # Store substrate transformation data
         self.sub_F_m2i = substrate_F_m2i
         self.sub_t_m2i = substrate_t_m2i
         self.sub_transform_analysis = substrate_transform_analysis
         
-        # Store substrate spots for display
         self.ideal_substrate_spots_to_display_px = list(ideal_substrate_spots_for_display_px) if ideal_substrate_spots_for_display_px else []
         self.fitted_substrate_spots_to_display_px = list(fitted_substrate_spots_for_display_px) if fitted_substrate_spots_for_display_px else []
         self.ideal_substrate_marker_item: Optional[ScatterPlotItem] = None
         self.fitted_substrate_marker_item: Optional[ScatterPlotItem] = None
 
-        # Initialize corrected spots tracking
         self.corrected_adsorbate_spots_in_ideal_system: List[Tuple[float, float]] = []
         self.corrected_adsorbate_marker_item: Optional[ScatterPlotItem] = None
 
-        # Set refinement parameters
         self.current_refinement_method = default_refinement_method
         self.refinement_roi_size = default_refinement_roi_size
         self.current_expected_type = initial_expected_type
 
-        # Initialize preview tracking
         self.last_preview_gauss_fit_popt: Optional[np.ndarray] = None
         self.last_preview_gauss_fit_center_abs: Optional[Tuple[float, float]] = None
         self.last_preview_gauss_roi_state: Optional[Dict] = None
-        # self.gl_roi_view_widget: Optional[GLViewWidget] = None
-        # self.gl_roi_surface_plot_item: Optional[GLSurfacePlotItem] = None
-        # self.gl_gauss_view_widget: Optional[GLViewWidget] = None
-        # self.gl_gauss_surface_plot_item: Optional[GLSurfacePlotItem] = None
         self.gl_roi_placeholder: Optional[QWidget] = None
         self.gl_gauss_placeholder: Optional[QWidget] = None
 
-        # Initialize UI and connect signals
         self._init_ui()
         self._connect_signals() 
         self._update_adsorbate_spots_list_widget()
@@ -189,7 +171,6 @@ class AdsorbateSpotSelectionDialog(QDialog):
         self._update_add_spot_button_state() 
         self._update_correction_button_state()
 
-        # Set initial refinement method
         if self.current_refinement_method == REFINEMENT_MAX_PIXEL: self.rb_refine_max_pixel.setChecked(True)
         elif self.current_refinement_method == REFINEMENT_GAUSSIAN_FIT: self.rb_refine_gaussian.setChecked(True)
         else: self.rb_refine_direct.setChecked(True)
@@ -197,7 +178,7 @@ class AdsorbateSpotSelectionDialog(QDialog):
         
         self._on_refinement_method_changed()
         self._display_substrate_transform_info()
-        self._redraw_all_markers_in_dialog() # Redraw to include reference spots after displaying transform info
+        self._redraw_all_markers_in_dialog()
 
         logger.debug(f"AdsorbateSpotSelectionDialog for set {self.adsorbate_set_index} initialized.")
 
@@ -219,9 +200,9 @@ class AdsorbateSpotSelectionDialog(QDialog):
             ADSORBATE_LATTICE_TYPE_HEXAGONAL,
             ADSORBATE_LATTICE_TYPE_SQUARE
         ])
-        self.expected_type_combo.setCurrentText(self.current_expected_type) # Set initial value
+        self.expected_type_combo.setCurrentText(self.current_expected_type)
         expected_type_layout.addRow("Lattice Type:", self.expected_type_combo)
-        left_controls_layout.addWidget(expected_type_group) # Add group to layout
+        left_controls_layout.addWidget(expected_type_group)
 
 
         refinement_group = QGroupBox("Adsorbate Spot Refinement")
@@ -307,20 +288,7 @@ class AdsorbateSpotSelectionDialog(QDialog):
         self.roi_preview_2d_plot.addItem(self.roi_preview_2d_image_item)
         roi_2d_v_layout.addWidget(self.roi_preview_2d_widget, 1)
         preview_grid_layout.addWidget(roi_2d_container, 0, 0)
-        # roi_3d_container = QWidget()
-        # roi_3d_v_layout = QVBoxLayout(roi_3d_container)
 
-        # roi_3d_v_layout.addWidget(QLabel("ROI 3D Preview:"))
-        # self.enable_3d_roi_preview_checkbox = QCheckBox("Enable")
-        # self.enable_3d_roi_preview_checkbox.setChecked(False)
-        # roi_3d_v_layout.addWidget(self.enable_3d_roi_preview_checkbox)
-        # self.gl_roi_view_widget = GLViewWidget()
-        # self.gl_roi_view_widget.setMinimumSize(150,150)
-        # self.gl_roi_view_widget.setMaximumHeight(200)
-        # self.gl_roi_surface_plot_item = GLSurfacePlotItem(color=(0.5,0.5,1,0.7))
-        # self.gl_roi_view_widget.addItem(self.gl_roi_surface_plot_item)
-        # roi_3d_v_layout.addWidget(self.gl_roi_view_widget, 1)
-        # preview_grid_layout.addWidget(roi_3d_container, 0, 1)
         gauss_2d_container = QWidget()
         gauss_2d_v_layout = QVBoxLayout(gauss_2d_container)
 
@@ -337,28 +305,12 @@ class AdsorbateSpotSelectionDialog(QDialog):
         gauss_2d_v_layout.addWidget(self.gaussian_preview_2d_widget, 1)
         preview_grid_layout.addWidget(gauss_2d_container, 1, 0)
 
-        # gauss_3d_container = QWidget()
-        # gauss_3d_v_layout = QVBoxLayout(gauss_3d_container)
-        # gauss_3d_v_layout.addWidget(QLabel("Gaussian Fit 3D Preview:"))
-        # self.enable_gauss_3d_preview_checkbox = QCheckBox("Enable")
-        # self.enable_gauss_3d_preview_checkbox.setChecked(False)
-        # gauss_3d_v_layout.addWidget(self.enable_gauss_3d_preview_checkbox)
-        # self.gl_gauss_view_widget = GLViewWidget()
-        # self.gl_gauss_view_widget.setMinimumSize(150,150)
-        # self.gl_gauss_view_widget.setMaximumHeight(200)
-        # self.gl_gauss_surface_plot_item = GLSurfacePlotItem(color=(1,0.5,0.5,0.7))
-        # self.gl_gauss_view_widget.addItem(self.gl_gauss_surface_plot_item)
-        # gauss_3d_v_layout.addWidget(self.gl_gauss_view_widget, 1)
-        # preview_grid_layout.addWidget(gauss_3d_container, 1, 1)
-
         preview_grid_layout.setColumnStretch(0,1)
         preview_grid_layout.setColumnStretch(1,1)
         preview_grid_layout.setRowStretch(0,1)
         preview_grid_layout.setRowStretch(1,1)
         self.gauss_2d_container = gauss_2d_container
-        # self.gauss_3d_container = gauss_3d_container
         self.gauss_2d_container.setVisible(False)
-        # self.gauss_3d_container.setVisible(False)
         right_panel_layout.addWidget(preview_group)
 
         display_options_group = QGroupBox("Display Options (Reference Spots)")
@@ -417,13 +369,9 @@ class AdsorbateSpotSelectionDialog(QDialog):
         self.add_adsorbate_spot_button.clicked.connect(self._add_current_adsorbate_spot_from_roi)
         self.apply_correction_button.clicked.connect(self._on_apply_substrate_correction_clicked)
 
-        # Live preview checkboxes
         self.enable_2d_roi_preview_checkbox.stateChanged.connect(self._update_roi_previews)
-        # self.enable_3d_roi_preview_checkbox.stateChanged.connect(self._update_roi_previews)
         self.enable_gauss_2d_preview_checkbox.stateChanged.connect(self._update_roi_previews)
-        # self.enable_gauss_3d_preview_checkbox.stateChanged.connect(self._update_roi_previews)
 
-        # Reference spot visibility checkboxes
         self.show_ideal_substrate_checkbox.stateChanged.connect(self._redraw_all_markers_in_dialog)
         self.show_fitted_substrate_checkbox.stateChanged.connect(self._redraw_all_markers_in_dialog)
         self.show_corrected_adsorbate_checkbox.stateChanged.connect(self._redraw_all_markers_in_dialog)
@@ -464,12 +412,10 @@ class AdsorbateSpotSelectionDialog(QDialog):
             self._update_roi_previews()
 
     def _update_roi_previews(self): 
-        if not self.selection_roi.isVisible() or self.fft_data is None: # type: ignore
+        if not self.selection_roi.isVisible() or self.fft_data is None:
             self._clear_last_preview_gauss_fit()
             if hasattr(self, 'roi_preview_2d_image_item'): self.roi_preview_2d_image_item.clear()
             if hasattr(self, 'gaussian_preview_2d_image_item'): self.gaussian_preview_2d_image_item.clear()
-            # if hasattr(self, 'gl_roi_surface_plot_item') and self.gl_roi_surface_plot_item: self._clear_3d_surface(self.gl_roi_surface_plot_item)
-            # if hasattr(self, 'gl_gauss_surface_plot_item') and self.gl_gauss_surface_plot_item: self._clear_3d_surface(self.gl_gauss_surface_plot_item)
             return
         
         roi_state_for_comparison = self.selection_roi.getState()
@@ -480,20 +426,16 @@ class AdsorbateSpotSelectionDialog(QDialog):
         y0_cl = np.clip(y0_roi, 0, max_ky)
         y1_cl = np.clip(y1_roi, 0, max_ky)
         x0_cl = np.clip(x0_roi, 0, max_kx)
-        x1_cl = np.clip(x1_roi, 0, max_kx) # type: ignore
+        x1_cl = np.clip(x1_roi, 0, max_kx)
         if y1_cl <= y0_cl or x1_cl <= x0_cl : 
             logger.warning("Invalid ROI slice for preview.")
-            return # pragma: no cover
+            return
         roi_patch = self.fft_data[y0_cl:y1_cl, x0_cl:x1_cl]
         if roi_patch.size > 0:
             if self.enable_2d_roi_preview_checkbox.isChecked() and hasattr(self,'roi_preview_2d_image_item'): 
                 self.roi_preview_2d_image_item.setImage(roi_patch.T)
                 self.roi_preview_2d_plot.autoRange()
             elif hasattr(self,'roi_preview_2d_image_item'): self.roi_preview_2d_image_item.clear()
-            # if self.enable_3d_roi_preview_checkbox.isChecked() and hasattr(self,'gl_roi_surface_plot_item') and self.gl_roi_surface_plot_item: 
-            #     self._update_3d_surface_plot(self.gl_roi_surface_plot_item, roi_patch)
-            # elif hasattr(self,'gl_roi_surface_plot_item') and self.gl_roi_surface_plot_item: 
-            #     self._clear_3d_surface(self.gl_roi_surface_plot_item)
             if self.rb_refine_gaussian.isChecked():
                 fitted_gauss_2d_for_preview = None
                 if PEAK_FITTING_MODULE_AVAILABLE and SCIPY_OPTIMIZE_AVAILABLE and SCIPY_AVAILABLE:
@@ -516,45 +458,18 @@ class AdsorbateSpotSelectionDialog(QDialog):
                     except Exception as e:
                         logger.warning(f"Adsorbate GaussFit Preview failed: {e}")
                         self._clear_last_preview_gauss_fit()
-                        fitted_gauss_2d_for_preview=roi_patch # pragma: no cover
+                        fitted_gauss_2d_for_preview=roi_patch
                 if self.enable_gauss_2d_preview_checkbox.isChecked() and hasattr(self,'gaussian_preview_2d_image_item'):
                     if fitted_gauss_2d_for_preview is not None: self.gaussian_preview_2d_image_item.setImage(fitted_gauss_2d_for_preview.T)
                     else: self.gaussian_preview_2d_image_item.setImage(roi_patch.T)
                     self.gaussian_preview_2d_plot.autoRange()
                 elif hasattr(self,'gaussian_preview_2d_image_item'):self.gaussian_preview_2d_image_item.clear()
-                # if self.enable_gauss_3d_preview_checkbox.isChecked() and hasattr(self,'gl_gauss_surface_plot_item') and self.gl_gauss_surface_plot_item:
-                    # if fitted_gauss_2d_for_preview is not None: self._update_3d_surface_plot(self.gl_gauss_surface_plot_item,fitted_gauss_2d_for_preview)
-                    # else: self._update_3d_surface_plot(self.gl_gauss_surface_plot_item,roi_patch)
-                # elif hasattr(self,'gl_gauss_surface_plot_item') and self.gl_gauss_surface_plot_item: self._clear_3d_surface(self.gl_gauss_surface_plot_item)
             else: 
                 self._clear_last_preview_gauss_fit()
                 if hasattr(self,'gaussian_preview_2d_image_item'):self.gaussian_preview_2d_image_item.clear()
-                # if hasattr(self,'gl_gauss_surface_plot_item') and self.gl_gauss_surface_plot_item: self._clear_3d_surface(self.gl_gauss_surface_plot_item)
-        else: # pragma: no cover
+        else:
             if hasattr(self,'roi_preview_2d_image_item'):self.roi_preview_2d_image_item.clear()
             if hasattr(self,'gaussian_preview_2d_image_item'):self.gaussian_preview_2d_image_item.clear()
-            # if hasattr(self,'gl_roi_surface_plot_item') and self.gl_roi_surface_plot_item: 
-            #     self._clear_3d_surface(self.gl_roi_surface_plot_item)
-            # if hasattr(self,'gl_gauss_surface_plot_item') and self.gl_gauss_surface_plot_item: 
-            #     self._clear_3d_surface(self.gl_gauss_surface_plot_item)
-
-
-    # def _update_3d_surface_plot(self, surface_item: GLSurfacePlotItem, data_2d: Optional[np.ndarray]):
-    #     if data_2d is None or data_2d.size == 0 or data_2d.ndim != 2: 
-    #         self._clear_3d_surface(surface_item)
-    #         return
-    #     h, w = data_2d.shape
-    #     if h < 2 or w < 2: 
-    #         self._clear_3d_surface(surface_item)
-    #         return
-    #     x = np.linspace(-w/2., w/2., w)
-    #     y = np.linspace(-h/2., h/2., h)
-    #     z_norm = (data_2d - data_2d.min()) / (data_2d.max() - data_2d.min() + 1e-9)
-    #     colors = np.zeros((h,w,4), dtype=np.float32)
-    #     colors[...,0]=z_norm
-    #     colors[...,2]=1-z_norm
-    #     colors[...,3]=0.7 # R, B, Alpha
-    #     surface_item.setData(x=x,y=y,z=data_2d.T,colors=colors.transpose(1,0,2))
 
     def _update_corrected_adsorbate_spots_list_widget(self):
         """
@@ -567,27 +482,12 @@ class AdsorbateSpotSelectionDialog(QDialog):
             return
         
         for i, (kx, ky) in enumerate(self.corrected_adsorbate_spots_in_ideal_system):
-            # These kx, ky are in the "ideal" FFT coordinate system
             self.corrected_spots_list_widget.addItem(f"Corr. A{i+1}: ({kx:.2f}, {ky:.2f}) [Ideal Sys]")
-
-
-    # def _clear_3d_surface(self, surface_item: Optional[GLSurfacePlotItem]):
-    #     if surface_item:
-    #         x=np.array([0,1e-9])
-    #         y=np.array([0,1e-9])
-    #         z=np.array([[0,0],[0,0]],dtype=np.float32)
-    #         colors=np.array([[[0,0,0,0],[0,0,0,0]],[[0,0,0,0],[0,0,0,0]]],dtype=np.float32)
-    #         try: 
-    #             surface_item.setData(x=x,y=y,z=z,colors=colors)
-    #             surface_item.meshDataChanged()
-    #         except Exception as e: 
-    #             logger.error(f"Error clearing 3D surface: {e}") # pragma: no cover
 
     @pyqtSlot()
     def _on_refinement_method_changed(self):
         is_gaussian_mode = self.rb_refine_gaussian.isChecked()
         if hasattr(self, 'gauss_2d_container'): self.gauss_2d_container.setVisible(is_gaussian_mode)
-        # if hasattr(self, 'gauss_3d_container'): self.gauss_3d_container.setVisible(is_gaussian_mode)
         if self.rb_refine_direct.isChecked(): 
             self.current_refinement_method=REFINEMENT_DIRECT_CLICK
             self.refinement_roi_size_spinbox.setEnabled(False)
@@ -623,7 +523,7 @@ class AdsorbateSpotSelectionDialog(QDialog):
     def _add_current_adsorbate_spot_from_roi(self):
         if not self.selection_roi.isVisible() or self.fft_data is None: 
             self.status_label.setText("Error: No ROI or FFT data.")
-            return # pragma: no cover
+            return
         roi_state=self.selection_roi.getState()
         x0,y0=int(round(roi_state['pos'].x())),int(round(roi_state['pos'].y()))
         w,h=int(round(roi_state['size'].x())),int(round(roi_state['size'].y()))
@@ -659,7 +559,7 @@ class AdsorbateSpotSelectionDialog(QDialog):
                     ref_kx,ref_ky=float(fkx_abs),float(fky_abs)
                     logger.info(f"NEW Adsorbate GaussFit: ({ref_kx:.2f},{ref_ky:.2f})")
                 else: 
-                    logger.warning("Adsorbate GaussFit FAILED for Add Spot. Using ROI center.") # pragma: no cover
+                    logger.warning("Adsorbate GaussFit FAILED for Add Spot. Using ROI center.")
         
         new_spot = (ref_kx, ref_ky)
         if new_spot not in self.selected_adsorbate_spots_raw: 
@@ -668,7 +568,7 @@ class AdsorbateSpotSelectionDialog(QDialog):
             self._redraw_all_markers_in_dialog()
             self.status_label.setText(f"Adsorbate spot {len(self.selected_adsorbate_spots_raw)} added.")
         else: 
-            self.status_label.setText(f"Adsorbate spot ({ref_kx:.2f},{ref_ky:.2f}) already selected.") # pragma: no cover
+            self.status_label.setText(f"Adsorbate spot ({ref_kx:.2f},{ref_ky:.2f}) already selected.")
         self._clear_last_preview_gauss_fit()
         self._update_correction_button_state()
 
@@ -741,7 +641,7 @@ class AdsorbateSpotSelectionDialog(QDialog):
                 if self.corrected_adsorbate_spots_in_ideal_system is not None: d=[{'pos':tuple(p),'symbol':'s','size':10,'pen':pg.mkPen('r',width=1.5),'brush':pg.mkBrush(255,0,0,120)} for p in self.corrected_adsorbate_spots_in_ideal_system]
                 self.corrected_adsorbate_marker_item=ScatterPlotItem(spots=d)
                 self.fft_view_box.addItem(self.corrected_adsorbate_marker_item)
-            except Exception as e:logger.error(f"Error transforming corrected adsorbate spots for display: {e}") # pragma: no cover
+            except Exception as e:logger.error(f"Error transforming corrected adsorbate spots for display: {e}")
 
     def _handle_fft_image_click(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -763,7 +663,7 @@ class AdsorbateSpotSelectionDialog(QDialog):
                 self.add_adsorbate_spot_button.setEnabled(True)
                 self._update_roi_previews()
             event.accept()
-        else: event.ignore() # pragma: no cover
+        else: event.ignore()
             
     def _update_add_spot_button_state(self):
         self.add_adsorbate_spot_button.setEnabled(self.selection_roi.isVisible())
@@ -812,8 +712,8 @@ class AdsorbateSpotSelectionDialog(QDialog):
                 self._update_corrected_adsorbate_spots_list_widget()
                 self._redraw_all_markers_in_dialog() 
                 self.status_label.setText(f"{len(self.corrected_adsorbate_spots_in_ideal_system)} adsorbate spots corrected (in ideal system).")
-            else: raise ValueError("apply_affine_transform returned None for adsorbate spots.") # pragma: no cover
-        except Exception as e: # pragma: no cover
+            else: raise ValueError("apply_affine_transform returned None for adsorbate spots.")
+        except Exception as e:
             logger.error(f"Error applying substrate correction to adsorbate spots: {e}")
             QMessageBox.critical(self, "Correction Error", f"Could not apply correction: {e}")
 
@@ -838,12 +738,4 @@ class AdsorbateSpotSelectionDialog(QDialog):
 
     def closeEvent(self, event):
         logger.debug("AdsorbateSpotSelectionDialog closing. Cleaning up GL items.")
-        # if hasattr(self, 'gl_roi_view_widget') and self.gl_roi_view_widget:
-        #     if hasattr(self, 'gl_roi_surface_plot_item') and self.gl_roi_surface_plot_item: self.gl_roi_view_widget.removeItem(self.gl_roi_surface_plot_item)
-        #     self.gl_roi_view_widget.setParent(None)
-        #     self.gl_roi_view_widget.deleteLater()
-        # if hasattr(self, 'gl_gauss_view_widget') and self.gl_gauss_view_widget:
-        #     if hasattr(self, 'gl_gauss_surface_plot_item') and self.gl_gauss_surface_plot_item: self.gl_gauss_view_widget.removeItem(self.gl_gauss_surface_plot_item)
-        #     self.gl_gauss_view_widget.setParent(None)
-        #     self.gl_gauss_view_widget.deleteLater()
         super().closeEvent(event)

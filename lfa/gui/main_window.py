@@ -23,7 +23,6 @@ except ImportError:
     logging.error("PyQtGraph not found. Please install it: pip install pyqtgraph")
     pg = None
 
-# Import LFA core components
 from .widgets.metadata_widget import MetadataWidget
 from ..logic.history_manager import HistoryManager
 from .panels.fft_analysis_panel import FFTAnalysisPanel
@@ -56,7 +55,6 @@ try:
     PEAK_FITTING_AVAILABLE = True
 except ImportError:
     logging.error("Could not import peak fitting functions.")
-    # Dummy functions if module is missing
     def find_max_pixel_in_roi(data, center, radius): return center
     def fit_2d_gaussian_in_roi(data, center, radius): return None
     PEAK_FITTING_AVAILABLE = False
@@ -64,7 +62,7 @@ except ImportError:
 try:
     from .dialogs.real_space_reconstruction_dialog import RealSpaceReconstructionDialog
     RECONSTRUCTION_DIALOG_AVAILABLE = True
-except ImportError as e: # pragma: no cover
+except ImportError as e:
     RealSpaceReconstructionDialog = None; RECONSTRUCTION_DIALOG_AVAILABLE = False
     logging.warning(f"Could not import RealSpaceReconstructionDialog: {e}")
 
@@ -72,7 +70,7 @@ try:
     from .dialogs.substrate_spot_dialog import SubstrateSpotSelectionDialog
     from .dialogs.adsorbate_spot_dialog import AdsorbateSpotSelectionDialog
     SPOT_SELECTION_DIALOGS_AVAILABLE = True
-except ImportError: # pragma: no cover
+except ImportError:
     logging.warning("Could not import spot selection dialogs. Spot selection from menu will not work.")
     SubstrateSpotSelectionDialog = None
     AdsorbateSpotSelectionDialog = None
@@ -81,7 +79,7 @@ except ImportError: # pragma: no cover
 try:
     from .dialogs.superstructure_periodicity_dialog import SuperstructurePeriodicityDialog
     SUPERSTRUCTURE_PERIODICITY_DIALOG_AVAILABLE = True
-except ImportError: # pragma: no cover
+except ImportError:
     SuperstructurePeriodicityDialog = None
     SUPERSTRUCTURE_PERIODICITY_DIALOG_AVAILABLE = False
     logging.warning("Could not import SuperstructurePeriodicityDialog.")
@@ -95,7 +93,7 @@ try:
     LATTICE_ANALYSIS_AVAILABLE = True
 except ImportError:
     logging.error("Could not import lattice analysis functions.")
-    KNOWN_LATTICES = {"None": {}} # Placeholder
+    KNOWN_LATTICES = {"None": {}} 
     def get_reciprocal_points(name, max_hk=2): return None
     CustomLatticeDialog = None
     LATTICE_ANALYSIS_AVAILABLE = False
@@ -103,7 +101,7 @@ except ImportError:
 try:
     from .dialogs.real_space_visualizer_dialog import RealSpaceFFTVisualizerDialog
     REAL_SPACE_VIS_DIALOG_AVAILABLE = True
-except ImportError: # pragma: no cover
+except ImportError: 
     RealSpaceFFTVisualizerDialog = None
     REAL_SPACE_VIS_DIALOG_AVAILABLE = False
     logging.warning("Could not import RealSpaceFFTVisualizerDialog.")
@@ -129,7 +127,6 @@ class MainWindow(QMainWindow):
         self.metadata_widget = MetadataWidget(self) # Create content widgets
         self.fft_analysis_panel_widget = FFTAnalysisPanel(self)
 
-        # 2. Managery logiki
         self.history_manager = HistoryManager(self.history_list_widget, self)
         self.app_controller = AppController(history_manager=self.history_manager)
         self._adsorbate_raw_visibility_by_set: Dict[int, bool] = {}
@@ -157,7 +154,7 @@ class MainWindow(QMainWindow):
                 history_manager=self.history_manager,
             )
             logger.info("VisualizationManager created and initialized.")
-        else: # pragma: no cover
+        else:
             self.visualization_manager = None
             logger.error("Could not create VisualizationManager due to missing dependencies.")
 
@@ -319,11 +316,11 @@ class MainWindow(QMainWindow):
 
         parent_id, parent_data_type, image_data_copy, source_image_id, source_label = current_node_info
 
-        if not DialogClass: # pragma: no cover
+        if not DialogClass:
             QMessageBox.critical(self, "Error", f"{DialogClass.__name__ if DialogClass else 'Dialog'} is not available.")
             return
             
-        if dialog_specific_checks: # pragma: no cover
+        if dialog_specific_checks:
              if not dialog_specific_checks(): return
 
 
@@ -334,7 +331,7 @@ class MainWindow(QMainWindow):
             dialog.setWindowTitle(f"{dialog.windowTitle()} [{source_label}]")
         if dialog.exec() == QDialog.DialogCode.Accepted:
             processed_data = dialog.get_processed_data()
-            params = dialog.get_parameters() # Dialog should return a dictionary of parameters
+            params = dialog.get_parameters()
             was_roi_only = dialog.was_roi_applied_only()
 
             if processed_data is not None:
@@ -349,16 +346,16 @@ class MainWindow(QMainWindow):
                     )
                     op_display_name = dialog.operation_name if hasattr(dialog, 'operation_name') else op_name_in_controller.replace("apply_", "").replace("_operation","").title()
                     self.statusBar().showMessage(f"{op_display_name} applied.", 3000)
-                else: # pragma: no cover
+                else:
                     logger.error(f"Method {op_name_in_controller} not found in AppController!")
                     self.statusBar().showMessage(f"Error applying {op_name_in_controller}.", 3000)
-            else: # pragma: no cover
+            else:
                 logger.warning(f"{DialogClass.__name__} accepted, but no processed data returned.")
                 self.statusBar().showMessage("Operation cancelled or no changes made.", 3000)
         else:
             op_display_name = dialog.operation_name if hasattr(dialog, 'operation_name') else op_name_in_controller.replace("apply_", "").replace("_operation","").title()
-            logger.info(f"{op_display_name} dialog cancelled.") # pragma: no cover
-            self.statusBar().showMessage(f"{op_display_name} cancelled.", 3000) # pragma: no cover
+            logger.info(f"{op_display_name} dialog cancelled.")
+            self.statusBar().showMessage(f"{op_display_name} cancelled.", 3000)
     
     def _update_action_states(self):
         """
@@ -386,7 +383,6 @@ class MainWindow(QMainWindow):
         can_load_metadata = False
         if has_active_node:
             root_node = self.history_manager.get_root_node_for_node(current_hist_node.node_id)
-            # Ensure the root node exists and provide its `raw_header` if missing
             if root_node and "raw_header" not in root_node.parameters:
                 can_load_metadata = True
 
@@ -425,9 +421,6 @@ class MainWindow(QMainWindow):
         
         if hasattr(self, 'stm_transform_action'):
             self.stm_transform_action.setEnabled(is_stm_data_active and STM_TRANSFORM_DIALOG_AVAILABLE)
-        
-        # if hasattr(self.main_window, 'file_actions') and "save_as_image" in self.main_window.file_actions:
-        #     self.main_window.file_actions["save_as_image"].setEnabled(has_active_node)
 
         preprocessing_actions_enabled = has_active_node
         if hasattr(self, 'gaussian_blur_action'): self.gaussian_blur_action.setEnabled(preprocessing_actions_enabled and DIALOG_CLASSES_EXIST)
@@ -449,10 +442,6 @@ class MainWindow(QMainWindow):
 
         if hasattr(self, 'visualize_real_space_action'):
             self.visualize_real_space_action.setEnabled(True)
-
-        # is_fft_data = (hasattr(self, 'history_manager') and 
-        #         self.history_manager.get_current_node() and
-        #         self.history_manager.get_current_node().data_type == "FFT")
 
         if hasattr(self, 'real_space_reconstruction_action'):
             self.real_space_reconstruction_action.setEnabled(True)
@@ -558,7 +547,7 @@ class MainWindow(QMainWindow):
         logger.info("MainWindow: Opening STM Transform dialog...")
         dialog = StmTransformDialog(
             input_data=current_node.image_data,
-            original_node=root_node, # Pass along the entire original history node
+            original_node=root_node,
             substrate_transform_F=self.app_controller.substrate_F_m2i,
             parent=self
         )
@@ -619,8 +608,6 @@ class MainWindow(QMainWindow):
                                 "This history node does not contain the required phase information for a true reconstruction.")
             return
 
-        # Future work: pass FFT data into the dialog
-        # dialog = RealSpaceReconstructionDialog(parent=self)
         dialog = RealSpaceReconstructionDialog(
             magnitude_fft_data=current_node.image_data,
             complex_fft_data=current_node.complex_fft_data,
@@ -637,7 +624,6 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Error", "RealSpaceFFTVisualizerDialog is not available.")
             return
 
-        # Step 1: Check whether the window already exists and is visible
         if self.real_space_visualizer_dialog_instance is not None and self.real_space_visualizer_dialog_instance.isVisible():
             logger.warning("RealSpaceFFTVisualizerDialog is already open.")
             self.real_space_visualizer_dialog_instance.raise_()  # Bring the window to the foreground
@@ -649,7 +635,6 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "No FFT Data", "Please calculate FFT first to use the visualizer.")
             return
 
-        # Step 2: Create a new instance and store the reference
         self.real_space_visualizer_dialog_instance = RealSpaceFFTVisualizerDialog(
             app_controller=self.app_controller,
             history_manager=self.history_manager,
@@ -657,44 +642,8 @@ class MainWindow(QMainWindow):
             parent=self
         )
         
-        # Step 3: Use .show() instead of .exec()
         self.real_space_visualizer_dialog_instance.show()
         logger.info("RealSpaceFFTVisualizerDialog opened.")
-
-    # @pyqtSlot()
-    # def open_real_space_fft_visualizer(self):
-    #     """Opens the Real Space/FFT Visualizer dialog."""
-    #     logger.info("MainWindow: Opening Real Space/FFT Visualizer dialog...")
-    #     if not REAL_SPACE_VIS_DIALOG_AVAILABLE: # pragma: no cover
-    #         QMessageBox.critical(self, "Error", "RealSpaceFFTVisualizerDialog is not available.")
-    #         return
-
-    #     current_fft_node = self.history_manager.get_current_node()
-    #     if not (current_fft_node and current_fft_node.data_type == "FFT"): # pragma: no cover
-    #         QMessageBox.warning(self, "No FFT Data", "Please calculate FFT first to use the visualizer.")
-    #         return
-
-    #     if self.real_space_visualizer_dialog_instance is not None: # pragma: no cover
-    #         if self.real_space_visualizer_dialog_instance.isVisible():
-    #              logger.warning("RealSpaceFFTVisualizerDialog is already open.")
-    #              self.real_space_visualizer_dialog_instance.raise_()
-    #              self.real_space_visualizer_dialog_instance.activateWindow()
-    #              return
-    #         else:
-    #              self.real_space_visualizer_dialog_instance.deleteLater()
-    #              self.real_space_visualizer_dialog_instance = None
-
-
-    #     dialog = RealSpaceFFTVisualizerDialog(
-    #         app_controller=self.app_controller,
-    #         history_manager=self.history_manager,
-    #         current_fft_node_id=current_fft_node.node_id,
-    #         parent=self
-    #     )
-    #     self.real_space_visualizer_dialog_instance = dialog
-    #     dialog.exec()
-    #     self.real_space_visualizer_dialog_instance = None 
-    #     logger.info("RealSpaceFFTVisualizerDialog closed.")
 
     @pyqtSlot(int, str)
     def _handle_expected_adsorbate_type_changed_from_panel(self, set_index: int, selected_type: str):
@@ -906,7 +855,7 @@ class MainWindow(QMainWindow):
             logger.warning("Attempted to open adsorbate spot selection on non-FFT data.")
             return
             
-        if not AdsorbateSpotSelectionDialog: # pragma: no cover
+        if not AdsorbateSpotSelectionDialog:
             QMessageBox.critical(self, "Dialog Error", 
                                  "AdsorbateSpotSelectionDialog is not available. Please check application setup.")
             logger.error("AdsorbateSpotSelectionDialog class is not available.")
@@ -919,7 +868,7 @@ class MainWindow(QMainWindow):
         current_adsorbate_spots_for_set = []
         if 0 <= current_set_idx < len(self.app_controller.adsorbate_spot_sets):
             current_adsorbate_spots_for_set = list(self.app_controller.adsorbate_spot_sets[current_set_idx])
-        else: # pragma: no cover
+        else:
             logger.error(f"Invalid current_adsorbate_set_index ({current_set_idx}) for opening dialog.")
             if not self.app_controller.adsorbate_spot_sets:
                 self.app_controller.adsorbate_spot_sets.append([])
@@ -1068,7 +1017,7 @@ class MainWindow(QMainWindow):
     def _handle_custom_lattice_request(self):
         """Handles the request for custom lattice definition in AppController."""
         logger.debug("MainWindow: Custom lattice definition requested via panel signal.")
-        if not CustomLatticeDialog: # pragma: no cover
+        if not CustomLatticeDialog:
             QMessageBox.critical(self, "Error", "CustomLatticeDialog is not available.")
             return
 
@@ -1082,7 +1031,7 @@ class MainWindow(QMainWindow):
                 self.app_controller.last_selected_substrate = new_name
                 logger.info(f"Custom lattice '{new_name}' defined and selected.")
                 self.display_image_data()
-            else: # pragma: no cover
+            else:
                 if self.fft_analysis_panel_widget:
                     self.fft_analysis_panel_widget.set_substrate_combo_text(self.app_controller.last_selected_substrate)
         else:
@@ -1115,7 +1064,7 @@ class MainWindow(QMainWindow):
             self._apply_adsorbate_visibility_for_set(found_idx)
             self._sync_adsorbate_visibility_checkboxes()
             logger.info(f"MainWindow: Switched to adsorbate set '{set_name}' (Index: {self.app_controller.current_adsorbate_set_index}) via panel signal.")
-        else: # pragma: no cover
+        else:
              logger.warning(f"MainWindow: Could not map adsorbate set name '{set_name}' to an index.")
 
 
@@ -1230,7 +1179,7 @@ class MainWindow(QMainWindow):
             num_sets = len(self.app_controller.adsorbate_spot_sets)
             set_names_for_combo = [f"Set {i+1}" for i in range(num_sets)]
             new_set_name = f"Set {num_sets}"
-            self.fft_analysis_panel_widget.update_adsorbate_set_combo(set_names_for_combo, new_set_name) # To ustawi currentIndex
+            self.fft_analysis_panel_widget.update_adsorbate_set_combo(set_names_for_combo, new_set_name)
             
             new_set_idx = self.app_controller.current_adsorbate_set_index
             expected_type = self.app_controller.adsorbate_expected_lattice_types.get(new_set_idx, ADSORBATE_LATTICE_TYPE_UNKNOWN)
@@ -1244,11 +1193,9 @@ class MainWindow(QMainWindow):
 
         if self.app_controller:
             if current_node and current_node.data_type == "FFT" and current_node.image_data is not None:
-                # If the selected node contains FFT data, record its shape in the controller
                 self.app_controller.current_fft_data_shape = current_node.image_data.shape
                 logger.debug(f"Updated app_controller.current_fft_data_shape to {current_node.image_data.shape}")
             else:
-                # Otherwise clear the cached FFT shape
                 self.app_controller.current_fft_data_shape = None
                 logger.debug("Cleared app_controller.current_fft_data_shape (current node is not FFT).")
             
@@ -1285,9 +1232,9 @@ class MainWindow(QMainWindow):
         if self.app_controller.original_file_path:
             try:
                 start_dir = os.path.dirname(self.app_controller.original_file_path)
-            except Exception:  # pragma: no cover
+            except Exception:
                 pass
-        if not start_dir:  # pragma: no cover
+        if not start_dir: 
             start_dir = os.path.expanduser("~")
 
         file_path, _ = QFileDialog.getOpenFileName(self, "Open STM File", start_dir, file_filter)
@@ -1298,7 +1245,7 @@ class MainWindow(QMainWindow):
             QApplication.processEvents()
             
             self.app_controller.load_file(file_path)
-        else: # pragma: no cover
+        else:
             logger.debug("File dialog cancelled by user.")
             self.statusBar().showMessage("File open cancelled.", 3000)
 
@@ -1325,11 +1272,11 @@ class MainWindow(QMainWindow):
             self.adsorbate_set_panel.setVisible(False)
             self.substrate_set_panel.setVisible(True)
             logger.debug("Spot selection mode: Substrate")
-        else: # Adsorbate selected
+        else:
             self.spot_selection_mode = "Adsorbate"
             self.adsorbate_set_panel.setVisible(True)
             self.substrate_set_panel.setVisible(False)
-            self._points_for_current_adsorbate_set = [] # Clear when switching to a different adsorbate set
+            self._points_for_current_adsorbate_set = []
             if self.current_adsorbate_set_index < len(self.adsorbate_spot_sets):
                  self._points_for_current_adsorbate_set = list(self.adsorbate_spot_sets[self.current_adsorbate_set_index])
             logger.debug(f"Spot selection mode: Adsorbate, Set Index: {self.current_adsorbate_set_index}")
@@ -1339,7 +1286,7 @@ class MainWindow(QMainWindow):
         """Handles selection or addition of an adsorbate set."""
         if text == "<Add New Set...>":
             new_set_name = f"Set {len(self.adsorbate_spot_sets) + 1}"
-            self.adsorbate_spot_sets.append([]) # Dodaj nowy pusty zestaw
+            self.adsorbate_spot_sets.append([])
             self.adsorbate_set_combo.blockSignals(True)
             self.adsorbate_set_combo.insertItem(self.adsorbate_set_combo.count() - 1, new_set_name)
             self.adsorbate_set_combo.setCurrentText(new_set_name)
@@ -1360,8 +1307,8 @@ class MainWindow(QMainWindow):
         """Clears points for the current adsorbate set to allow re-selection."""
         if self.current_adsorbate_set_index >= 0 and self.current_adsorbate_set_index < len(self.adsorbate_spot_sets):
             logger.info(f"Reselecting points for adsorbate set {self.current_adsorbate_set_index + 1}")
-            self.adsorbate_spot_sets[self.current_adsorbate_set_index] = [] # Clear stored points
-            self._points_for_current_adsorbate_set = [] # Clear temporary points
+            self.adsorbate_spot_sets[self.current_adsorbate_set_index] = []
+            self._points_for_current_adsorbate_set = []
         else:
             logger.warning("No valid adsorbate set selected to reselect.")
 
@@ -1414,15 +1361,15 @@ class MainWindow(QMainWindow):
         """Opens the FFT dialog for calculating FFT."""
         current_node_info = self.app_controller.get_current_node_info_for_dialogs()
         if not current_node_info:
-            QMessageBox.warning(self, "No Image", "No data loaded or selected to calculate FFT.") # pragma: no cover
+            QMessageBox.warning(self, "No Image", "No data loaded or selected to calculate FFT.")
             return
 
         parent_id, parent_data_type, image_data_copy, source_image_id, source_label = current_node_info
 
-        if parent_data_type != "STM": # pragma: no cover
+        if parent_data_type != "STM":
             QMessageBox.warning(self, "Invalid Data Type", "FFT can only be calculated from STM data (not from an existing FFT).")
             return
-        if not FFTDialog: # pragma: no cover
+        if not FFTDialog:
             QMessageBox.critical(self, "Error", "FFTDialog is not available.")
             return
 
@@ -1457,7 +1404,7 @@ class MainWindow(QMainWindow):
 
     def open_bm3d_dialog(self):
         """Opens the BM3D dialog for applying BM3D denoising."""
-        def bm3d_checks(): # pragma: no cover
+        def bm3d_checks():
             try: import bm3d; return True
             except ImportError: QMessageBox.critical(self,"Missing Dependency","BM3D package needed."); return False
         self._helper_open_processing_dialog(BM3DDialog, "apply_bm3d_denoising", dialog_specific_checks=bm3d_checks)
@@ -1515,7 +1462,7 @@ class MainWindow(QMainWindow):
 
         current_node = self.history_manager.get_current_node()
         show_ideal_lattice = False
-        selected_substrate = "None" # Default value
+        selected_substrate = "None"
         panel_custom_text = ""
 
         substrate_spots_to_draw = self.app_controller.displayable_fitted_substrate_spots_on_fft
@@ -1528,8 +1475,8 @@ class MainWindow(QMainWindow):
             show_adsorbate_markers = self.app_controller.show_adsorbate_spots_markers
 
         if hasattr(self, 'fft_analysis_panel_widget') and self.fft_analysis_panel_widget is not None:
-            show_ideal_lattice = self.fft_analysis_panel_widget.is_show_ideal_lattice_checked() # lub self.app_controller.show_ideal_lattice
-            selected_substrate = self.fft_analysis_panel_widget.get_current_substrate() # lub self.app_controller.last_selected_substrate
+            show_ideal_lattice = self.fft_analysis_panel_widget.is_show_ideal_lattice_checked() 
+            selected_substrate = self.fft_analysis_panel_widget.get_current_substrate() 
             panel_custom_text = self.fft_analysis_panel_widget.custom_option_text
         
         self.visualization_manager.update_view(
@@ -1564,14 +1511,14 @@ class MainWindow(QMainWindow):
         logger.debug(f"MainWindow: Received FFT click at data coords (kx, ky): ({mapped_data_pos.x():.2f}, {mapped_data_pos.y():.2f})")
         current_node = self.history_manager.get_current_node()
         if not (current_node and current_node.data_type == "FFT" and current_node.image_data is not None):
-            logger.warning("_on_fft_view_clicked_from_visualizer: No valid FFT data node active.") # pragma: no cover
+            logger.warning("_on_fft_view_clicked_from_visualizer: No valid FFT data node active.")
             return
 
         kx_from_signal, ky_from_signal = mapped_data_pos.x(), mapped_data_pos.y()
         kx_int, ky_int = int(round(kx_from_signal)), int(round(ky_from_signal))
         original_fft_data = current_node.image_data
         fft_data_rows_ky, fft_data_cols_kx = original_fft_data.shape
-        if not (0 <= ky_int < fft_data_rows_ky and 0 <= kx_int < fft_data_cols_kx): # pragma: no cover
+        if not (0 <= ky_int < fft_data_rows_ky and 0 <= kx_int < fft_data_cols_kx):
             logger.debug(f"Click data coords outside original FFT data bounds. Ignoring.")
             return
 
@@ -1582,21 +1529,21 @@ class MainWindow(QMainWindow):
         current_refinement_radius = self.app_controller.refinement_roi_size // 2
 
         logger.debug(f"Refinement: Method='{current_refinement_method}', Radius for func={current_refinement_radius}, Click (ky,kx)=({ky_int},{kx_int})")
-        if current_refinement_method == "Max Pixel": # REFINEMENT_MAX_PIXEL
+        if current_refinement_method == "Max Pixel":
             if PEAK_FITTING_AVAILABLE:
                 refined_ky_temp, refined_kx_temp = find_max_pixel_in_roi(original_fft_data, center_yx_for_refinement, current_refinement_radius)
                 refined_kx, refined_ky = int(refined_kx_temp), int(refined_ky_temp)
                 logger.info(f"Max Pixel refined: (orig_kx={kx_int}, orig_ky={ky_int}) -> (ref_kx={refined_kx}, ref_ky={refined_ky})")
-        elif current_refinement_method == "2D Gaussian Fit": # REFINEMENT_GAUSSIAN_FIT
+        elif current_refinement_method == "2D Gaussian Fit":
             if PEAK_FITTING_AVAILABLE:
                 fit_result = fit_2d_gaussian_in_roi(original_fft_data, center_yx_for_refinement, current_refinement_radius)
                 if fit_result:
                     refined_ky_float, refined_kx_float = fit_result
-                    refined_kx, refined_ky = int(round(refined_kx_float)), int(round(refined_ky_float)) # Use rounded integers for consistency
+                    refined_kx, refined_ky = int(round(refined_kx_float)), int(round(refined_ky_float))
                     logger.info(f"2D Gaussian Fit refined: -> (ref_kx_float={refined_kx_float:.2f}, ref_ky_float={refined_ky_float:.2f}) -> int({refined_kx},{refined_ky})")
-                else: # pragma: no cover
+                else:
                     logger.warning("2D Gaussian Fit failed. Using rounded click position.")
-            else:  # pragma: no cover
+            else:
                  logger.warning("Peak fitting (Gaussian) backend not available. Using rounded click.")
 
     @pyqtSlot()

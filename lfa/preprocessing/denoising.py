@@ -6,7 +6,6 @@ import logging
 import numpy as np
 from typing import Optional
 
-# Make sure scikit-image is installed
 try:
     from skimage.restoration import denoise_nl_means
     # from skimage.util import img_as_float # denoise_nl_means does this internally
@@ -67,8 +66,6 @@ def denoise_nlmeans_skimage(image: np.ndarray, sigma: float, h_param_mult: float
         logger.debug(f"Applying NL-Means: sigma={sigma:.3f}, h={h:.3f} (mult={h_param_mult:.2f}), "
                      f"patch_size={patch_size}, patch_distance={patch_distance}, fast_mode={fast_mode}")
 
-        # denoise_nl_means handles float conversion internally, returns float64 by default
-        # preserve_range=True ensures output scale matches input scale
         denoised_image = denoise_nl_means(
             image,
             h=h,
@@ -124,10 +121,7 @@ def denoise_bm3d_lfa(image: np.ndarray, sigma_psd: float) -> Optional[np.ndarray
         scaled_image = (image - img_min) / img_range
         scaled_sigma_psd = sigma_psd / img_range
         logger.debug(f"Applying BM3D: original_sigma={sigma_psd:.4f}, scaled_sigma_psd={scaled_sigma_psd:.4f}")
-        # scaled_sigma = sigma_psd  # sigma_psd is already relative to [0, 1] range
-        # logger.debug(f"Applying BM3D: scaled_sigma_psd={scaled_sigma:.4f}")
 
-        # --- BM3D ---
         denoised_scaled = bm3d.bm3d(scaled_image, sigma_psd=scaled_sigma_psd,
                                     stage_arg=bm3d.BM3DStages.ALL_STAGES)
 

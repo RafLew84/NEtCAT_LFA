@@ -52,10 +52,8 @@ class StmTransformDialog(QDialog):
     def _init_ui(self):
         main_layout = QVBoxLayout(self)
         
-        # --- Comparison panel ---
         display_splitter = QSplitter(Qt.Orientation.Horizontal)
         
-        # Original panel
         original_widget = pg.GraphicsLayoutWidget()
         self.plot_original = original_widget.addPlot(title="Original STM")
         self.plot_original.getViewBox().invertY(True)
@@ -64,16 +62,14 @@ class StmTransformDialog(QDialog):
         self.plot_original.addItem(self.img_original)
         self.plot_original.setAspectLocked(True)
 
-        # Transformation preview panel
         preview_widget = pg.GraphicsLayoutWidget()
         self.plot_preview = preview_widget.addPlot(title="Transformed Preview")
         self.plot_preview.getViewBox().invertY(True)
         self.img_preview = pg.ImageItem()
-        self.img_preview.setImage(self.input_data.T) # Na starcie pokazujemy to samo
+        self.img_preview.setImage(self.input_data.T)
         self.plot_preview.addItem(self.img_preview)
         self.plot_preview.setAspectLocked(True)
 
-        # Link the views to synchronize zoom/pan
         self.plot_preview.setXLink(self.plot_original)
         self.plot_preview.setYLink(self.plot_original)
 
@@ -81,7 +77,6 @@ class StmTransformDialog(QDialog):
         display_splitter.addWidget(preview_widget)
         main_layout.addWidget(display_splitter)
 
-        # --- Control panel ---
         bottom_widget = QWidget()
         bottom_layout = QHBoxLayout(bottom_widget)
         
@@ -103,18 +98,14 @@ class StmTransformDialog(QDialog):
             return self.input_data.copy()
 
         try:
-            # Step 1: Build the F_eff transformation matrix for (x, y) coordinates
             F_eff_xy = np.eye(2)
             if self.cb_apply_stretch.isChecked(): F_eff_xy = self.U_matrix_apply @ F_eff_xy
             if self.cb_apply_rotation.isChecked(): F_eff_xy = self.R_matrix_apply @ F_eff_xy
             
-            # Convert the matrix from (x, y) to (row, col) system used by SciPy
             F_eff_rc = np.array([[F_eff_xy[1,1], F_eff_xy[1,0]],
                                 [F_eff_xy[0,1], F_eff_xy[0,0]]])
 
-            # Step 2: Compute the output dimensions using the corrected matrix
             h, w = self.input_data.shape
-            # Our corners are expressed as (row, col)
             corners_rc = np.array([[0, 0], [0, w], [h, w], [h, 0]]) - np.array([h/2, w/2])
             transformed_corners_rc = corners_rc @ F_eff_rc.T
             
@@ -123,13 +114,11 @@ class StmTransformDialog(QDialog):
             new_h, new_w = (max_coords - min_coords)
             output_shape = (int(np.ceil(new_h)), int(np.ceil(new_w)))
             
-            # Step 3: Compute the inverse matrix and proper offset
             c_in_rc = np.array([h/2, w/2])
             c_out_rc = np.array(output_shape) / 2
             F_eff_rc_inv = np.linalg.inv(F_eff_rc)
             offset = c_in_rc - np.dot(F_eff_rc_inv, c_out_rc)
             
-            # Step 4: Perform the affine transform
             transformed_image = affine_transform(
                 self.input_data,
                 matrix=F_eff_rc_inv,
@@ -143,88 +132,6 @@ class StmTransformDialog(QDialog):
         except Exception as e:
             logger.error(f"Final transform data calculation failed: {e}")
             return None
-
-    # def _calculate_final_transformed_data(self) -> Optional[np.ndarray]:
-    #     """
-    #     Compute the final NumPy array after applying the transform, using the corrected,
-    #     scentrowanej transformacji afinicznej.
-    #     """
-    #     if not self.cb_apply_stretch.isChecked() and not self.cb_apply_rotation.isChecked():
-    #         logger.info("No transformation selected. Returning a copy of the original data.")
-    #         return self.input_data.copy()
-
-    #     try:
-    #         # Step 1: Build effective transform matrix (ideal -> distorted)
-    #         F_eff = np.eye(2)
-    #         if self.cb_apply_stretch.isChecked(): F_eff = self.U_matrix_apply @ F_eff
-    #         if self.cb_apply_rotation.isChecked(): F_eff = self.R_matrix_apply @ F_eff
-            
-    #         # Step 2: Determine output bounding rectangle (output_shape)
-    #         h, w = self.input_data.shape
-    #         corners = np.array([[0, 0], [w, 0], [w, h], [0, h]]) - np.array([w/2, h/2])
-    #         transformed_corners = corners @ F_eff.T
-    #         min_coords = transformed_corners.min(axis=0)
-    #         max_coords = transformed_corners.max(axis=0)
-    #         new_w, new_h = (max_coords - min_coords)
-    #         output_shape = (int(np.ceil(new_h)), int(np.ceil(new_w)))
-            
-    #         # Step 3: Compute the inverse matrix and proper offset
-    #         # This corrected formula centers the transformation.
-    #         c_in = np.array([h/2, w/2])
-    #         c_out = np.array(output_shape) / 2
-    #         F_eff_inv = np.linalg.inv(F_eff)
-
-    #         # Offset ensures the original image center
-    #         # maps to the center of the new image after transformation.
-    #         offset = c_in - np.dot(F_eff_inv, c_out)
-            
-    #         # Step 4: Perform the affine transform z poprawnymi parametrami
-    #         transformed_image = affine_transform(
-    #             self.input_data,
-    #             matrix=F_eff_inv,
-    #             offset=offset,
-    #             output_shape=output_shape,
-    #             order=3, # Cubic interpolation for high quality
-    #             cval=np.min(self.input_data) # Fill background with darkest pixel value
-    #         )
-    #         return transformed_image
-
-    #     except Exception as e:
-    #         logger.error(f"Final transform data calculation failed: {e}")
-    #         return None
-
-    # def _calculate_final_transformed_data(self) -> Optional[np.ndarray]:
-    #     """Compute the final NumPy array using the transform."""
-        
-    #     # --- New logic: handle case with no transform ---
-    #     if not self.cb_apply_stretch.isChecked() and not self.cb_apply_rotation.isChecked():
-    #         logger.info("No transformation selected. Returning a copy of the original data.")
-    #         return self.input_data.copy()
-    #     # --- KONIEC NOWEGO KODU ---
-
-    #     # Existing logic, invoked only when necessary
-    #     F_eff = np.eye(2)
-    #     if self.cb_apply_stretch.isChecked(): F_eff = self.U_matrix_apply @ F_eff
-    #     if self.cb_apply_rotation.isChecked(): F_eff = self.R_matrix_apply @ F_eff
-        
-    #     h, w = self.input_data.shape
-    #     corners = np.array([[0, 0], [w, 0], [w, h], [0, h]]) - np.array([w/2, h/2])
-    #     transformed_corners = corners @ F_eff.T
-    #     min_coords = transformed_corners.min(axis=0); max_coords = transformed_corners.max(axis=0)
-    #     new_w, new_h = (max_coords - min_coords)
-    #     output_shape = (int(np.ceil(new_h)), int(np.ceil(new_w)))
-    #     offset_correction = np.array([w/2, h/2]) - (F_eff @ np.array([w/2, h/2]))
-    #     transform_offset = offset_correction - np.dot(F_eff, min_coords)
-
-    #     try:
-    #         F_eff_inv = np.linalg.inv(F_eff)
-    #         return affine_transform(
-    #             self.input_data, matrix=F_eff_inv, offset=np.dot(F_eff_inv, transform_offset),
-    #             output_shape=output_shape, order=3
-    #         )
-    #     except Exception as e:
-    #         logger.error(f"Final transform calculation for save failed: {e}")
-    #         return None
 
     def _create_controls(self, layout: QVBoxLayout):
         params_group = QGroupBox("Apply Transform Components")
@@ -242,7 +149,6 @@ class StmTransformDialog(QDialog):
         group_layout.addWidget(self.info_rot_label)
         group_layout.addWidget(self.info_stretch_label)
         
-        # New save button and close button
         self.save_button = QPushButton("Save Comparison (PNG)...")
         self.save_stp_button = QPushButton("Save as STP...")
         self.close_button = QPushButton("Close")
@@ -293,28 +199,22 @@ class StmTransformDialog(QDialog):
             return
 
         try:
-            # 1. Make a deep copy of the original nested header
             import copy
             new_header = copy.deepcopy(self.original_node.parameters.get("raw_header", {}))
 
-            # 2. Retrieve original dimensions
-            orig_h, orig_w = self.input_data.shape
+            _, orig_w = self.input_data.shape
             orig_nm_x = self.original_node.parameters.get("size_nm_x", 0.0)
             
-            # 3. Retrieve new dimensions in pixels
             new_h, new_w = transformed_data.shape
             
-            # 4. Compute new physical dimensions
             nm_per_px = orig_nm_x / orig_w if orig_w > 0 else 0
             new_nm_x = new_w * nm_per_px
             new_nm_y = new_h * nm_per_px # Assume square pixels
             
-            # 5. Update fields in the relevant sections
             if "General Info" in new_header and isinstance(new_header["General Info"], dict):
                 new_header["General Info"]["Number of columns"] = str(new_w)
                 new_header["General Info"]["Number of rows"] = str(new_h)
                 
-                # Append information about the performed processes
                 applied_processes = []
                 if self.cb_apply_stretch.isChecked(): applied_processes.append("stretch")
                 if self.cb_apply_rotation.isChecked(): applied_processes.append("rotate")
@@ -327,7 +227,6 @@ class StmTransformDialog(QDialog):
                 new_header["Control"]["X Amplitude"] = f"{new_nm_x:.6f} nm"
                 new_header["Control"]["Y Amplitude"] = f"{new_nm_y:.6f} nm"
 
-            # 6. Call the write function
             write_STP_file(
                 file_path=file_path,
                 data_array=transformed_data,
@@ -341,7 +240,6 @@ class StmTransformDialog(QDialog):
     
     @pyqtSlot()
     def _update_preview(self):
-        # This method is mostly unchanged but aligns both views at the end
         h, w = self.input_data.shape
         F_eff = np.eye(2)
         if self.cb_apply_stretch.isChecked(): F_eff = self.U_matrix_apply @ F_eff
@@ -369,13 +267,10 @@ class StmTransformDialog(QDialog):
         transformed_path = f"{base}_transformed.png"
 
         try:
-            # --- Start of updated logic ---
-            # 1. Export the original image (with axes) using the exporter
             exporter_original = pg.exporters.ImageExporter(self.plot_original.scene())
             exporter_original.export(original_path)
             logger.info(f"Oryginalny obraz zapisany w: {original_path}")
 
-            # 2. Export the transformed image (existing workflow)
             exporter_transformed = pg.exporters.ImageExporter(self.plot_preview.scene())
             exporter_transformed.export(transformed_path)
             logger.info(f"Przetransformowany obraz zapisany w: {transformed_path}")

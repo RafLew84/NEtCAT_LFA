@@ -15,22 +15,18 @@ import numpy as np
 from typing import Optional, Tuple, Dict, Any
 
 try:
-    # Import necessary PyQt6 components
     from PyQt6.QtWidgets import (
         QDialog, QVBoxLayout, QHBoxLayout, QCheckBox, QComboBox,
         QDialogButtonBox, QWidget, QSizePolicy, QSpacerItem, QFrame, QMessageBox,
         QLabel, QPushButton, QGroupBox, QRadioButton, QSplitter
     )
     from PyQt6.QtCore import Qt, pyqtSlot, pyqtSignal
-    # Import necessary pyqtgraph components
     import pyqtgraph as pg
     from pyqtgraph import PlotItem, RectROI, ROI, ImageItem, ImageView
 except ImportError as e:
     logging.critical(f"Failed to import necessary Qt or pyqtgraph modules: {e}")
-    # Depending on how critical this is, you might exit or disable features
-    raise # Re-raise for now
+    raise 
 
-# Import the backend FFT calculation function and available window types
 try:
     from lfa.analysis.fft_engine import calculate_fft, AVAILABLE_WINDOWS
 except ImportError:
@@ -79,9 +75,7 @@ class FFTDialog(QDialog):
         self.operation_name = "FFT Calculation"
         self.input_data = input_stm_data.astype(np.float32)
         self.source_label = source_label
-        # Stores the scaled magnitude for preview display
         self.preview_display_data: Optional[np.ndarray] = None
-        # Stores the final scaled magnitude result after accept
         self._final_processed_data: Optional[np.ndarray] = None
         self._final_params: Dict[str, Any] = {}
         self._final_source_roi_slice: Optional[Tuple[slice, slice]] = None
@@ -96,7 +90,6 @@ class FFTDialog(QDialog):
         current_flags=self.windowFlags()
         self.setWindowFlags(current_flags | Qt.WindowType.WindowMinimizeButtonHint | Qt.WindowType.WindowMaximizeButtonHint)
 
-        # --- Layouts ---
         main_layout=QVBoxLayout(self)
         if self.source_label:
             source_lbl = QLabel(f"Source image: {self.source_label}")
@@ -106,34 +99,28 @@ class FFTDialog(QDialog):
         controls_area_layout=QVBoxLayout()
         bottom_layout=QHBoxLayout()
 
-        # --- Splitter and Views ---
         splitter = QSplitter(Qt.Orientation.Horizontal)
-        # Left Panel: Input Image + ROI (using GraphicsLayoutWidget for PlotItem)
         left_widget = pg.GraphicsLayoutWidget()
         self.plot_input = left_widget.addPlot(title="Input Data (Select ROI here)")
         self.img_input = ImageItem(); self.plot_input.addItem(self.img_input)
         self.plot_input.hideAxis('left'); self.plot_input.hideAxis('bottom')
         self.plot_input.setAspectLocked(True); self.plot_input.vb.invertY(True)
         splitter.addWidget(left_widget)
-        # Right Panel: FFT Preview (using ImageView)
         self.fft_image_view = ImageView(self)
         self.fft_image_view.ui.menuBtn.hide(); self.fft_image_view.ui.roiBtn.hide()
         self.fft_image_view.getView().invertY(False) # No Y inversion for FFT
         splitter.addWidget(self.fft_image_view)
         top_layout.addWidget(splitter, stretch=3)
 
-        # --- ROI Item ---
         h, w = self.input_data.shape; roi_w, roi_h = w//4, h//4; roi_x, roi_y = w//2-roi_w//2, h//2-roi_h//2
         self.roi = RectROI(pos=(roi_x, roi_y), size=(roi_w, roi_h), pen=pg.mkPen('m', width=2), translateSnap=True, scaleSnap=True)
         self.plot_input.addItem(self.roi)
 
-        # --- Controls Panel ---
         controls_panel = QWidget(); controls_panel.setMaximumWidth(250); controls_panel.setLayout(controls_area_layout)
         self._create_parameter_controls(controls_area_layout) # Populate controls
         controls_area_layout.addStretch()
         top_layout.addWidget(controls_panel, stretch=1)
 
-        # --- Dialog Buttons ---
         self.button_box = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Apply | QDialogButtonBox.StandardButton.Close
         )
@@ -146,16 +133,13 @@ class FFTDialog(QDialog):
         self.status_label.setObjectName("fftStatusLabel")
         bottom_layout.addWidget(self.status_label)
 
-        # --- Assemble Layout ---
         main_layout.addLayout(top_layout); main_layout.addLayout(bottom_layout)
         splitter.setSizes([450, 500])
 
-        # --- Initial State & Connections ---
         self.update_input_view()
-        self._on_mode_changed() # Set initial visibility of ROI controls
-        self._update_preview() # Calculate initial preview
+        self._on_mode_changed()
+        self._update_preview()
 
-        # Connect signals
         self.roi_mode_checkbox.stateChanged.connect(self._on_mode_changed)
         self.live_preview_checkbox.stateChanged.connect(self._update_preview_slot)
         self.window_checkbox.stateChanged.connect(self._on_parameter_changed)
@@ -231,7 +215,7 @@ class FFTDialog(QDialog):
         """
         if hasattr(self, 'window_combo') and hasattr(self, 'window_checkbox'):
             self.window_combo.setEnabled(self.window_checkbox.isChecked())
-        self._update_preview_slot() # Trigger preview update
+        self._update_preview_slot()
         self._clear_status_message()
 
     @pyqtSlot(int)
@@ -243,7 +227,7 @@ class FFTDialog(QDialog):
         is_roi_mode = self.roi_mode_checkbox.isChecked()
         self.roi.setVisible(is_roi_mode)
         self.roi_info_label.setVisible(is_roi_mode)
-        self._update_preview_slot() # Trigger preview update
+        self._update_preview_slot()
         logger.debug(f"FFT mode changed. ROI mode active: {is_roi_mode}")
         self._clear_status_message()
 
@@ -255,7 +239,6 @@ class FFTDialog(QDialog):
         pos=self.roi.pos(); size=self.roi.size()
         info_text = f"ROI: ({pos.x():.1f}, {pos.y():.1f}) Size: ({size.x():.1f}, {size.y():.1f})"
         self.roi_info_label.setText(info_text)
-        # Update preview only if ROI mode AND live preview are active
         if self.roi_mode_checkbox.isChecked() and self.live_preview_checkbox.isChecked():
              self._update_preview()
         self._clear_status_message()
@@ -290,7 +273,6 @@ class FFTDialog(QDialog):
         y1=min(y0+height,h)
         x0=max(0,x0)
         y0=max(0,y0)
-        # Check for valid slice AFTER clamping
         if x1 > x0 and y1 > y0:
             return slice(y0,y1), slice(x0,x1)
         else:
@@ -317,7 +299,7 @@ class FFTDialog(QDialog):
         elif self.rb_linear.isChecked(): scaling_mode = 'linear'
         elif self.rb_power.isChecked(): scaling_mode = 'power'
         elif self.rb_sqrt.isChecked(): scaling_mode = 'sqrt'
-        else: scaling_mode = 'log' # Default
+        else: scaling_mode = 'log'
 
         return {
             'apply_window': apply_win,
@@ -341,7 +323,6 @@ class FFTDialog(QDialog):
              is_roi = params.get('apply_roi_only', False)
              target_shape = self.input_data.shape if is_roi else None
 
-             # 1. Calculate complex FFT (with padding for ROI)
              complex_fft = calculate_fft(
                  input_fft_data,
                  apply_window=params.get('apply_window', False),
@@ -352,10 +333,8 @@ class FFTDialog(QDialog):
                  logger.error("Backend FFT calculation returned None.")
                  return None
 
-             # 2. Calculate magnitude
              magnitude = np.abs(complex_fft)
 
-             # 3. Apply selected scaling
              scaling_mode = params.get('scaling_mode', 'log')
              logger.debug(f"Applying scaling mode: {scaling_mode}")
              if scaling_mode == 'log':
@@ -366,7 +345,7 @@ class FFTDialog(QDialog):
                  display_data = magnitude**2
              elif scaling_mode == 'sqrt':
                  display_data = np.sqrt(magnitude)
-             else: # Default to log
+             else: 
                  display_data = np.log1p(magnitude)
 
              return display_data.astype(np.float32)
@@ -382,8 +361,8 @@ class FFTDialog(QDialog):
         Handles both full image and ROI-based calculations.
         """
         if not self.live_preview_checkbox.isChecked():
-            self.preview_display_data = None # Clear preview buffer
-            self.update_fft_view() # Update display to show empty
+            self.preview_display_data = None
+            self.update_fft_view()
             return
 
         params = self._get_current_parameters()
@@ -395,21 +374,18 @@ class FFTDialog(QDialog):
             roi_slice = self._get_roi_slice()
             if roi_slice:
                 input_for_calc = self.input_data[roi_slice]
-            else: # Invalid ROI
+            else:
                 logger.warning("Preview skipped: Invalid ROI selected for FFT.")
                 self.preview_display_data = None; self.update_fft_view(); return
         if input_for_calc.size == 0:
              logger.warning("Preview skipped: Input data for FFT is empty."); self.preview_display_data = None; self.update_fft_view(); return
 
-        # Calculate scaled magnitude using the helper
         self.preview_display_data = self._calculate_scaled_fft_magnitude(input_for_calc, params)
 
-        if self.preview_display_data is None: # Handle calculation error
+        if self.preview_display_data is None:
              logger.error("Preview calculation failed.")
-             # Optionally show placeholder or leave view empty
-             # self.preview_display_data = np.zeros((50,50), dtype=np.float32)
 
-        self.update_fft_view() # Display the result (or clear if None)
+        self.update_fft_view()
 
 
     def update_input_view(self):
@@ -428,14 +404,13 @@ class FFTDialog(QDialog):
         if not hasattr(self, 'fft_image_view') or self.fft_image_view is None: return
         if self.preview_display_data is not None:
             logger.debug(f"Displaying FFT preview data shape: {self.preview_display_data.shape}")
-            # Use setImage on ImageView; Use .T if user preferred that orientation
             self.fft_image_view.setImage(
                 np.fliplr(self.preview_display_data.astype(np.float32).T), # Using .T
-                autoLevels=True, # Let histogram handle levels/gamma
+                autoLevels=True,
                 autoRange=True
             )
         else:
-            self.fft_image_view.clear() # Clear view if data is None
+            self.fft_image_view.clear()
             logger.debug("FFT Preview view cleared.")
 
 
@@ -573,5 +548,4 @@ class FFTDialog(QDialog):
         Returns:
             bool: True if ROI was used for calculation, False otherwise
         """
-        # For FFT, this means _final_source_roi_slice is set
         return self._final_source_roi_slice is not None

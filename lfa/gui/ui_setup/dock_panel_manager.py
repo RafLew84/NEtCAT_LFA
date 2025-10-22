@@ -6,7 +6,7 @@ from PyQt6.QtCore import Qt
 try:
     from ..widgets.metadata_widget import MetadataWidget
     from ..panels.fft_analysis_panel import FFTAnalysisPanel
-except ImportError as e: # pragma: no cover
+except ImportError as e:
     logging.error(f"DockPanelManager: Could not import panel/widget classes: {e}")
     MetadataWidget = None
     FFTAnalysisPanel = None
@@ -57,9 +57,8 @@ class DockPanelManager:
         self.main_window.addDockWidget(initial_area, dock)
         dock.setVisible(visible_by_default)
 
-        # Add toggle action to the View menu
         toggle_action = dock.toggleViewAction()
-        toggle_action.setText(f"{title} Panel") # Np. "History Panel"
+        toggle_action.setText(f"{title} Panel")
         self.main_window.view_menu.addAction(toggle_action)
         
         return dock
@@ -77,7 +76,7 @@ class DockPanelManager:
 
     def _setup_metadata_dock(self):
         """Creates and configures the metadata dock widget."""
-        if not self.metadata_widget: # pragma: no cover
+        if not self.metadata_widget:
             logger.warning("MetadataWidget not available, skipping metadata dock creation.")
             return
             
@@ -93,7 +92,7 @@ class DockPanelManager:
 
     def _setup_fft_analysis_dock(self):
         """Creates and configures the FFT Analysis Tools dock widget."""
-        if not self.fft_analysis_panel_widget: # pragma: no cover
+        if not self.fft_analysis_panel_widget:
             logger.warning("FFTAnalysisPanel widget not available, skipping FFT analysis dock creation.")
             return
 

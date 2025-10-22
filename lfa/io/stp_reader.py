@@ -67,7 +67,7 @@ def read_stp_file(file_path: str) -> STMImage | None:
             if num_columns <= 0 or num_rows <= 0:
                 raise ValueError("Could not find valid dimensions in header.")
 
-            expected_bytes = num_rows * num_columns * 8 # 8 bajtów dla 'double'
+            expected_bytes = num_rows * num_columns * 8
             binary_data = file.read(expected_bytes)
             if len(binary_data) != expected_bytes:
                 raise ValueError(f"Incomplete binary data. Expected {expected_bytes}, got {len(binary_data)}.")

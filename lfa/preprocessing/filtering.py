@@ -5,8 +5,6 @@ Functions for image filtering operations.
 import logging
 import numpy as np
 from typing import Optional
-# Use SciPy for Gaussian filter, it's often faster for this specific task
-# than scikit-image's version
 try:
     from scipy.ndimage import gaussian_filter, median_filter
 except ImportError:
@@ -37,25 +35,21 @@ def gaussian_blur(image: np.ndarray, sigma: float) -> np.ndarray:
     """
     if image is None:
         logger.error("gaussian_blur: Input image is None.")
-        return None # Or raise error
+        return None
     if sigma < 0:
         logger.warning(f"gaussian_blur: Sigma value {sigma} is negative. Clamping to 0.")
         sigma = 0
 
-    # Avoid processing if sigma is negligible
     if np.isclose(sigma, 0):
         logger.debug("gaussian_blur: Sigma is close to zero, returning original image.")
-        # Ensure output is float32 for consistency
         return image.astype(np.float32, copy=False) # Avoid copy if already float32
 
     try:
-        # Ensure input is float for filtering, output is float32
         blurred_image = gaussian_filter(image.astype(float, copy=False), sigma=sigma)
         logger.debug(f"Applied Gaussian blur with sigma={sigma:.2f}")
         return blurred_image.astype(np.float32)
     except Exception as e:
         logger.exception(f"Error during Gaussian filtering with sigma={sigma}: {e}")
-        # Return original image on error to prevent crash downstream
         return image.astype(np.float32, copy=False)
     
 def median_filter_lfa(image: np.ndarray, size: int = 3, mode: str = 'reflect', cval: float = 0.0) -> Optional[np.ndarray]:
@@ -135,7 +129,6 @@ def gaussian_sharpen_unsharp_mask(image: np.ndarray, radius: float = 1.0, amount
         amount = 0
 
     try:
-        # Ensure input is float, skimage handles internal types
         image_float = image.astype(np.float32, copy=False)
         logger.debug(f"Applying Unsharp Mask: radius={radius:.2f}, amount={amount:.2f}")
 

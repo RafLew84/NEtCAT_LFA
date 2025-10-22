@@ -92,13 +92,11 @@ def read_s94_file(file_path: str) -> STMImage | None:
 
     try:
         with open(file_path, 'rb') as file:
-            # Read the fixed-size header
             header_data = file.read(S94_HEADER_SIZE)
             if len(header_data) != S94_HEADER_SIZE:
                 msg = f"Incomplete header read: expected {S94_HEADER_SIZE} bytes, got {len(header_data)}."
                 logger.error(msg); raise ValueError(msg)
 
-            # Unpack binary header data according to the format string
             try:
                 (x_points, y_points, swapped, image_mode_raw, image_number,
                  x_size_nm, y_size_nm, x_offset_nm, y_offset_nm, scan_speed_nm_s,
@@ -111,38 +109,29 @@ def read_s94_file(file_path: str) -> STMImage | None:
 
             logger.debug(f"Read header: x_points={x_points}, y_points={y_points}, mode={image_mode_raw}, x_size={x_size_nm}, y_size={y_size_nm}, bias={bias_mv}mV, z_gain={z_gain_raw}, angle={scan_angle_deg}")
 
-            # Validate dimensions from header
             if x_points <= 0 or y_points <= 0:
                  msg = f"Invalid dimensions in header: x_points={x_points}, y_points={y_points}"
                  logger.error(msg); raise ValueError(msg)
 
-            # --- Read image data (int16) ---
             expected_data_points = x_points * y_points
             expected_bytes = expected_data_points * 2 # 2 bytes per int16
             image_raw_bytes = file.read(expected_bytes)
 
-            # Check if the correct amount of data was read
             if len(image_raw_bytes) != expected_bytes:
                 msg = f"Incomplete image data: expected {expected_bytes} bytes, got {len(image_raw_bytes)}."
                 logger.error(msg); raise ValueError(msg)
 
-            # Convert raw bytes to numpy array of int16 and reshape
-            # Assume data is stored row-major, so shape is (y_points, x_points)
             image_data_raw = np.frombuffer(image_raw_bytes, dtype=np.int16).reshape((y_points, x_points))
             logger.info(f"Successfully read raw data array of shape: {image_data_raw.shape}")
 
-            # --- Convert raw data to physical units ---
             z_nm_per_raw = None # Initialize conversion factor
-            # Determine image type and perform conversion
             if image_mode_raw == 0: # S94_TOPOGRAPHY
                 image_type = "Topography"
-                # Convert Z topography data (int16) to nm
                 full_range_nm = Z_GAIN_RANGES.get(z_gain_raw, None)
                 if full_range_nm is None:
                     logger.warning(f"Unknown z_gain value: {z_gain_raw}. Cannot calculate z_nm_per_raw. Keeping data in raw units (scaled to float32).")
                     data_array = image_data_raw.astype(np.float32) # Keep raw if gain unknown
                 else:
-                    # Calculate nm per raw unit. Full int16 range (-32768 to 32767) covers 65536 levels.
                     z_nm_per_raw = full_range_nm / 65536.0
                     data_array = image_data_raw.astype(np.float32) * z_nm_per_raw
                     logger.debug(f"Calculated z_nm_per_raw = {z_nm_per_raw} for z_gain = {z_gain_raw}")
@@ -163,30 +152,21 @@ def read_s94_file(file_path: str) -> STMImage | None:
             else:
                 logger.warning(f"Unknown image mode: {image_mode_raw}. Treating data as raw int16 (scaled to float32).")
                 image_type = f"Unknown ({image_mode_raw})"
-                data_array = image_data_raw.astype(np.float32) # Keep as float for consistency
+                data_array = image_data_raw.astype(np.float32)
 
-            # Data might need flipping depending on scan direction. Test with real data.
-            # Common necessary flip: data_array = np.flipud(data_array)
-
-            # --- Handle swapped x/y scan direction flag ---
             if swapped == 1:
                 logger.info("x/y scan direction swapped flag is set. Transposing data array and dimensions.")
-                data_array = data_array.T # Transpose data array
-                # Swap dimensions accordingly
+                data_array = data_array.T
                 pixels_x_final = y_points
                 pixels_y_final = x_points
-                size_nm_x_final = y_size_nm # Physical dimensions also swap
+                size_nm_x_final = y_size_nm
                 size_nm_y_final = x_size_nm
             else:
-                # Dimensions remain as read
                 pixels_x_final = x_points
                 pixels_y_final = y_points
                 size_nm_x_final = x_size_nm
                 size_nm_y_final = y_size_nm
 
-
-            # --- Create STMImage object ---
-            # Store original unpacked values in raw_header for debugging/reference
             raw_header = {
                 "x_points": x_points, "y_points": y_points, "Swapped": swapped,
                 "image_mode": image_mode_raw, "Image_Number": image_number,
@@ -197,7 +177,6 @@ def read_s94_file(file_path: str) -> STMImage | None:
                 "z_Flag": z_flag
             }
 
-            # Create the final STMImage object
             stm_image = STMImage(
                 file_name=file_path,
                 raw_header=raw_header,

@@ -69,18 +69,15 @@ class RealSpaceReconstructionDialog(QDialog):
         self.magnitude_fft_data = magnitude_fft_data
         self.complex_fft_data = complex_fft_data
         
-        # --- Internal State ---
         self.current_mode = "autocorrelation"
         self.mask_array: Optional[np.ndarray] = None
         self.roi_items: list[RectROI] = []
         self.selected_spots_px: List[Tuple[float, float]] = []
         self.spot_markers: Optional[ScatterPlotItem] = None
 
-        # --- UI Initialization ---
         self._init_ui()
         self._connect_signals()
         
-        # --- Initial State Setup ---
         self._on_mode_changed() # Set initial visibility of controls
         if self.original_fft_item:
             self.original_fft_item.setImage(self.magnitude_fft_data.T)
@@ -89,37 +86,31 @@ class RealSpaceReconstructionDialog(QDialog):
         """Initializes all user interface elements and layouts for the dialog."""
         main_layout = QVBoxLayout(self)
         
-        # --- Top Controls Section ---
         controls_group = QGroupBox("Reconstruction Controls")
         controls_layout = QHBoxLayout(controls_group)
         self._create_controls(controls_layout)
         main_layout.addWidget(controls_group)
         
-        # --- Main Display Area with Splitter ---
         display_splitter = QSplitter(Qt.Orientation.Horizontal)
         
-        # Left Panel: Original FFT and ROI selection
         fft_widget = GraphicsLayoutWidget()
         self.fft_plot = fft_widget.addPlot(title="Original FFT (Select regions here)")
         self.original_fft_item = ImageItem()
         self.fft_plot.addItem(self.original_fft_item)
         self.fft_plot.setAspectLocked(True)
 
-        # Middle Panel: Mask Preview
         mask_widget = GraphicsLayoutWidget()
         self.mask_plot = mask_widget.addPlot(title="Mask Preview")
         self.mask_item = ImageItem()
         self.mask_plot.addItem(self.mask_item)
         self.mask_plot.setAspectLocked(True)
 
-        # Right Panel: Reconstructed Image
         reco_widget = GraphicsLayoutWidget()
         self.reco_plot = reco_widget.addPlot(title="Reconstructed Real Space")
         self.reco_item = ImageItem()
         self.reco_plot.addItem(self.reco_item)
         self.reco_plot.setAspectLocked(True)
         
-        # Refinement ROI for spot selection mode
         self.refinement_roi = RectROI(pos=(0, 0), size=(7, 7), pen=pg.mkPen('y', width=2), movable=True, resizable=False)
         self.fft_plot.addItem(self.refinement_roi)
         self.refinement_roi.setVisible(False)  # Hidden by default
@@ -129,13 +120,11 @@ class RealSpaceReconstructionDialog(QDialog):
         display_splitter.addWidget(reco_widget)
         main_layout.addWidget(display_splitter, 1)
 
-        # --- Dialog Buttons ---
         self.button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         main_layout.addWidget(self.button_box)
 
     def _create_controls(self, layout: QHBoxLayout):
         """Creates and lays out the control widgets for the dialog."""
-        # --- Mode Selection Group ---
         mode_group = QGroupBox("Mode")
         mode_layout = QVBoxLayout(mode_group)
         self.rb_autocorrelation = QRadioButton("Calculate Autocorrelation")
@@ -193,18 +182,15 @@ class RealSpaceReconstructionDialog(QDialog):
         if self.fft_plot and self.fft_plot.scene():
             self.fft_plot.scene().sigMouseClicked.connect(self._handle_fft_image_click)
 
-        # Mode changes
         self.rb_autocorrelation.toggled.connect(self._on_mode_changed)
         self.rb_roi_mask.toggled.connect(self._on_mode_changed)
         self.rb_spot_mask.toggled.connect(self._on_mode_changed)
 
-        # Button actions
         self.reconstruct_button.clicked.connect(self._on_reconstruct_clicked)
         self.add_roi_button.clicked.connect(self._on_add_roi_clicked)
         self.clear_mask_button.clicked.connect(self._on_clear_mask_clicked)
         self.add_spot_button.clicked.connect(self._on_add_spot_clicked)
 
-        # Mask parameter changes
         self.symmetric_roi_checkbox.stateChanged.connect(self._update_mask_from_rois)
         self.spot_mask_size_spinbox.valueChanged.connect(self._update_mask_from_spots)
 
@@ -221,7 +207,6 @@ class RealSpaceReconstructionDialog(QDialog):
             pos_viewbox = self.fft_plot.vb.mapSceneToView(event.scenePos())
             if self.fft_plot.vb.sceneBoundingRect().contains(pos_viewbox):
                 roi_size = self.refinement_roi.size()
-                # Center the refinement ROI on the click position
                 roi_pos = (pos_viewbox.x() - roi_size.x() / 2, pos_viewbox.y() - roi_size.y() / 2)
                 self.refinement_roi.setPos(roi_pos)
                 self.refinement_roi.setVisible(True)
@@ -236,7 +221,6 @@ class RealSpaceReconstructionDialog(QDialog):
         is_roi_mode = self.rb_roi_mask.isChecked()
         is_spot_mode = self.rb_spot_mask.isChecked()
 
-        # Update visibility of controls based on the selected mode
         self.autocorr_options_group.setVisible(is_autocorr)
         self.add_roi_button.setEnabled(is_roi_mode)
         self.symmetric_roi_checkbox.setEnabled(is_roi_mode)
@@ -247,7 +231,6 @@ class RealSpaceReconstructionDialog(QDialog):
         
         self.current_mode = "autocorrelation" if is_autocorr else ("roi_mask" if is_roi_mode else "spot_mask")
 
-        # Clear any existing masks or results when changing modes
         self._on_clear_mask_clicked()
 
     @pyqtSlot()
@@ -287,7 +270,6 @@ class RealSpaceReconstructionDialog(QDialog):
         center_yx = (y0r + h // 2, x0r + w // 2)
         
         if fit_2d_gaussian_in_roi_with_all_data:
-            # Attempt to refine the position using a 2D Gaussian fit
             fit_res = fit_2d_gaussian_in_roi_with_all_data(self.magnitude_fft_data, center_yx, w // 2)
             if fit_res:
                 _, (refined_ky, refined_kx), _ = fit_res
@@ -298,12 +280,10 @@ class RealSpaceReconstructionDialog(QDialog):
                 self._redraw_spot_markers()
             else:
                 QMessageBox.warning(self, "Fit Failed", "Could not refine spot position with Gaussian fit. Using ROI center.")
-                # Fallback to ROI center if fit fails
                 self.selected_spots_px.append((float(center_yx[1]), float(center_yx[0])))
                 self._update_mask_from_spots()
                 self._redraw_spot_markers()
         else:
-            # Fallback if fitting function is not available
             self.selected_spots_px.append((float(center_yx[1]), float(center_yx[0])))
             self._update_mask_from_spots()
             self._redraw_spot_markers()
@@ -328,15 +308,12 @@ class RealSpaceReconstructionDialog(QDialog):
         h, w = self.magnitude_fft_data.shape
         mask = np.zeros((h, w), dtype=np.float32)
         
-        # Prepare coordinate grid once
         Y, X = np.mgrid[0:h, 0:w]
         xy_tuple = (Y.flatten(), X.flatten())
         
-        # Get sigma from the UI control, converting from int to float
         sigma = float(self.spot_mask_size_spinbox.value()) / 10.0
 
         for (kx, ky) in self.selected_spots_px:
-            # Create a normalized Gaussian at each spot location
             amplitude = 1.0
             popt = [amplitude, ky, kx, sigma, sigma, 0, 0] # Assume symmetric Gaussian (sigma_x=sigma_y, theta=0)
             gauss_flat = _gaussian_2d(xy_tuple, *popt)
@@ -352,17 +329,14 @@ class RealSpaceReconstructionDialog(QDialog):
     @pyqtSlot()
     def _on_clear_mask_clicked(self):
         """Removes all ROIs and spots, and clears the mask and reconstruction views."""
-        # Remove ROI items from plot
         for roi in self.roi_items:
             self.fft_plot.removeItem(roi)
         self.roi_items.clear()
         
-        # Clear spot data
         self.selected_spots_px.clear()
         self._redraw_spot_markers()
         self.refinement_roi.setVisible(False)
         
-        # Clear display items
         self.mask_item.clear()
         self.reco_item.clear()
         self.mask_array = None
@@ -377,7 +351,6 @@ class RealSpaceReconstructionDialog(QDialog):
         try:
             power_spectrum = self.magnitude_fft_data.copy()
             
-            # Optionally remove the DC component to avoid a bright artifact in the center
             if self.remove_dc_checkbox.isChecked():
                 rows, cols = power_spectrum.shape
                 center_y, center_x = rows // 2, cols // 2
@@ -388,7 +361,6 @@ class RealSpaceReconstructionDialog(QDialog):
             autocorr_shifted = np.fft.fftshift(autocorr_complex)
             autocorr_map = np.abs(autocorr_shifted)
             
-            # Apply display scaling for better visualization
             scaling_mode = self.scaling_combo.currentText()
             if scaling_mode == "Log Power":
                 display_data = np.log1p(autocorr_map**2)
@@ -424,29 +396,23 @@ class RealSpaceReconstructionDialog(QDialog):
             x0, y0 = int(round(pos.x())), int(round(pos.y()))
             x1, y1 = x0 + int(round(size.x())), y0 + int(round(size.y()))
             
-            # Clamp coordinates to be within the image bounds
             x0, x1 = np.clip([x0, x1], 0, w)
             y0, y1 = np.clip([y0, y1], 0, h)
             
             if x1 > x0 and y1 > y0:
-                # Copy the magnitude data from the selected region into the mask
                 mask[y0:y1, x0:x1] = self.magnitude_fft_data[y0:y1, x0:x1]
 
-            # If symmetric mode is on, create a centrosymmetric copy of the ROI
             if self.symmetric_roi_checkbox.isChecked():
-                # Calculate position of the symmetric ROI
                 sym_x = 2 * center_x - (pos.x() + size.x())
                 sym_y = 2 * center_y - (pos.y() + size.y())
                 
                 x0_s, y0_s = int(round(sym_x)), int(round(sym_y))
                 x1_s, y1_s = x0_s + int(round(size.x())), y0_s + int(round(size.y()))
 
-                # Clamp symmetric coordinates
                 x0_s, x1_s = np.clip([x0_s, x1_s], 0, w)
                 y0_s, y1_s = np.clip([y0_s, y1_s], 0, h)
 
                 if x1_s > x0_s and y1_s > y0_s:
-                    # Copy data from the symmetric region
                     mask[y0_s:y1_s, x0_s:x1_s] = self.magnitude_fft_data[y0_s:y1_s, x0_s:x1_s]
                 
         self.mask_array = mask
@@ -470,16 +436,11 @@ class RealSpaceReconstructionDialog(QDialog):
         try:
             logger.debug("Performing reconstruction from mask.")
             
-            # Apply the mask to the original FFT magnitude data
             masked_fft_shifted = self.complex_fft_data * self.mask_array
 
-            # Perform a forward FFT on the masked data.
-            # This is equivalent to convolving the real-space representation of the
-            # original image with the real-space representation of the mask.
             reconstructed_complex = np.fft.fft2(masked_fft_shifted)
             reconstructed_complex = np.fft.fftshift(reconstructed_complex)
 
-            # Display the absolute magnitude of the result
             reconstructed_image = np.abs(reconstructed_complex)
             
             self.reco_item.setImage(reconstructed_image.T, autoLevels=True)

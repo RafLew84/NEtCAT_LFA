@@ -46,7 +46,7 @@ try:
         LATTICE_TYPE_HEXAGONAL, LATTICE_TYPE_SQUARE, LATTICE_TYPE_CUSTOM,
     )
     LATTICE_ANALYSIS_FUNCTIONS_AVAILABLE = True
-except ImportError: # pragma: no cover
+except ImportError: 
     logging.error("AppController: Could not import lattice analysis functions.")
     LATTICE_ANALYSIS_FUNCTIONS_AVAILABLE = False
     def get_real_space_lattice_parameters(*args, **kwargs): return None
@@ -251,7 +251,6 @@ class AppController(QObject):
             logger.info("Session load was cancelled by the user.")
             return
 
-        # 1. Load session data from file
         try:
             with open(file_path, 'rb') as f:
                 session_data = pickle.load(f)
@@ -356,7 +355,6 @@ class AppController(QObject):
 
         self.history_manager.history = history_data.get("tree", {}) or {}
 
-        # Rebuild original image registry
         if hasattr(self.history_manager, "original_images"):
             self.history_manager.original_images.clear()
         if hasattr(self.history_manager, "_original_order"):
@@ -378,7 +376,6 @@ class AppController(QObject):
                 if hasattr(self.history_manager, "register_original_image"):
                     self.history_manager.register_original_image(record)
 
-        # Ensure nodes are linked to latest registry (also handles legacy sessions)
         if hasattr(self.history_manager, "rebuild_indexes"):
             self.history_manager.rebuild_indexes()
 
@@ -457,9 +454,7 @@ class AppController(QObject):
             # Use the reader but only extract the header
             temp_stm_image = load_stm_file(file_path)
             if temp_stm_image and temp_stm_image.raw_header:
-                # Update the `raw_header` within the root node parameters
                 root_node.parameters["raw_header"] = temp_stm_image.raw_header
-                # Update core fields if they were missing
                 if "size_nm_x" not in root_node.parameters:
                     root_node.parameters["size_nm_x"] = temp_stm_image.size_nm_x
                     root_node.parameters["size_nm_y"] = temp_stm_image.size_nm_y
@@ -528,7 +523,7 @@ class AppController(QObject):
                 self.file_loading_failed.emit(f"Could not load valid data from file: {file_path}")
                 return
 
-            self.original_file_path = file_path  # Track the most recently loaded source
+            self.original_file_path = file_path
 
             display_name = self.history_manager.get_next_original_display_name()
             root_params = {
@@ -578,13 +573,13 @@ class AppController(QObject):
             )
             self.file_loaded_successfully.emit(f"{display_name} - {os.path.basename(file_path)}")
 
-        except FileNotFoundError: # pragma: no cover
+        except FileNotFoundError:
             logger.error(f"AppController: File not found: {file_path}")
             self.file_loading_failed.emit(f"File not found: {file_path}")
-        except ValueError as ve: # pragma: no cover
+        except ValueError as ve:
             logger.error(f"AppController: Value error while loading file {file_path}: {ve}")
             self.file_loading_failed.emit(f"Format error in file {file_path}: {ve}")
-        except Exception as e: # pragma: no cover
+        except Exception as e:
             logger.exception(f"AppController: An unexpected error occurred while loading file {file_path}: {e}")
             self.file_loading_failed.emit(f"Unexpected error loading file: {e}")
 
@@ -759,7 +754,7 @@ class AppController(QObject):
             self.substrate_real_space_results = results
             logger.info(f"Successfully calculated substrate real space parameters (from fitted spots): {results}")
             self.substrate_real_space_params_updated.emit(results)
-        else: # pragma: no cover
+        else:
             self.substrate_real_space_results = None
             logger.warning("Failed to calculate substrate real space parameters from fitted spots.")
             self.substrate_real_space_params_updated.emit({"error": "Calculation failed in lattice module."})
@@ -777,7 +772,7 @@ class AppController(QObject):
 
         logger.info(f"AppController: Attempting to calculate real space params for adsorbate set {set_index}.")
 
-        if not (0 <= set_index < len(self.corrected_adsorbate_spot_sets)): # pragma: no cover
+        if not (0 <= set_index < len(self.corrected_adsorbate_spot_sets)):
             logger.warning(f"Invalid set_index {set_index} for adsorbate real space params.")
             self.adsorbate_real_space_params_updated.emit(set_index, {"error": "Invalid set index."})
             return
@@ -793,20 +788,20 @@ class AppController(QObject):
             self.adsorbate_real_space_params_updated.emit(set_index, {"error": f"Need >= 2 corrected spots, got {num_corrected_spots}."})
             return
 
-        if not self.current_fft_data_shape: # pragma: no cover
+        if not self.current_fft_data_shape:
             logger.warning("Current FFT data shape not available."); self.adsorbate_real_space_params_updated.emit(set_index, {"error": "FFT shape missing."}); return
 
         root_node = self.history_manager.get_root_node_for_node(self.history_manager.get_current_node().node_id) # type: ignore
         if not (root_node and root_node.parameters): 
             logger.warning("Cannot get Lx, Ly for adsorbate.")
             self.adsorbate_real_space_params_updated.emit(set_index, {"error": "Original node params missing."})
-            return # pragma: no cover
+            return
         Lx_nm = root_node.parameters.get("size_nm_x")
         Ly_nm = root_node.parameters.get("size_nm_y")
         if not (Lx_nm and Ly_nm and Lx_nm > 0 and Ly_nm > 0): 
             logger.warning("Invalid Lx/Ly.")
             self.adsorbate_real_space_params_updated.emit(set_index, {"error": "Invalid Lx/Ly."})
-            return # pragma: no cover
+            return
         
         fft_rows_ky, fft_cols_kx = self.current_fft_data_shape
         center_kx_ideal_px = fft_cols_kx / 2.0
@@ -831,18 +826,18 @@ class AppController(QObject):
         g1_ads_nm_inv = convert_g_vector_px_to_nm_inv(g1_ads_px, Lx_nm, Ly_nm, fft_cols_kx, fft_rows_ky)
         g2_ads_nm_inv = convert_g_vector_px_to_nm_inv(g2_ads_px, Lx_nm, Ly_nm, fft_cols_kx, fft_rows_ky)
 
-        if g1_ads_nm_inv is None or g2_ads_nm_inv is None: # pragma: no cover
+        if g1_ads_nm_inv is None or g2_ads_nm_inv is None:
             self.adsorbate_real_space_params_updated.emit(set_index, {"error": "g-vector conversion to nm^-1 failed."}); return
 
         real_space_vecs_ads = calculate_real_space_vectors_from_g(g1_ads_nm_inv, g2_ads_nm_inv)
-        if real_space_vecs_ads is None: # pragma: no cover
+        if real_space_vecs_ads is None:
             self.adsorbate_real_space_params_updated.emit(set_index, {"error": "Real space vector calculation failed (g-vectors likely collinear)."}); return
         a1_ads_vec_nm, a2_ads_vec_nm = real_space_vecs_ads
 
         a1_ads_mag_nm = np.linalg.norm(a1_ads_vec_nm)
         a2_ads_mag_nm = np.linalg.norm(a2_ads_vec_nm)
         
-        if a1_ads_mag_nm < 1e-9 or a2_ads_mag_nm < 1e-9: # pragma: no cover
+        if a1_ads_mag_nm < 1e-9 or a2_ads_mag_nm < 1e-9:
             logger.warning(f"Calculated real space vectors for adsorbate set {set_index} have zero or near-zero magnitude.")
             self.adsorbate_real_space_params_updated.emit(set_index, {"error": "Calculated real vectors too short."}); return
 
@@ -932,7 +927,7 @@ class AppController(QObject):
             op_name="STM Transform",
             params=params,
             processed_data=processed_data,
-            data_type="STM" # Result remains an STM image
+            data_type="STM"
         )
 
     def apply_plane_leveling(self, parent_node_id: str, parent_data_type: str,
@@ -968,7 +963,7 @@ class AppController(QObject):
         if processed_fft_data is not None:
             self.current_fft_data_shape = processed_fft_data.shape
             logger.info(f"AppController: Stored current FFT data shape: {self.current_fft_data_shape}")
-        else: # pragma: no cover
+        else:
             self.current_fft_data_shape = None
             logger.warning("AppController: FFT data is None, cannot store shape.")
 
@@ -988,7 +983,6 @@ class AppController(QObject):
             params.setdefault("source_image_label", source_image_label)
 
             
-        # self.add_operation_to_history(parent_node_id, "FFT", params, processed_fft_data, "FFT", source_roi_slice)
         new_node = HistoryNode(
             parent_id=parent_node_id,
             operation_name="FFT",
@@ -1028,7 +1022,7 @@ class AppController(QObject):
 
     def set_refinement_roi_size(self, size: int):
         """Sets the ROI size for spot refinement."""
-        if isinstance(size, int) and 3 <= size <= 21 and size % 2 != 0: # Example validation
+        if isinstance(size, int) and 3 <= size <= 21 and size % 2 != 0:
             if self.refinement_roi_size != size:
                 self.refinement_roi_size = size
                 logger.info(f"Refinement ROI size set to: {self.refinement_roi_size}")
@@ -1077,8 +1071,8 @@ class AppController(QObject):
                     self.adsorbate_spot_pairs[self.current_adsorbate_set_index].pop()
                 logger.info(f"Removed last adsorbate spot {removed_point} from set {self.current_adsorbate_set_index}.")
                 self.spot_lists_updated.emit()
-            else: logger.debug("No adsorbate spots in current set to clear.") # pragma: no cover
-        else: logger.debug("Not in adsorbate mode or invalid set index for clear_last_adsorbate_spot.") # pragma: no cover
+            else: logger.debug("No adsorbate spots in current set to clear.")
+        else: logger.debug("Not in adsorbate mode or invalid set index for clear_last_adsorbate_spot.")
 
     def reselect_current_adsorbate_set(self):
         """Clears all spots from the current adsorbate set."""
@@ -1091,7 +1085,7 @@ class AppController(QObject):
                 self.adsorbate_spot_pairs[self.current_adsorbate_set_index] = []
                 logger.info(f"Cleared all spots from adsorbate set {self.current_adsorbate_set_index}.")
                 self.spot_lists_updated.emit()
-        else: logger.debug("Not in adsorbate mode or invalid set index for reselect_current_adsorbate_set.") # pragma: no cover
+        else: logger.debug("Not in adsorbate mode or invalid set index for reselect_current_adsorbate_set.")
 
     def set_expected_adsorbate_lattice_type(self, set_index: int, lattice_type: str):
         """Sets the expected lattice type for a given adsorbate set."""
@@ -1182,7 +1176,6 @@ class AppController(QObject):
         """
         if self.history_manager:
             self.history_manager.add_node(new_node)
-            # Promote the newly added node to active
             self.history_manager.set_current_node_by_id(new_node.node_id)
             logger.info(f"AppController: Added new node '{new_node.operation_name}' to history.")
 

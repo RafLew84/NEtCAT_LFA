@@ -6,15 +6,15 @@ from PyQt6.QtCore import QObject, pyqtSignal, QPointF, Qt
 
 try:
     import pyqtgraph as pg
-except ImportError: # pragma: no cover
+except ImportError:
     pg = None
     logging.critical("VisualizationManager: PyQtGraph is not available! Visualizations will not work.")
 
 try:
     from ..core.history import HistoryNode
-    from ..logic.history_manager import HistoryManager # Zakładając, że history_manager jest w logic
+    from ..logic.history_manager import HistoryManager
     from ..analysis.lattice import get_reciprocal_points, KNOWN_LATTICES
-except ImportError as e: # pragma: no cover
+except ImportError as e: 
     logging.error(f"VisualizationManager: Error importing project modules: {e}")
     HistoryNode = None
     HistoryManager = None
@@ -37,7 +37,7 @@ class VisualizationManager(QObject):
                  parent: Optional[QObject] = None):
         super().__init__(parent)
 
-        if not pg or image_view is None: # pragma: no cover
+        if not pg or image_view is None:
             logger.critical("VisualizationManager: PyQtGraph or ImageView is not available during initialization!")
             self.image_view = None
             self.view_box = None
@@ -185,7 +185,7 @@ class VisualizationManager(QObject):
 
     def update_substrate_raw_spots(self, raw_points: List[Tuple[float, float]]) -> None:
         """Render raw substrate spot markers."""
-        if not self.view_box:  # pragma: no cover - safety for headless usage
+        if not self.view_box: 
             return
 
         if self.substrate_raw_markers:
@@ -206,12 +206,12 @@ class VisualizationManager(QObject):
             marker.setVisible(self._substrate_raw_visible)
             self.view_box.addItem(marker)
             self.substrate_raw_markers = marker
-        except Exception as exc:  # pragma: no cover
+        except Exception as exc: 
             logger.exception("VisualizationManager: Failed to draw raw substrate spots: %s", exc)
 
     def update_substrate_transformed_spots(self, transformed_points: List[Tuple[float, float]]) -> None:
         """Render transformed substrate spot markers."""
-        if not self.view_box:  # pragma: no cover
+        if not self.view_box: 
             return
 
         if self.substrate_transformed_markers:
@@ -232,7 +232,7 @@ class VisualizationManager(QObject):
             marker.setVisible(self._substrate_transformed_visible)
             self.view_box.addItem(marker)
             self.substrate_transformed_markers = marker
-        except Exception as exc:  # pragma: no cover
+        except Exception as exc:
             logger.exception("VisualizationManager: Failed to draw transformed substrate spots: %s", exc)
 
     def update_substrate_pair_lines(
@@ -240,7 +240,7 @@ class VisualizationManager(QObject):
         spot_pairs: List[Tuple[Tuple[float, float], Tuple[float, float]]]
     ) -> None:
         """Draw connector lines between raw and transformed substrate spots."""
-        if not self.view_box:  # pragma: no cover
+        if not self.view_box:
             return
 
         for line in self.substrate_pair_lines:
@@ -263,7 +263,7 @@ class VisualizationManager(QObject):
                 line_item.setVisible(self._substrate_raw_visible and self._substrate_transformed_visible)
                 self.view_box.addItem(line_item)
                 new_lines.append(line_item)
-            except Exception as exc:  # pragma: no cover
+            except Exception as exc:
                 logger.exception("VisualizationManager: Failed to draw substrate pair line: %s", exc)
         self.substrate_pair_lines = new_lines
 
@@ -302,7 +302,7 @@ class VisualizationManager(QObject):
 
     def update_adsorbate_raw_spots(self, set_id: int, raw_points: List[Tuple[float, float]]) -> None:
         """Render raw adsorbate spot markers for a given set."""
-        if not self.view_box:  # pragma: no cover
+        if not self.view_box:
             return
 
         existing_marker = self.adsorbate_raw_markers.pop(set_id, None)
@@ -323,12 +323,12 @@ class VisualizationManager(QObject):
             marker.setVisible(self._is_adsorbate_raw_visible(set_id))
             self.view_box.addItem(marker)
             self.adsorbate_raw_markers[set_id] = marker
-        except Exception as exc:  # pragma: no cover
+        except Exception as exc:
             logger.exception("VisualizationManager: Failed to draw raw adsorbate spots for set %s: %s", set_id, exc)
 
     def update_adsorbate_transformed_spots(self, set_id: int, transformed_points: List[Tuple[float, float]]) -> None:
         """Render transformed adsorbate spot markers for a given set."""
-        if not self.view_box:  # pragma: no cover
+        if not self.view_box:
             return
 
         existing_marker = self.adsorbate_transformed_markers.pop(set_id, None)
@@ -349,7 +349,7 @@ class VisualizationManager(QObject):
             marker.setVisible(self._is_adsorbate_transformed_visible(set_id))
             self.view_box.addItem(marker)
             self.adsorbate_transformed_markers[set_id] = marker
-        except Exception as exc:  # pragma: no cover
+        except Exception as exc:
             logger.exception("VisualizationManager: Failed to draw transformed adsorbate spots for set %s: %s", set_id, exc)
 
     def update_adsorbate_pair_lines(
@@ -358,7 +358,7 @@ class VisualizationManager(QObject):
         spot_pairs: List[Tuple[Tuple[float, float], Tuple[float, float]]]
     ) -> None:
         """Draw connector lines between raw and transformed adsorbate spots for a given set."""
-        if not self.view_box:  # pragma: no cover
+        if not self.view_box:
             return
 
         existing_lines = self.adsorbate_pair_lines.pop(set_id, [])
@@ -381,7 +381,7 @@ class VisualizationManager(QObject):
                 line_item.setVisible(self._adsorbate_raw_visible and self._adsorbate_transformed_visible)
                 self.view_box.addItem(line_item)
                 new_lines.append(line_item)
-            except Exception as exc:  # pragma: no cover
+            except Exception as exc:
                 logger.exception("VisualizationManager: Failed to draw adsorbate pair line for set %s: %s", set_id, exc)
 
         if new_lines:
@@ -466,7 +466,7 @@ class VisualizationManager(QObject):
         elif data_type == "FFT":
             self.view_box.invertY(True)
             self.image_item.setImage(image_data.astype(np.float32).T)
-        else: # pragma: no cover
+        else: 
             logger.warning(f"VisualizationManager: Unknown data type '{data_type}', displaying like STM.")
             self.view_box.invertY(True)
             self.image_item.setImage(image_data.astype(np.float32).T, autoLevels=True)
@@ -487,24 +487,24 @@ class VisualizationManager(QObject):
             try:
                 self._current_fft_mouse_click_connection = scene.sigMouseClicked.connect(self._handle_fft_view_mouse_click)
                 logger.debug("VisualizationManager: FFT mouse click handler successfully connected.")
-            except Exception as e: # pragma: no cover
+            except Exception as e:
                 logger.error(f"VisualizationManager: Failed to connect FFT mouse click handler: {e}")
-        elif not scene: # pragma: no cover
+        elif not scene: 
              logger.error("VisualizationManager: Cannot connect FFT click handler, ImageItem scene is None.")
-        elif not hasattr(scene, 'sigMouseClicked'): # pragma: no cover
+        elif not hasattr(scene, 'sigMouseClicked'):
              logger.error("VisualizationManager: Scene object does not have sigMouseClicked signal.")
 
 
     def _disconnect_fft_click_handler(self):
         """Disconnects the internal slot from the ImageItem scene click signal."""
         if self._current_fft_mouse_click_connection is not None:
-            if self.image_item: # Tylko jeśli image_item istnieje
+            if self.image_item: 
                 scene = getattr(self.image_item, 'scene', lambda: None)()
                 if scene and hasattr(scene, 'sigMouseClicked'):
                     try:
                         scene.sigMouseClicked.disconnect(self._current_fft_mouse_click_connection)
                         logger.debug("VisualizationManager: FFT mouse click handler disconnected.")
-                    except (TypeError, RuntimeError): # pragma: no cover
+                    except (TypeError, RuntimeError):
                         logger.debug("VisualizationManager: Could not disconnect FFT mouse click (normal if connection was already broken or scene changed).")
             self._current_fft_mouse_click_connection = None
             
@@ -561,7 +561,7 @@ class VisualizationManager(QObject):
             return
 
         root_node = self.history_manager.get_root_node_for_node(current_history_node.node_id)
-        if not (root_node and root_node.operation_name == "Original"): # pragma: no cover
+        if not (root_node and root_node.operation_name == "Original"):
             logger.warning("VisualizationManager: Could not trace back to Original node for lattice calibration.")
             return
 
@@ -571,11 +571,11 @@ class VisualizationManager(QObject):
         
         fft_data_rows_ky, fft_data_cols_kx = fft_image_data.shape
 
-        if not (Lx and Ly and Lx > 0 and Ly > 0 and fft_data_cols_kx > 0 and fft_data_rows_ky > 0): # pragma: no cover
+        if not (Lx and Ly and Lx > 0 and Ly > 0 and fft_data_cols_kx > 0 and fft_data_rows_ky > 0):
             logger.warning("VisualizationManager: Missing calibration data (Lx, Ly) or invalid FFT shape for lattice overlay.")
             return
 
-        ideal_points_g_nm_inv = get_reciprocal_points(lattice_info_to_use, max_hk=2) # Gx, Gy w nm^-1
+        ideal_points_g_nm_inv = get_reciprocal_points(lattice_info_to_use, max_hk=2)
         if not ideal_points_g_nm_inv:
             logger.warning("VisualizationManager: Could not get ideal reciprocal points.")
             return

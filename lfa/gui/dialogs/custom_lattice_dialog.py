@@ -55,12 +55,10 @@ class CustomLatticeDialog(QDialog):
         layout = QVBoxLayout(self)
         form_layout = QFormLayout()
 
-        # Initialize lattice name input
         self.name_edit = QLineEdit("Custom Lattice")
         self.name_label = QLabel("Lattice Name:")
         form_layout.addRow(self.name_label, self.name_edit)
 
-        # Mode selection
         self.mode_label = QLabel("Definition Mode:")
         self.mode_combo = QComboBox()
         self.mode_combo.addItems([
@@ -69,13 +67,11 @@ class CustomLatticeDialog(QDialog):
         ])
         form_layout.addRow(self.mode_label, self.mode_combo)
 
-        # Lattice type selection
         self.type_label = QLabel("Lattice Type:")
         self.type_combo = QComboBox()
         self.type_combo.addItems(["hexagonal", "square"])
         form_layout.addRow(self.type_label, self.type_combo)
 
-        # Surface constant input
         self.a_surf_label = QLabel("Surface Constant 'a_surf' (nm):")
         self.a_surf_spinbox = QDoubleSpinBox()
         self.a_surf_spinbox.setDecimals(4)
@@ -84,7 +80,6 @@ class CustomLatticeDialog(QDialog):
         self.a_surf_spinbox.setValue(0.300)
         form_layout.addRow(self.a_surf_label, self.a_surf_spinbox)
 
-        # Manual vector inputs
         self.vector_a_label = QLabel("Vector |a| (nm):")
         self.vector_a_spinbox = QDoubleSpinBox()
         self.vector_a_spinbox.setDecimals(4)
@@ -114,7 +109,6 @@ class CustomLatticeDialog(QDialog):
 
         layout.addLayout(form_layout)
 
-        # Initialize dialog buttons
         self.button_box = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )

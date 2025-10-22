@@ -20,7 +20,7 @@ try:
     import pyqtgraph as pg
     from pyqtgraph import GraphicsLayoutWidget, ImageItem, ViewBox, RectROI, ScatterPlotItem
     PYQTGRAPH_AVAILABLE = True
-except ImportError: # pragma: no cover
+except ImportError:
     pg = None
     GraphicsLayoutWidget = None
     ImageItem = None
@@ -32,7 +32,7 @@ except ImportError: # pragma: no cover
 
 try:
     from ...logic.app_controller import AppController
-except ImportError: # pragma: no cover
+except ImportError:
     AppController = None
 
 try:
@@ -41,7 +41,7 @@ try:
     from ...core.history import HistoryNode
     from ...logic.history_manager import HistoryManager
     PEAK_FITTING_MODULE_AVAILABLE = True
-except ImportError: # pragma: no cover
+except ImportError:
     PEAK_FITTING_MODULE_AVAILABLE = False
     SCIPY_AVAILABLE = False
     KNOWN_LATTICES = {}
@@ -52,7 +52,7 @@ except ImportError: # pragma: no cover
 try:
     from scipy.optimize import curve_fit as scipy_curve_fit
     SCIPY_OPTIMIZE_AVAILABLE = True
-except ImportError: # pragma: no cover
+except ImportError:
     logging.error("AdsorbateSpotSelectionDialog: SciPy (for curve_fit) not found.")
     SCIPY_OPTIMIZE_AVAILABLE = False
     def scipy_curve_fit(*args, **kwargs): raise ImportError("scipy.optimize.curve_fit is not available")
@@ -518,11 +518,11 @@ class SuperstructurePeriodicityDialog(QDialog):
                     if fitted_gauss_2d is not None:
                         self.gaussian_preview_2d_image_item.setImage(fitted_gauss_2d.T)
                     else:
-                        self.gaussian_preview_2d_image_item.setImage(roi_patch.T) # Fallback
+                        self.gaussian_preview_2d_image_item.setImage(roi_patch.T)
                     self.gaussian_preview_2d_plot.autoRange()
                 else:
                     self.gaussian_preview_2d_image_item.clear()
-        else: # roi_patch.size == 0
+        else:
             self.roi_preview_2d_image_item.clear()
             self.gaussian_preview_2d_image_item.clear()
 
@@ -746,7 +746,7 @@ class SuperstructurePeriodicityDialog(QDialog):
                                           QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                                           QMessageBox.StandardButton.No)
              if reply == QMessageBox.StandardButton.No:
-                 return # Nie zamykaj dialogu
+                 return 
 
         logger.info("SuperstructurePeriodicityDialog accepted.")
         super().accept()

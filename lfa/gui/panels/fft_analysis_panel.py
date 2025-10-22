@@ -14,7 +14,6 @@ try:
 except ImportError:
     logging.warning("FFTAnalysisPanel: Could not perform standard relative imports for KNOWN_LATTICES. Using placeholders.")
     KNOWN_LATTICES = {"Placeholder (Error)": {}}
-    # CustomLatticeDialog = None
 
 ADSORBATE_LATTICE_TYPE_UNKNOWN = "Unknown"
 ADSORBATE_LATTICE_TYPE_HEXAGONAL = "Hexagonal"
@@ -29,26 +28,21 @@ class FFTAnalysisPanel(QWidget):
     This includes ideal lattice overlay, spot selection, and spot refinement.
     """
 
-    # --- Signals emitted by the panel ---
-    # Signals for the "Ideal Lattice Overlay" section
-    substrate_changed = pyqtSignal(str) # Emits the name of the selected substrate or special text for custom
-    custom_lattice_define_requested = pyqtSignal() # Signal when the user selects "<Custom Define...>"
-    show_ideal_lattice_changed = pyqtSignal(bool) # Emits the state of the checkbox (True/False)
 
-    # Signals for the "Spot Selection" section
-    spot_selection_mode_changed = pyqtSignal(str) # Emits "Substrate" or "Adsorbate"
-    # Signals for adsorbate set management
-    current_adsorbate_set_changed = pyqtSignal(str) # Emits the text of the currently selected set
-    add_new_adsorbate_set_requested = pyqtSignal() # When the user selects "<Add New Set...>"
+    substrate_changed = pyqtSignal(str) 
+    custom_lattice_define_requested = pyqtSignal()
+    show_ideal_lattice_changed = pyqtSignal(bool)
 
-    reselect_current_adsorbate_set_triggered = pyqtSignal() # "Reselect Set" button
-    clear_all_adsorbate_sets_triggered = pyqtSignal() # "Clear All Sets" button
-    # select_edit_substrate_spots_requested = pyqtSignal() # Button for clearing substrate peaks
+    spot_selection_mode_changed = pyqtSignal(str)
+    current_adsorbate_set_changed = pyqtSignal(str)
+    add_new_adsorbate_set_requested = pyqtSignal()
+
+    reselect_current_adsorbate_set_triggered = pyqtSignal()
+    clear_all_adsorbate_sets_triggered = pyqtSignal()
     select_edit_substrate_spots_requested = pyqtSignal()
     select_edit_adsorbate_spots_requested = pyqtSignal()
 
     fitted_substrate_spots_visibility_changed = pyqtSignal(bool)
-    # Signals for marker visibility
     substrate_spots_visibility_changed = pyqtSignal(bool)
     adsorbate_spots_visibility_changed = pyqtSignal(bool)
     substrate_raw_visibility_changed = pyqtSignal(bool)
@@ -65,29 +59,27 @@ class FFTAnalysisPanel(QWidget):
         super().__init__(parent)
         self.current_selected_expected_adsorbate_type = ADSORBATE_LATTICE_TYPE_UNKNOWN
         self._init_ui()
-        self._connect_internal_signals() # Dedicated method for wiring internal signals
+        self._connect_internal_signals()
 
     def _init_ui(self):
         """Initializes the user interface of the panel."""
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(5, 5, 5, 5) # Smaller margins for the panel in the dock
+        main_layout.setContentsMargins(5, 5, 5, 5)
         main_layout.setSpacing(8)
 
-        # --- Ideal Lattice Overlay Controls ---
         self._create_lattice_overlay_group(main_layout)
 
-        # --- Spot Selection Controls ---
         self._create_spot_selection_group(main_layout)
 
         self._create_real_space_params_group(main_layout)
         self._create_superstructure_periodicity_group(main_layout)
 
-        main_layout.addStretch(1) # Add stretchable space at the bottom
+        main_layout.addStretch(1)
         self.setLayout(main_layout)
 
     def _create_lattice_overlay_group(self, parent_layout: QVBoxLayout):
         """Creates the 'Ideal Lattice Overlay' group box and its controls."""
-        self.lattice_group = QGroupBox("Ideal Lattice Overlay") # self.lattice_group
+        self.lattice_group = QGroupBox("Ideal Lattice Overlay")
         lattice_layout = QFormLayout()
 
         self.substrate_combo = QComboBox()
@@ -123,7 +115,7 @@ class FFTAnalysisPanel(QWidget):
         layout.addRow("Max Value Ratio (Sat/Main):", self.superstructure_max_value_ratio_label)
         
         parent_layout.addWidget(self.superstructure_periodicity_group)
-        self.superstructure_periodicity_group.setVisible(False) # Visible only when results exist
+        self.superstructure_periodicity_group.setVisible(False)
 
     def update_superstructure_periodicity_display(self, results: Optional[Dict[str, Any]]):
         """Updates the labels with the superstructure periodicity analysis results."""
@@ -141,7 +133,6 @@ class FFTAnalysisPanel(QWidget):
         self.real_space_group = QGroupBox("Real Space Lattice Parameters")
         real_space_layout = QVBoxLayout(self.real_space_group)
 
-        # Substrate section
         substrate_params_group = QGroupBox("Substrate")
         substrate_params_form = QFormLayout(substrate_params_group)
         self.sub_rs_a1_label = QLabel("a1: - nm")
@@ -151,11 +142,10 @@ class FFTAnalysisPanel(QWidget):
         substrate_params_form.addRow("Vector 2 |a2|:", self.sub_rs_a2_label)
         substrate_params_form.addRow("Angle α (a1,a2):", self.sub_rs_alpha_label)
         self.calculate_substrate_rs_button = QPushButton("Calculate Substrate Parameters")
-        self.calculate_substrate_rs_button.setEnabled(True) # Initially disabled
+        self.calculate_substrate_rs_button.setEnabled(True)
         substrate_params_form.addRow(self.calculate_substrate_rs_button)
         real_space_layout.addWidget(substrate_params_group)
 
-        # Adsorbate section (for the current set)
         adsorbate_params_group = QGroupBox("Adsorbate (Current Set)")
         adsorbate_params_form = QFormLayout(adsorbate_params_group)
         self.ads_rs_a1_label = QLabel("a1: - nm")
@@ -165,7 +155,7 @@ class FFTAnalysisPanel(QWidget):
         adsorbate_params_form.addRow("Vector 2 |a2|:", self.ads_rs_a2_label)
         adsorbate_params_form.addRow("Angle α (a1,a2):", self.ads_rs_alpha_label)
         self.calculate_adsorbate_rs_button = QPushButton("Calculate Adsorbate Parameters (Current Set)")
-        self.calculate_adsorbate_rs_button.setEnabled(True) # Initially disabled
+        self.calculate_adsorbate_rs_button.setEnabled(True)
         adsorbate_params_form.addRow(self.calculate_adsorbate_rs_button)
         real_space_layout.addWidget(adsorbate_params_group)
 
@@ -173,19 +163,17 @@ class FFTAnalysisPanel(QWidget):
 
     def _create_spot_selection_group(self, parent_layout: QVBoxLayout):
         """Creates the 'Spot Selection' group box and its controls."""
-        self.spot_selection_group = QGroupBox("Spot Selection") # self.spot_selection_group
+        self.spot_selection_group = QGroupBox("Spot Selection")
         spot_selection_layout = QVBoxLayout()
 
-        # Spot Type Radio Buttons
         spot_type_layout = QHBoxLayout()
         self.rb_select_substrate = QRadioButton("Substrate")
-        self.rb_select_substrate.setChecked(True) # Checked by default
+        self.rb_select_substrate.setChecked(True)
         self.rb_select_adsorbate = QRadioButton("Adsorbate")
         spot_type_layout.addWidget(self.rb_select_substrate)
         spot_type_layout.addWidget(self.rb_select_adsorbate)
         spot_selection_layout.addLayout(spot_type_layout)
 
-        # --- Substrate Set Panel ---
         self.substrate_set_panel = QWidget()
         substrate_set_form_layout = QFormLayout(self.substrate_set_panel)
         substrate_set_form_layout.setContentsMargins(0, 5, 0, 5)
@@ -197,9 +185,9 @@ class FFTAnalysisPanel(QWidget):
         self.rotation_angle_label = QLabel("Transform Rotation: -")
         self.rmse_label = QLabel("Transform RMSE: -")
         self.scale_factor_label = QLabel("Transform Stretches: -")
-        substrate_set_form_layout.addRow(self.rotation_angle_label) # type: ignore
-        substrate_set_form_layout.addRow(self.rmse_label) # type: ignore
-        substrate_set_form_layout.addRow(self.scale_factor_label) # type: ignore
+        substrate_set_form_layout.addRow(self.rotation_angle_label)
+        substrate_set_form_layout.addRow(self.rmse_label)
+        substrate_set_form_layout.addRow(self.scale_factor_label)
 
         self.cb_show_substrate_raw_spots = QCheckBox("Show Raw Substrate Spots")
         self.cb_show_substrate_raw_spots.setChecked(True)
@@ -209,9 +197,8 @@ class FFTAnalysisPanel(QWidget):
         self.cb_show_substrate_transformed_spots.setChecked(True)
         substrate_set_form_layout.addRow(self.cb_show_substrate_transformed_spots)
         spot_selection_layout.addWidget(self.substrate_set_panel)
-        self.substrate_set_panel.setVisible(True) # Visible by default
+        self.substrate_set_panel.setVisible(True)
 
-        # --- Adsorbate Set Panel ---
         self.adsorbate_set_panel = QWidget()
         adsorbate_set_form_layout = QFormLayout(self.adsorbate_set_panel)
         adsorbate_set_form_layout.setContentsMargins(0, 5, 0, 5)
@@ -268,13 +255,11 @@ class FFTAnalysisPanel(QWidget):
 
     def _connect_internal_signals(self):
         """Connects internal widget signals to slots or directly to emitting class signals."""
-        # Ideal Lattice Overlay
         self.substrate_combo.currentTextChanged.connect(self._handle_substrate_combo_change)
         self.show_ideal_lattice_checkbox.stateChanged.connect(
             lambda state: self.show_ideal_lattice_changed.emit(state == Qt.CheckState.Checked.value)
         )
 
-        # Spot Selection Mode
         self.rb_select_substrate.toggled.connect(self._handle_spot_selection_mode_toggle)
 
         self.cb_show_substrate_raw_spots.stateChanged.connect(
@@ -290,7 +275,6 @@ class FFTAnalysisPanel(QWidget):
             lambda state: self.adsorbate_transformed_visibility_changed.emit(state == Qt.CheckState.Checked.value)
         )
 
-        # Adsorbate Set Management
         self.adsorbate_set_combo.currentTextChanged.connect(self._handle_adsorbate_set_combo_change)
 
         self.edit_substrate_spots_button.clicked.connect(self.select_edit_substrate_spots_requested)
@@ -321,14 +305,12 @@ class FFTAnalysisPanel(QWidget):
             self.substrate_changed.emit(text)
 
     def _handle_spot_selection_mode_toggle(self, checked: bool):
-        # This slot is called when rb_select_substrate changes state.
-        # If rb_select_substrate is checked, then `checked` will be True.
-        if checked: # Substrate selected
+        if checked: 
             self.substrate_set_panel.setVisible(True)
             self.adsorbate_set_panel.setVisible(False)
             self.spot_selection_mode_changed.emit("Substrate")
             logger.debug("FFTAnalysisPanel: Mode changed to Substrate")
-        else: # Adsorbate selected (bo rb_select_substrate nie jest checked)
+        else:
             self.substrate_set_panel.setVisible(False)
             self.adsorbate_set_panel.setVisible(True)
             self.spot_selection_mode_changed.emit("Adsorbate")
@@ -337,13 +319,8 @@ class FFTAnalysisPanel(QWidget):
     def _handle_adsorbate_set_combo_change(self, text: str):
         if text == "<Add New Set...>":
             self.add_new_adsorbate_set_requested.emit()
-            # After adding a new set, `update_adsorbate_set_combo` will set the type to `current_selected_expected_adsorbate_type`
-            # or based on data from AppController, if available.
         else:
             self.current_adsorbate_set_changed.emit(text)
-            # After changing the set, update `expected_adsorbate_type_combo`
-            # based on the value for this set from AppController
-            # This will be done by MainWindow in response to a signal from AppController
 
 
     def update_substrate_real_space_display(self, params: Optional[Dict[str, Any]]):
@@ -489,9 +466,6 @@ class FFTAnalysisPanel(QWidget):
     @pyqtSlot(str)
     def _handle_expected_adsorbate_type_changed(self, selected_type: str):
         current_set_idx = self.adsorbate_set_combo.currentIndex()
-        # Check if this is not the "<Add New Set...>" position
-        # Assume the last position is "<Add New Set...>"
-        # If only "Set 1" (without Add option), handle accordingly
         if current_set_idx >= 0 and current_set_idx < (self.adsorbate_set_combo.count() -1 ):
              self.current_selected_expected_adsorbate_type = selected_type
              logger.debug(f"FFTAnalysisPanel: Expected adsorbate type for set index {current_set_idx} changed to '{selected_type}'. Emitting signal.")

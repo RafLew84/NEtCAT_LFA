@@ -1,10 +1,8 @@
 # lfa/logic/history_manager.py
 import logging
-from typing import Dict, Optional, Any, List # 'Any' may later be needed for parameters
-from PyQt6.QtWidgets import QListWidget, QListWidgetItem # Dodaj potrzebne importy Qt
+from typing import Dict, Optional, Any, List
+from PyQt6.QtWidgets import QListWidget, QListWidgetItem
 from PyQt6.QtCore import Qt, pyqtSignal, QObject
-# Use the relative path if HistoryNode resides in lfa.core
-# Assuming history_manager.py is in lfa/gui/ and HistoryNode in lfa/core/
 from ..core.history import HistoryNode
 from ..core.data_models import OriginalImageRecord
 import uuid
@@ -16,8 +14,6 @@ class HistoryManager(QObject):
     Manages the history of operations, including adding nodes,
     tracking the current node, and interacting with the history list widget.
     """
-    # Signal emitted when the current history node changes.
-    # Carries the new current node (HistoryNode or None).
     current_node_changed = pyqtSignal(object) 
 
     def __init__(self, history_list_widget: QListWidget, parent: Optional[QObject] = None):
@@ -43,13 +39,11 @@ class HistoryManager(QObject):
         """Clears the entire history and updates the list widget."""
         self.history.clear()
         self.current_node_id = None
-        self.history_list_widget.clear() # HistoryManager owns the list widget
+        self.history_list_widget.clear()
         self.original_images.clear()
         self._original_order.clear()
         self._root_nodes_by_image_id.clear()
         logger.info("History cleared by HistoryManager.")
-        # Emit the None node signal so MainWindow can react
-        # (e.g., clear image views, update action state)
         self.current_node_changed.emit(None)
 
     def _create_item_for_node(self, node: HistoryNode) -> QListWidgetItem:
@@ -111,7 +105,6 @@ class HistoryManager(QObject):
                 item = self._create_item_for_node(node)
                 self.history_list_widget.addItem(item)
 
-        # Add any nodes without original image information (legacy)
         legacy_nodes = [node for node in self.history.values() if not node.original_image_id]
         legacy_nodes.sort(key=lambda n: n.timestamp)
         for node in legacy_nodes:
@@ -169,7 +162,6 @@ class HistoryManager(QObject):
             node.original_image_id = parent.original_image_id
             return
 
-        # Otherwise, generate a legacy id for backwards compatibility
         legacy_id = str(uuid.uuid4())
         node.original_image_id = legacy_id
         display_name = node.parameters.get("original_label") or self._generate_default_display_name()
@@ -222,7 +214,6 @@ class HistoryManager(QObject):
             )
             self.register_original_image(record)
         else:
-            # Ensure parameters reflect the stored display name
             record = self.original_images[image_id]
             node.parameters.setdefault("original_label", record.display_name)
             node.parameters.setdefault("source_image_label", record.display_name)
@@ -236,7 +227,6 @@ class HistoryManager(QObject):
         Useful after loading history from disk.
         """
         self._root_nodes_by_image_id.clear()
-        # Preserve current original_images where possible
         known_ids = set(self.original_images.keys())
         for node in self.history.values():
             if node.parent_id and node.original_image_id is None:
@@ -244,7 +234,6 @@ class HistoryManager(QObject):
                 if parent:
                     node.original_image_id = parent.original_image_id
 
-        # Collect potential root nodes sorted by timestamp to get deterministic order
         root_candidates = [
             node for node in self.history.values()
             if node.parent_id is None or node.operation_name == "Original"
@@ -372,28 +361,24 @@ class HistoryManager(QObject):
 
         if node_id is not None and node_id not in self.history:
             logger.error(f"HistoryManager: Cannot set current node to ID '{node_id}' - not found in history.")
-            # Optionally, revert to previous_node_id or set to None if previous was also invalid
             if previous_node_id not in self.history:
                 self.current_node_id = None
             else:
                 self.current_node_id = previous_node_id # Revert to last valid known ID
-                # No need to update widget if reverting, as it should reflect previous_node_id
                 if emit_signal:
                     self.current_node_changed.emit(self.get_current_node())
-                return # Exit early as we don't want to change widget selection to an invalid one
+                return 
         else:
             self.current_node_id = node_id
 
         if previous_node_id != self.current_node_id: # Log only if ID actually changes
             logger.info(f"HistoryManager: Current history node ID set to: {self.current_node_id}")
 
-        # Synchronize QListWidget selection
         self.history_list_widget.blockSignals(True) # Prevent feedback loop
         found_item = None
         for i in range(self.history_list_widget.count()):
             item = self.history_list_widget.item(i)
             if item.data(Qt.ItemDataRole.UserRole) == self.current_node_id:
-                # Only set if not already current to avoid unnecessary widget operations
                 if self.history_list_widget.currentItem() is not item:
                     item.setSelected(True)
                     self.history_list_widget.setCurrentItem(item)
@@ -401,17 +386,14 @@ class HistoryManager(QObject):
                 break
         
         if not found_item and self.current_node_id is None:
-            # If node_id is None, clear selection in the list widget
             self.history_list_widget.clearSelection()
             self.history_list_widget.setCurrentItem(None)
             
         self.history_list_widget.blockSignals(False)
 
-        # Emit signal only if the node ID has actually changed and emit_signal is true
         if emit_signal and previous_node_id != self.current_node_id:
             self.current_node_changed.emit(self.get_current_node())
         elif emit_signal and self.current_node_id is None and previous_node_id is not None:
-            # Also emit if we are clearing the selection
             self.current_node_changed.emit(None)
 
     def get_root_node_for_node(self, node_id: Optional[str]) -> Optional[HistoryNode]:
@@ -436,7 +418,6 @@ class HistoryManager(QObject):
             logger.warning(f"get_root_node_for_node: Starting node {node_id} not found in history.")
             return None
 
-        # If mapping already knows the root, return it immediately
         if current_node.original_image_id:
             root_id = self._root_nodes_by_image_id.get(current_node.original_image_id)
             if root_id:
@@ -444,9 +425,8 @@ class HistoryManager(QObject):
                 if root_node:
                     return root_node
 
-        visited_ids = {current_node.node_id} # To prevent cycles
+        visited_ids = {current_node.node_id}
 
-        # Iterate backwards, max 100 steps for safety against malformed history
         for _ in range(100): 
             if not current_node.parent_id: # No parent means it's a root
                 logger.debug(f"get_root_node_for_node: Found root (no parent_id) for {node_id}: {current_node.node_id}")
@@ -458,12 +438,11 @@ class HistoryManager(QObject):
 
             if current_node.parent_id not in self.history:
                 logger.warning(f"get_root_node_for_node: Parent ID {current_node.parent_id} for node {current_node.node_id} not found in history. Returning current node as oldest.")
-                return current_node # Return current node as it's the oldest we can trace
+                return current_node 
 
-            # Safety check for cycles
             if current_node.parent_id in visited_ids:
                 logger.error(f"Cycle detected in history trace for node {node_id} at parent {current_node.parent_id}. Aborting root search.")
-                return current_node # Return current node to prevent infinite loop
+                return current_node
 
             parent_node = self.history.get(current_node.parent_id)
             if not parent_node: # Should have been caught by `parent_id not in self.history`
@@ -473,6 +452,5 @@ class HistoryManager(QObject):
             current_node = parent_node
             visited_ids.add(current_node.node_id)
         
-        # If loop finished due to iteration limit without finding a definitive root
         logger.warning(f"get_root_node_for_node: Reached iteration limit for {node_id}. Returning oldest ancestor found: {current_node.node_id}")
         return current_node

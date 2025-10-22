@@ -7,12 +7,10 @@ import logging
 import numpy as np
 from typing import Optional, Tuple, List
 
-# Make sure SciPy is installed (add 'scipy' to requirements.txt)
 try:
     from scipy.optimize import least_squares
 except ImportError:
     logging.critical("SciPy not found. Please install it: pip install scipy")
-    # Define a dummy function if scipy is not available to avoid hard crash on import
     def least_squares(*args, **kwargs):
         raise NotImplementedError("SciPy is required for least_squares fitting.")
 
@@ -41,7 +39,6 @@ def fit_plane(image: np.ndarray, roi_slice: Optional[Tuple[slice, slice]] = None
 
     rows, cols = image.shape
 
-    # --- Prepare coordinates and Z data for fitting ---
     if roi_slice is not None:
         if not (isinstance(roi_slice, (tuple, list)) and
                 len(roi_slice) == 2 and
@@ -54,13 +51,11 @@ def fit_plane(image: np.ndarray, roi_slice: Optional[Tuple[slice, slice]] = None
              logger.error(f"fit_plane: Invalid roi_slice format: {roi_slice}")
              return None
 
-        # Define region bounds, handling None in slice start/stop
         r_start = row_slice.start if row_slice.start is not None else 0
         r_stop = row_slice.stop if row_slice.stop is not None else rows
         c_start = col_slice.start if col_slice.start is not None else 0
         c_stop = col_slice.stop if col_slice.stop is not None else cols
 
-        # Check for valid ranges
         if not (0 <= r_start < r_stop <= rows and 0 <= c_start < c_stop <= cols):
              logger.error(f"fit_plane: ROI slice [{r_start}:{r_stop}, {c_start}:{c_stop}] is out of bounds for image shape {(rows, cols)}.")
              return None
@@ -70,10 +65,8 @@ def fit_plane(image: np.ndarray, roi_slice: Optional[Tuple[slice, slice]] = None
              logger.error("fit_plane: ROI slice resulted in an empty region.")
              return None
 
-        # Create coordinate grid for the *region*
         y_coords_region = np.arange(r_start, r_stop)
         x_coords_region = np.arange(c_start, c_stop)
-        # Double check shape consistency after creating ranges
         if len(y_coords_region) != image_region.shape[0] or len(x_coords_region) != image_region.shape[1]:
              logger.error(f"fit_plane: Mismatch between calculated ranges ({len(y_coords_region)}x{len(x_coords_region)}) and region shape {image_region.shape}. Slice: {roi_slice}")
              return None
@@ -84,20 +77,18 @@ def fit_plane(image: np.ndarray, roi_slice: Optional[Tuple[slice, slice]] = None
         Z_flat = image_region.flatten()
         logger.debug(f"Fitting plane to ROI: Rows {row_slice}, Cols {col_slice}. Points: {len(Z_flat)}")
 
-    else: # Use the whole image
+    else: 
         X, Y = np.meshgrid(np.arange(cols), np.arange(rows))
         X_flat = X.flatten()
         Y_flat = Y.flatten()
         Z_flat = image.flatten()
         logger.debug(f"Fitting plane to whole image. Points: {len(Z_flat)}")
 
-    # Avoid fitting if data is constant
     if np.allclose(Z_flat, Z_flat[0]):
          logger.warning("fit_plane: Data within the fitting region is constant. Returning a flat plane.")
          a, b = 0.0, 0.0
          c = Z_flat[0]
     else:
-        # Define the error function for least_squares: params = [a, b, c]
         def plane_residuals(params, x, y, z):
             a, b, c = params
             return a * x + b * y + c - z
@@ -119,7 +110,6 @@ def fit_plane(image: np.ndarray, roi_slice: Optional[Tuple[slice, slice]] = None
             logger.exception(f"Error during least squares fitting in fit_plane: {e}")
             return None
 
-    # Create the fitted plane covering the *whole image* dimensions
     X_full, Y_full = np.meshgrid(np.arange(cols), np.arange(rows))
     fitted_plane_full = a * X_full + b * Y_full + c
 
@@ -145,13 +135,11 @@ def fit_plane_3pts(image: np.ndarray, points: List[Tuple[int, int]]) -> Optional
 
     try:
         (x1, y1), (x2, y2), (x3, y3) = points
-        # Boundary checks
         if not (0<=y1<rows and 0<=x1<cols and 0<=y2<rows and 0<=x2<cols and 0<=y3<rows and 0<=x3<cols):
              logger.error("fit_plane_3pts: Points out of bounds."); return None
 
         z1, z2, z3 = image[y1, x1], image[y2, x2], image[y3, x3]
 
-        # Solve Ax = B for x = [a, b, c]
         A = np.array([[x1, y1, 1], [x2, y2, 1], [x3, y3, 1]], dtype=float)
         B = np.array([z1, z2, z3], dtype=float)
 
@@ -162,7 +150,6 @@ def fit_plane_3pts(image: np.ndarray, points: List[Tuple[int, int]]) -> Optional
         except np.linalg.LinAlgError:
             logger.error("fit_plane_3pts: Cannot solve system. Points might be collinear."); return None
 
-        # Create the full plane
         X_full, Y_full = np.meshgrid(np.arange(cols), np.arange(rows))
         fitted_plane_full = a * X_full + b * Y_full + c
 
@@ -179,7 +166,6 @@ def level_by_plane(image: np.ndarray, fitted_plane: np.ndarray) -> Optional[np.n
     if image.shape != fitted_plane.shape: logger.error(f"level_by_plane: Shape mismatch {image.shape} vs {fitted_plane.shape}."); return None
 
     try:
-        # Ensure both are float before subtraction
         leveled_image = image.astype(np.float32) - fitted_plane.astype(np.float32)
         return leveled_image
     except Exception as e:
