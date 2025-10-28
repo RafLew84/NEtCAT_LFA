@@ -11,9 +11,13 @@ from PyQt6.QtCore import pyqtSignal, Qt, pyqtSlot
 
 try:
     from lfa.analysis.lattice import KNOWN_LATTICES
-except ImportError:
-    logging.warning("FFTAnalysisPanel: Could not perform standard relative imports for KNOWN_LATTICES. Using placeholders.")
+except ImportError:  # pragma: no cover
+    logging.warning(
+        "FFTAnalysisPanel: Could not import KNOWN_LATTICES; falling back to placeholder values."
+    )
     KNOWN_LATTICES = {"Placeholder (Error)": {}}
+
+from ..utils.display import format_float, format_ratio
 
 ADSORBATE_LATTICE_TYPE_UNKNOWN = "Unknown"
 ADSORBATE_LATTICE_TYPE_HEXAGONAL = "Hexagonal"
@@ -120,11 +124,18 @@ class FFTAnalysisPanel(QWidget):
     def update_superstructure_periodicity_display(self, results: Optional[Dict[str, Any]]):
         """Updates the labels with the superstructure periodicity analysis results."""
         if results:
-            self.superstructure_dist_kspace_label.setText(f"{results.get('dist_px', '-'):.2f} px | {results.get('dist_nm_inv', '-'):.4f} nm⁻¹")
-            self.superstructure_periodicity_label.setText(f"{results.get('periodicity_nm', '-'):.3f} nm")
-            self.superstructure_intensity_ratio_label.setText(f"{results.get('intensity_ratio', '-'):.3f}")
-            self.superstructure_amplitude_ratio_label.setText(f"{results.get('amplitude_ratio', '-'):.3f}")
-            self.superstructure_max_value_ratio_label.setText(f"{results.get('max_value_ratio', '-'):.3f}")
+            dist_px = format_float(results.get("dist_px"), 2)
+            dist_nm_inv = format_float(results.get("dist_nm_inv"), 4)
+            periodicity = format_float(results.get("periodicity_nm"), 3)
+            intensity = format_ratio(results.get("intensity_ratio"))
+            amplitude = format_ratio(results.get("amplitude_ratio"))
+            max_value = format_ratio(results.get("max_value_ratio"))
+
+            self.superstructure_dist_kspace_label.setText(f"{dist_px} px | {dist_nm_inv} nm⁻¹")
+            self.superstructure_periodicity_label.setText(f"{periodicity} nm")
+            self.superstructure_intensity_ratio_label.setText(intensity)
+            self.superstructure_amplitude_ratio_label.setText(amplitude)
+            self.superstructure_max_value_ratio_label.setText(max_value)
             self.superstructure_periodicity_group.setVisible(True)
         else:
             self.superstructure_periodicity_group.setVisible(False)

@@ -27,17 +27,6 @@ except ImportError:
     logging.error("RealSpaceFFTVisualizerDialog: PyQtGraph not found.")
 
 try:
-    import pyvista as pv
-    from pyvistaqt import QtInteractor, BackgroundPlotter
-    from ...analysis.lattice import create_ase_supercell_from_2d_vectors
-    PYVISTA_AVAILABLE = True
-except ImportError:
-    pv = None
-    QtInteractor = None
-    PYVISTA_AVAILABLE = False
-    logging.error("RealSpaceFFTVisualizerDialog: PyVista or PyVistaQT not found.")
-
-try:
     from ...logic.app_controller import AppController
     from ...logic.history_manager import HistoryManager
     from ...core.history import HistoryNode
@@ -49,6 +38,10 @@ except ImportError as e:
     HistoryNode = None
     apply_affine_transform = None
     logging.error(f"RealSpaceFFTVisualizerDialog: Error importing project modules: {e}")
+
+from ..visualizers.real_space_state import RealSpaceVisualizerState
+from ..visualizers.real_space_pyvista_adapter import RealSpacePyVistaAdapter, RealSpaceSceneConfig
+from ..utils.display import format_float, format_pair
 
 logger = logging.getLogger(__name__)
 
@@ -108,11 +101,9 @@ class RealSpaceFFTVisualizerDialog(QDialog):
             QVBoxLayout(self).addWidget(QLabel("Critical Error: PyQtGraph or App/History Controller not available."))
             self.setWindowTitle("Error")
             return
-        
-        if PYVISTA_AVAILABLE:
-            pv.set_plot_theme("document")
 
-        self.background_plotter = None
+        self._offset_state = RealSpaceVisualizerState(self.app_controller, logger)
+        self._pyvista_adapter = RealSpacePyVistaAdapter(logger=logger)
 
         self.setWindowTitle("Real Space & FFT Visualization")
         self.setMinimumSize(1300, 750)
@@ -486,13 +477,9 @@ class RealSpaceFFTVisualizerDialog(QDialog):
 
     def _refresh_3d_plotter_if_open(self):
         """Redraw the 3D viewer if it is currently visible."""
-        if self.background_plotter and not self.background_plotter._closed:
-            try:
-                if self.background_plotter.app_window.isVisible():
-                    logger.debug("Refreshing existing 3D plotter.")
-                    self._launch_3d_viewer()
-            except AttributeError:
-                logger.debug("Background plotter missing app_window attribute during refresh.")
+        if self._pyvista_adapter.is_open():
+            logger.debug("Refreshing existing PyVista plotter.")
+            self._launch_3d_viewer()
 
     @pyqtSlot(int)
     def _on_custom_adsorbate_visibility_changed(self, _state: int):
@@ -606,99 +593,30 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         """
         Launches or updates a separate, interactive 3D window using BackgroundPlotter.
         """
-        if not PYVISTA_AVAILABLE:
+        if not self._pyvista_adapter.is_available():
             QMessageBox.warning(self, "Dependency Error", "PyVista is not installed. 3D visualization is unavailable.")
             return
 
-        if self.background_plotter is None or self.background_plotter._closed:
-            logger.info("Creating a new BackgroundPlotter instance.")
-            self.background_plotter = BackgroundPlotter(show=True, title="Interactive 3D Lattice Viewer")
-        else:
-            logger.info("Using existing BackgroundPlotter instance.")
-        
-        plotter = self.background_plotter
-        plotter.clear()
-
-        plotter.set_background('white')
-        plotter.remove_all_lights()
-        plotter.add_light(pv.Light(position=(5, 5, 10), intensity=1.5))
-        plotter.add_light(pv.Light(position=(-5, -5, 5), intensity=0.5))
-
-        supercell_size = self.supercell_size_spinbox.value()
-        size_tuple = (supercell_size, supercell_size)
-
-        if self.app_controller.substrate_real_space_results:
-            sub_params = self.app_controller.substrate_real_space_results
-            substrate_atoms = create_ase_supercell_from_2d_vectors(
-                a1_vec_nm=np.array(sub_params["a1_vec_nm"]),
-                a2_vec_nm=np.array(sub_params["a2_vec_nm"]),
-                atom_symbol='Au',
-                size=size_tuple,
-                offset_fractional=(0.0, 0.0),
-                z_height_nm=1.0
-            )
-            if substrate_atoms:
-                sub_offset = np.array(getattr(self.app_controller, "substrate_visual_offset_nm", (0.0, 0.0)), dtype=float)
-                if np.any(sub_offset):
-                    substrate_atoms.positions[:, 0] += sub_offset[0]
-                    substrate_atoms.positions[:, 1] += sub_offset[1]
-                for atom in substrate_atoms:
-                    sphere = pv.Sphere(center=atom.position, radius=0.07)
-                    sphere.compute_normals(inplace=True)
-                    actor = plotter.add_mesh(sphere, color='gold', smooth_shading=True)
-                    actor.prop.metallic = 0.8; actor.prop.roughness = 0.2
-
         current_set_idx = self.ads_set_combo_vis.currentData()
-        ads_params = self.app_controller.adsorbate_real_space_results.get(current_set_idx)
-        if ads_params:
-            a1_ads_nm = np.array(ads_params["a1_vec_nm"])
-            a2_ads_nm = np.array(ads_params["a2_vec_nm"])
+        adsorbate_params = None
+        if hasattr(self.app_controller, "adsorbate_real_space_results"):
+            adsorbate_params = self.app_controller.adsorbate_real_space_results.get(current_set_idx)
 
-            rotation_matrix = None
-            if self.cb_visual_align.isChecked():
-                theta = self.visual_alignment_angle_rad
-                rotation_matrix = np.array([[np.cos(theta), -np.sin(theta)],
-                                            [np.sin(theta),  np.cos(theta)]])
-                a1_ads_nm = np.dot(rotation_matrix, a1_ads_nm)
-                a2_ads_nm = np.dot(rotation_matrix, a2_ads_nm)
+        config = RealSpaceSceneConfig(
+            supercell_size=self.supercell_size_spinbox.value(),
+            align_adsorbate=self.cb_visual_align.isChecked(),
+            alignment_angle_rad=self.visual_alignment_angle_rad,
+            substrate_params=getattr(self.app_controller, "substrate_real_space_results", None),
+            adsorbate_params=adsorbate_params,
+            substrate_offset_nm=self._offset_state.get_substrate_offset(),
+            adsorbate_offset_nm=self._offset_state.get_adsorbate_offset(current_set_idx),
+        )
 
-            adsorbate_atoms = create_ase_supercell_from_2d_vectors(
-                a1_vec_nm=a1_ads_nm,
-                a2_vec_nm=a2_ads_nm,
-                atom_symbol='I',
-                size=size_tuple,
-                offset_fractional=(0.0, 0.0),
-                z_height_nm=1.15
-            )
-            if adsorbate_atoms:
-                offset_xy_nm = np.zeros(2, dtype=float)
-                if self.app_controller.substrate_real_space_results:
-                    sub_params = self.app_controller.substrate_real_space_results
-                    if "a1_vec_nm" in sub_params and "a2_vec_nm" in sub_params:
-                        sub_a1 = np.array(sub_params["a1_vec_nm"], dtype=float)
-                        sub_a2 = np.array(sub_params["a2_vec_nm"], dtype=float)
-                        offset_fractional = np.array([0.0, 1.0 / 3.0], dtype=float)
-                        offset_xy_nm = offset_fractional[0] * sub_a1 + offset_fractional[1] * sub_a2
-                        if rotation_matrix is not None:
-                            offset_xy_nm = np.dot(rotation_matrix, offset_xy_nm)
-
-                ads_offsets = getattr(self.app_controller, "adsorbate_visual_offsets_nm", {})
-                user_offset_nm = np.array(ads_offsets.get(current_set_idx, (0.0, 0.0)), dtype=float)
-                total_offset = offset_xy_nm + user_offset_nm
-
-                if np.any(total_offset):
-                    adsorbate_atoms.positions[:, 0] += total_offset[0]
-                    adsorbate_atoms.positions[:, 1] += total_offset[1]
-
-                for atom in adsorbate_atoms:
-                    sphere = pv.Sphere(center=atom.position, radius=0.1)
-                    sphere.compute_normals(inplace=True)
-                    actor = plotter.add_mesh(sphere, color='purple', smooth_shading=True)
-                    actor.prop.metallic = 0.2; actor.prop.roughness = 0.6
-
-        plotter.camera_position = 'xy'
-        plotter.reset_camera()
-        plotter.app_window.show()
+        try:
+            self._pyvista_adapter.refresh_scene(config)
+        except Exception as exc:
+            logger.exception("Failed to render 3D lattice viewer: %s", exc)
+            QMessageBox.critical(self, "3D Viewer Error", f"Could not render 3D scene:\n{exc}")
 
     @pyqtSlot()
     def _trigger_redraw_all_visuals(self):
@@ -766,11 +684,15 @@ class RealSpaceFFTVisualizerDialog(QDialog):
 
         if self.app_controller.substrate_transform_analysis_m2i:
             analysis = self.app_controller.substrate_transform_analysis_m2i
-            self.info_sub_rot_label.setText(f"{analysis.get('rotation_angle_deg', 'N/A'):.2f}°")
-            s_x,s_y = analysis.get('principal_stretches',[np.nan,np.nan])
-            self.info_sub_scale_label.setText(f"({s_x:.3f}, {s_y:.3f})")
-            self.info_sub_rmse_label.setText(f"{analysis.get('rmse', 'N/A'):.3f} px")
-        else: 
+            rotation_text = format_float(analysis.get("rotation_angle_deg"), 2, "N/A")
+            stretches = analysis.get("principal_stretches", [np.nan, np.nan])
+            scale_text = format_pair(tuple(stretches), 3)
+            rmse_text = format_float(analysis.get("rmse"), 3)
+
+            self.info_sub_rot_label.setText(f"{rotation_text}°" if rotation_text != "N/A" else "N/A")
+            self.info_sub_scale_label.setText(scale_text if scale_text != "-" else "-")
+            self.info_sub_rmse_label.setText(f"{rmse_text} px" if rmse_text != "-" else "-")
+        else:
             self.info_sub_rot_label.setText("-")
             self.info_sub_scale_label.setText("-")
             self.info_sub_rmse_label.setText("-")
@@ -1088,22 +1010,31 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         logger.debug("Visualizer: Updating real space parameter labels...")
         if self.app_controller and self.app_controller.substrate_real_space_results:
             params = self.app_controller.substrate_real_space_results
-            self.sub_real_a1_label.setText(f"{params.get('a1_nm', '-'):.3f} nm")
-            self.sub_real_a2_label.setText(f"{params.get('a2_nm', '-'):.3f} nm")
-            self.sub_real_alpha_label.setText(f"{params.get('alpha_deg', '-'):.2f} °")
-        else: 
+            a1_text = format_float(params.get("a1_nm"), 3)
+            a2_text = format_float(params.get("a2_nm"), 3)
+            alpha_text = format_float(params.get("alpha_deg"), 2)
+            self.sub_real_a1_label.setText(f"{a1_text} nm" if a1_text != "-" else "- nm")
+            self.sub_real_a2_label.setText(f"{a2_text} nm" if a2_text != "-" else "- nm")
+            self.sub_real_alpha_label.setText(f"{alpha_text} °" if alpha_text != "-" else "- °")
+        else:
             self.sub_real_a1_label.setText("- nm")
             self.sub_real_a2_label.setText("- nm")
             self.sub_real_alpha_label.setText("- °")
 
         current_ads_set_idx_vis = self.ads_set_combo_vis.currentData()
-        if self.app_controller and current_ads_set_idx_vis is not None and \
-           current_ads_set_idx_vis in self.app_controller.adsorbate_real_space_results:
+        if (
+            self.app_controller
+            and current_ads_set_idx_vis is not None
+            and current_ads_set_idx_vis in self.app_controller.adsorbate_real_space_results
+        ):
             params = self.app_controller.adsorbate_real_space_results[current_ads_set_idx_vis]
-            self.ads_real_a1_label.setText(f"{params.get('a1_nm', '-'):.3f} nm")
-            self.ads_real_a2_label.setText(f"{params.get('a2_nm', '-'):.3f} nm")
-            self.ads_real_alpha_label.setText(f"{params.get('alpha_deg', '-'):.2f} °")
-        else: 
+            a1_text = format_float(params.get("a1_nm"), 3)
+            a2_text = format_float(params.get("a2_nm"), 3)
+            alpha_text = format_float(params.get("alpha_deg"), 2)
+            self.ads_real_a1_label.setText(f"{a1_text} nm" if a1_text != "-" else "- nm")
+            self.ads_real_a2_label.setText(f"{a2_text} nm" if a2_text != "-" else "- nm")
+            self.ads_real_alpha_label.setText(f"{alpha_text} °" if alpha_text != "-" else "- °")
+        else:
             self.ads_real_a1_label.setText("- nm")
             self.ads_real_a2_label.setText("- nm")
             self.ads_real_alpha_label.setText("- °")
@@ -1219,42 +1150,31 @@ class RealSpaceFFTVisualizerDialog(QDialog):
                 self.gl_gauss_surface_plot_item = None
             self.gl_gauss_view_widget.setParent(None)
             self.gl_gauss_view_widget.deleteLater()
-        if self.background_plotter:
-            self.background_plotter.close()
-            self.background_plotter = None
+        if hasattr(self, "_pyvista_adapter"):
+            self._pyvista_adapter.close()
         super().closeEvent(event)
+
     @pyqtSlot(float)
     def _on_substrate_offset_value_changed(self, _value: float):
-        if not self.app_controller:
-            return
         new_offset = (self.substrate_offset_x_spin.value(), self.substrate_offset_y_spin.value())
-        if getattr(self.app_controller, "substrate_visual_offset_nm", None) != new_offset:
-            self.app_controller.substrate_visual_offset_nm = new_offset
-            logger.debug(f"Updated substrate visual offset to {new_offset}.")
+        if self._offset_state.set_substrate_offset(new_offset):
+            logger.debug("Updated substrate visual offset to %s.", new_offset)
             self._refresh_3d_plotter_if_open()
 
     @pyqtSlot(float)
     def _on_adsorbate_offset_value_changed(self, _value: float):
-        if not self.app_controller:
-            return
         current_combo_index = self.ads_set_combo_vis.currentIndex()
         set_index = self.ads_set_combo_vis.itemData(current_combo_index)
         if set_index is None:
             return
         new_offset = (self.adsorbate_offset_x_spin.value(), self.adsorbate_offset_y_spin.value())
-        current_offsets = getattr(self.app_controller, "adsorbate_visual_offsets_nm", {})
-        if current_offsets.get(set_index) != new_offset:
-            current_offsets[set_index] = new_offset
-            self.app_controller.adsorbate_visual_offsets_nm = current_offsets
-            logger.debug(f"Updated adsorbate set {set_index} visual offset to {new_offset}.")
+        if self._offset_state.set_adsorbate_offset(set_index, new_offset):
+            logger.debug("Updated adsorbate set %s visual offset to %s.", set_index, new_offset)
             self._refresh_3d_plotter_if_open()
 
     def _update_offset_controls_from_state(self):
         """Sync spin boxes with controller-stored offsets."""
-        if not self.app_controller:
-            return
-
-        sub_offset = getattr(self.app_controller, "substrate_visual_offset_nm", (0.0, 0.0))
+        sub_offset = self._offset_state.get_substrate_offset()
         for spin, value in (
             (self.substrate_offset_x_spin, sub_offset[0]),
             (self.substrate_offset_y_spin, sub_offset[1]),
@@ -1265,11 +1185,7 @@ class RealSpaceFFTVisualizerDialog(QDialog):
 
         current_combo_index = self.ads_set_combo_vis.currentIndex()
         set_index = self.ads_set_combo_vis.itemData(current_combo_index)
-        ads_offsets = getattr(self.app_controller, "adsorbate_visual_offsets_nm", {})
-        offset = ads_offsets.get(set_index, (0.0, 0.0)) if set_index is not None else (0.0, 0.0)
-        if set_index is not None:
-            ads_offsets.setdefault(set_index, offset)
-            self.app_controller.adsorbate_visual_offsets_nm = ads_offsets
+        offset = self._offset_state.get_adsorbate_offset(set_index)
 
         for spin, value in (
             (self.adsorbate_offset_x_spin, offset[0]),

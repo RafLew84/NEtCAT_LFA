@@ -5,8 +5,6 @@ Manages application state and coordinates operations between UI and backend modu
 """
 import logging
 import os
-import pickle
-import uuid
 import numpy as np
 
 from typing import Optional, List, Tuple, Dict, Any
@@ -20,6 +18,9 @@ from ..gui.dialogs.substrate_spot_dialog import PREDEFINED_SUBSTRATE_NONE, PREDE
 
 from PyQt6.QtWidgets import QFileDialog, QMessageBox
 from PyQt6.QtCore import Qt
+
+from .session_serializer import SessionSerializer
+from .spot_manager import SpotManager
 
 
 logger = logging.getLogger(__name__)
@@ -142,6 +143,9 @@ class AppController(QObject):
         self.adsorbate_visual_offsets_nm: Dict[int, Tuple[float, float]] = {0: (0.0, 0.0)}
 
         self.superstructure_periodicity_results: Optional[Dict[str, Any]] = None
+        self.session_serializer = SessionSerializer(self.history_manager)
+        self.spot_manager = SpotManager(self, ADSORBATE_LATTICE_TYPE_UNKNOWN)
+
 
         logger.info("AppController initialized.")
 
@@ -157,8 +161,9 @@ class AppController(QObject):
         else:
             suggested_name = "analysis.lfa_proj"
 
+        files_filter = "LFA Project Files (*.lfa_proj);;All Files (*)"
         file_path, _ = QFileDialog.getSaveFileName(
-            None, "Save analysis session", suggested_name, "LFA Project Files (*.lfa_proj);;All Files (*)"
+            None, "Save analysis session", suggested_name, files_filter
         )
 
         if not file_path:
@@ -166,82 +171,15 @@ class AppController(QObject):
             return
 
         logger.debug("Collecting session data for serialization...")
-        
-        controller_state_to_save = {
-            'original_file_path': self.original_file_path,
-            'spot_selection_mode': self.spot_selection_mode,
-            'spot_refinement_method': self.spot_refinement_method,
-            'refinement_roi_size': self.refinement_roi_size,
-            'user_selected_substrate_spots': self.user_selected_substrate_spots,
-            'substrate_lattice_type': self.substrate_lattice_type,
-            'substrate_a_surf': self.substrate_a_surf,
-            'substrate_definition_name': self.substrate_definition_name,
-            'substrate_F_m2i': self.substrate_F_m2i,
-            'substrate_t_m2i': self.substrate_t_m2i,
-            'substrate_transform_analysis_m2i': self.substrate_transform_analysis_m2i,
-            'displayable_fitted_substrate_spots_on_fft': self.displayable_fitted_substrate_spots_on_fft,
-            'substrate_spot_pairs': [
-                {'raw': raw, 'transformed': transformed}
-                for raw, transformed in self.substrate_spot_pairs
-            ],
-            'show_substrate_raw_spots': self.show_substrate_raw_spots,
-            'show_substrate_transformed_spots': self.show_substrate_transformed_spots,
-            'show_adsorbate_raw_spots': self.show_adsorbate_raw_spots,
-            'show_adsorbate_transformed_spots': self.show_adsorbate_transformed_spots,
-            'show_substrate_spots_markers': self.show_substrate_spots_markers,
-            'show_adsorbate_spots_markers': self.show_adsorbate_spots_markers,
-            'substrate_real_space_results': self.substrate_real_space_results,
-            'adsorbate_spot_sets': self.adsorbate_spot_sets,
-            'corrected_adsorbate_spot_sets': self.corrected_adsorbate_spot_sets,
-            'current_adsorbate_set_index': self.current_adsorbate_set_index,
-            'adsorbate_real_space_results': self.adsorbate_real_space_results,
-            'adsorbate_expected_lattice_types': self.adsorbate_expected_lattice_types,
-            'superstructure_periodicity_results': self.superstructure_periodicity_results,
-            'substrate_visual_offset_nm': self.substrate_visual_offset_nm,
-            'adsorbate_visual_offsets_nm': self.adsorbate_visual_offsets_nm,
-            'adsorbate_spot_pairs': {
-                index: [
-                    {'raw': raw, 'transformed': transformed}
-                    for raw, transformed in pairs
-                ]
-                for index, pairs in self.adsorbate_spot_pairs.items()
-            },
-        }
-
-        original_images_payload = []
-        original_order_payload: List[str] = []
-        if hasattr(self.history_manager, "iter_original_image_ids"):
-            for image_id in self.history_manager.iter_original_image_ids():
-                record = self.history_manager.get_original_image_record(image_id)
-                if not record:
-                    continue
-                original_images_payload.append({
-                    "image_id": image_id,
-                    "display_name": record.display_name,
-                    "source_path": record.source_path,
-                    "extra_metadata": record.extra_metadata,
-                })
-                original_order_payload.append(image_id)
-        session_data = {
-            "format_version": "1.1",
-            "history_data": {
-                "tree": self.history_manager.history,
-                "current_node_id": self.history_manager.current_node_id,
-                "original_images": original_images_payload,
-                "original_order": original_order_payload,
-            },
-            "controller_state": controller_state_to_save
-        }
+        session_data = self.session_serializer.build_session_payload(self)
 
         try:
-            with open(file_path, 'wb') as f:
-                pickle.dump(session_data, f)
+            SessionSerializer.dump_to_file(file_path, session_data)
             logger.info(f"Analysis session saved successfully at: {file_path}")
-            QMessageBox.information(None, "Saved", f"Sesja została pomyślnie zapisana w pliku:\n{os.path.basename(file_path)}")
+            QMessageBox.information(None, "Saved", f"Sesja zostala pomyslnie zapisana w pliku:\n{os.path.basename(file_path)}")
         except Exception as e:
             logger.exception(f"Critical error while saving the session file: {e}")
-            QMessageBox.critical(None, "Save error", f"Wystąpił błąd podczas zapisu pliku:\n{e}")
-
+            QMessageBox.critical(None, "Save error", f"Wystapil blad podczas zapisu pliku:\n{e}")
     def load_analysis_session(self):
         file_path, _ = QFileDialog.getOpenFileName(
             None, "Load analysis session", "", "LFA Project Files (*.lfa_proj);;All Files (*)"
@@ -252,15 +190,7 @@ class AppController(QObject):
             return
 
         try:
-            with open(file_path, 'rb') as f:
-                session_data = pickle.load(f)
-
-            format_version = session_data.get("format_version", "1.0")
-            if format_version not in {"1.0", "1.1"}:
-                logger.warning("Attempted to load a session file with an incompatible format version: %s", format_version)
-                QMessageBox.warning(None, "Version error", "The session file uses an unsupported format version.")
-                return
-
+            session_data = SessionSerializer.load_from_file(file_path)
         except Exception as e:
             logger.exception(f"Critical error while loading the session file: {e}")
             return
@@ -270,139 +200,14 @@ class AppController(QObject):
         self.history_manager.clear_history()
         self.clear_all_spot_data()
 
-        loaded_state = session_data.get("controller_state", {})
-        legacy_superstructure_results = loaded_state.get("domain_wall_analysis_results")
-        if legacy_superstructure_results is not None and "superstructure_periodicity_results" not in loaded_state:
-            logger.info("Migrating legacy domain wall analysis results to superstructure periodicity results.")
-            self.superstructure_periodicity_results = legacy_superstructure_results
-
-        substrate_offset = loaded_state.get("substrate_visual_offset_nm")
-        if substrate_offset is not None:
-            try:
-                self.substrate_visual_offset_nm = tuple(substrate_offset)
-            except TypeError:
-                logger.warning("Invalid substrate_visual_offset_nm in session; resetting to defaults.")
-                self.substrate_visual_offset_nm = (0.0, 0.0)
-
-        adsorbate_offsets = loaded_state.get("adsorbate_visual_offsets_nm")
-        if isinstance(adsorbate_offsets, dict):
-            converted_offsets: Dict[int, Tuple[float, float]] = {}
-            for idx_key, offset in adsorbate_offsets.items():
-                try:
-                    idx = int(idx_key)
-                except (TypeError, ValueError):
-                    logger.warning(f"Ignoring adsorbate offset with non-integer key: {idx_key}")
-                    continue
-                try:
-                    converted_offsets[idx] = tuple(offset)
-                except TypeError:
-                    logger.warning(f"Ignoring malformed adsorbate offset for set {idx}.")
-            if converted_offsets:
-                self.adsorbate_visual_offsets_nm.update(converted_offsets)
-
-        for key, value in loaded_state.items():
-            if key in {"domain_wall_analysis_results", "substrate_visual_offset_nm", "adsorbate_visual_offsets_nm"}:
-                continue
-            if hasattr(self, key):
-                setattr(self, key, value)
-            else:
-                logger.warning(f"Attribute '{key}' from the session file no longer exists on AppController.")
-
-        raw_substrate_pairs = loaded_state.get("substrate_spot_pairs")
-        if raw_substrate_pairs is not None:
-            self.substrate_spot_pairs = [
-                (tuple(pair.get("raw", (0.0, 0.0))), tuple(pair.get("transformed", (0.0, 0.0))))
-                for pair in raw_substrate_pairs
-            ]
-        else:
-            self.substrate_spot_pairs = []
-
-        raw_substrate_pairs = loaded_state.get("substrate_spot_pairs") or []
-        self.substrate_spot_pairs = [
-            (tuple(pair.get("raw", (0.0, 0.0))), tuple(pair.get("transformed", (0.0, 0.0))))
-            for pair in raw_substrate_pairs
-        ]
-
-        raw_adsorbate_pairs = loaded_state.get("adsorbate_spot_pairs")
-        converted_adsorbate_pairs: Dict[int, List[Tuple[Tuple[float, float], Tuple[float, float]]]] = {}
-        if isinstance(raw_adsorbate_pairs, dict):
-            for index_key, pairs in raw_adsorbate_pairs.items():
-                try:
-                    index = int(index_key)
-                except (TypeError, ValueError):
-                    continue
-                converted_adsorbate_pairs[index] = [
-                    (tuple(pair.get("raw", (0.0, 0.0))), tuple(pair.get("transformed", (0.0, 0.0))))
-                    for pair in pairs
-                ]
-        self.adsorbate_spot_pairs = converted_adsorbate_pairs
-
-        if not self.adsorbate_spot_pairs:
-            self.adsorbate_spot_pairs = {i: [] for i in range(len(self.adsorbate_spot_sets))}
-        else:
-            for idx in range(len(self.adsorbate_spot_sets)):
-                self.adsorbate_spot_pairs.setdefault(idx, [])
-        for idx in range(len(self.adsorbate_spot_sets)):
-            self.adsorbate_visual_offsets_nm.setdefault(idx, (0.0, 0.0))
-
-        self.set_substrate_raw_visibility(getattr(self, "show_substrate_raw_spots", True))
-        self.set_substrate_transformed_visibility(getattr(self, "show_substrate_transformed_spots", True))
-        self.set_adsorbate_raw_visibility(getattr(self, "show_adsorbate_raw_spots", True))
-        self.set_adsorbate_transformed_visibility(getattr(self, "show_adsorbate_transformed_spots", True))
-
-        format_version = session_data.get("format_version", "1.0")
-        history_data = session_data.get("history_data", {})
-
-        self.history_manager.history = history_data.get("tree", {}) or {}
-
-        if hasattr(self.history_manager, "original_images"):
-            self.history_manager.original_images.clear()
-        if hasattr(self.history_manager, "_original_order"):
-            self.history_manager._original_order = []
-        if hasattr(self.history_manager, "_root_nodes_by_image_id"):
-            self.history_manager._root_nodes_by_image_id.clear()
-
-        if format_version == "1.1":
-            stored_records = history_data.get("original_images", []) or []
-            for record_data in stored_records:
-                image_id = record_data.get("image_id") or str(uuid.uuid4())
-                record = OriginalImageRecord(
-                    image_id=image_id,
-                    display_name=record_data.get("display_name", "Original Image"),
-                    stm_image=None,
-                    source_path=record_data.get("source_path"),
-                    extra_metadata=record_data.get("extra_metadata", {}),
-                )
-                if hasattr(self.history_manager, "register_original_image"):
-                    self.history_manager.register_original_image(record)
-
-        if hasattr(self.history_manager, "rebuild_indexes"):
-            self.history_manager.rebuild_indexes()
-
-        if format_version == "1.1":
-            stored_order = history_data.get("original_order", []) or []
-            filtered_order = [img_id for img_id in stored_order if img_id in getattr(self.history_manager, "original_images", {})]
-            for img_id in getattr(self.history_manager, "original_images", {}):
-                if img_id not in filtered_order:
-                    filtered_order.append(img_id)
-            if hasattr(self.history_manager, "_original_order"):
-                self.history_manager._original_order = filtered_order
-
-        if hasattr(self.history_manager, "refresh_widget"):
-            self.history_manager.refresh_widget()
-
-        current_id = history_data.get("current_node_id")
-        self.history_manager.set_current_node_by_id(current_id, emit_signal=False)
-
-        logger.info(f"Session loaded successfully. Refreshing user interface...")
-        
-        self.file_loaded_successfully.emit(os.path.basename(self.original_file_path or "Loaded Session"))
-        self.adsorbate_sets_structure_changed.emit()
-        self.substrate_definition_changed.emit()
-        self.substrate_transform_results_updated.emit()
-        self.superstructure_periodicity_results_updated.emit(self.superstructure_periodicity_results)
-        
-        self.history_manager.current_node_changed.emit(self.history_manager.get_current_node())
+        try:
+            self.session_serializer.restore_session(self, session_data)
+        except ValueError as exc:
+            logger.warning(f"Attempted to load an incompatible session: {exc}")
+            QMessageBox.warning(None, "Version error", str(exc))
+        except Exception as exc:
+            logger.exception(f"Failed to restore session: {exc}")
+            QMessageBox.critical(None, "Load error", f"Could not load session:\n{exc}")
 
     def delete_history_step(self, node_id: str) -> bool:
         """
@@ -1245,74 +1050,18 @@ class AppController(QObject):
 
     def add_new_adsorbate_set(self):
         """Adds a new, empty adsorbate spot set and sets it as current."""
-        self.adsorbate_spot_sets.append([])
-        self.corrected_adsorbate_spot_sets.append([])
-        self.current_adsorbate_set_index = len(self.adsorbate_spot_sets) - 1
-        new_set_index = len(self.adsorbate_spot_sets) - 1
-        self.adsorbate_spot_pairs.setdefault(new_set_index, [])
-        logger.info(f"Added new adsorbate set. Index: {self.current_adsorbate_set_index}")
-        last_selected_type_in_panel = ADSORBATE_LATTICE_TYPE_UNKNOWN
-        self.adsorbate_expected_lattice_types[new_set_index] = last_selected_type_in_panel
-        self.adsorbate_visual_offsets_nm[new_set_index] = (0.0, 0.0)
-        self.spot_lists_updated.emit()
-        self.adsorbate_sets_structure_changed.emit()
-        if hasattr(self, 'adsorbate_expected_type_updated'): self.adsorbate_expected_type_updated.emit(new_set_index, last_selected_type_in_panel)
+        self.spot_manager.add_new_adsorbate_set()
+
 
     def set_current_adsorbate_set_by_index(self, index: int):
         """Sets the current adsorbate set based on the index."""
-        if 0 <= index < len(self.adsorbate_spot_sets):
-            if self.current_adsorbate_set_index != index:
-                self.current_adsorbate_set_index = index
-                logger.info(f"Current adsorbate set changed to index: {index}")
-                self.spot_selection_parameters_changed.emit()
-        else:
-            logger.warning(f"Attempted to set invalid adsorbate set index: {index}") # pragma: no cover
+        self.spot_manager.set_current_adsorbate_set_by_index(index)
+
 
     def clear_all_spot_data(self):
         """Clears all spot data."""
-        changed = False
-        if self.substrate_spots:
-            self.substrate_spots.clear()
-            changed = True
-        if self.adsorbate_spot_sets != [[]] or self.current_adsorbate_set_index != 0:
-            self.adsorbate_spot_sets = [[]]
-            self.corrected_adsorbate_spot_sets = [[]]
-            self.current_adsorbate_set_index = 0
-            changed = True
-        
-        self.user_selected_substrate_spots.clear()
-        self.adsorbate_real_space_results.clear()
-        self.substrate_F_m2i = None
-        self.substrate_t_m2i = None
-        self.substrate_transform_analysis_m2i = None
-        self.displayable_fitted_substrate_spots_on_fft.clear()
-        self.substrate_spot_pairs.clear()
-        self.substrate_real_space_results = None
-        self.adsorbate_expected_lattice_types = {0: ADSORBATE_LATTICE_TYPE_UNKNOWN}
-        self.adsorbate_spot_pairs = {0: []}
-        self.substrate_visual_offset_nm = (0.0, 0.0)
-        self.adsorbate_visual_offsets_nm = {0: (0.0, 0.0)}
-        self.superstructure_periodicity_results = None
-        self.superstructure_periodicity_results_updated.emit(None)
+        self.spot_manager.clear_all_spot_data()
 
-        self.set_substrate_raw_visibility(True)
-        self.set_substrate_transformed_visibility(True)
-        self.set_adsorbate_raw_visibility(True)
-        self.set_adsorbate_transformed_visibility(True)
 
-        if hasattr(self, 'substrate_real_space_params_updated'): self.substrate_real_space_params_updated.emit({})
-        if hasattr(self, 'spot_lists_updated'): self.spot_lists_updated.emit()
-        if hasattr(self, 'adsorbate_sets_structure_changed'): self.adsorbate_sets_structure_changed.emit()
-        if hasattr(self, 'substrate_transform_results_updated'): self.substrate_transform_results_updated.emit()
-        if hasattr(self, 'adsorbate_real_space_params_updated'): self.adsorbate_real_space_params_updated.emit(0, {})
-        if hasattr(self, 'adsorbate_expected_type_updated'): self.adsorbate_expected_type_updated.emit(0, ADSORBATE_LATTICE_TYPE_UNKNOWN)
-        if changed and hasattr(self, 'adsorbate_set_updated'): self.adsorbate_set_updated.emit(0)
-        logger.debug("All spot data and substrate transform results cleared.")
-        
-        if changed:
-            logger.debug("All spot data cleared by clear_all_spot_data.")
-            self.spot_lists_updated.emit()
-            self.adsorbate_sets_structure_changed.emit()
-        else:
-            logger.debug("No spot data to clear or already in default state.")
+
 

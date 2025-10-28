@@ -11,7 +11,7 @@ import time
 
 from PyQt6.QtWidgets import (
     QMainWindow, QVBoxLayout, QWidget, QFileDialog, QMessageBox, QApplication, 
-    QDialog, QHBoxLayout, QSplitter, QListWidget, QListWidgetItem, QDockWidget, QMenu
+    QDialog, QHBoxLayout, QSplitter, QListWidget, QListWidgetItem, QDockWidget
 )
 from PyQt6.QtGui import QAction, QIcon
 from PyQt6.QtCore import Qt, pyqtSlot, QPointF
@@ -31,6 +31,7 @@ from ..logic.app_controller import AppController, LATTICE_ANALYSIS_FUNCTIONS_AVA
 from ..core.history import HistoryNode
 from .ui_setup.menu_action_manager import MenuActionManager
 from .ui_setup.dock_panel_manager import DockPanelManager
+from .ui_setup.history_context_menu import HistoryContextMenu
 from ..gui.dialogs.substrate_spot_dialog import PREDEFINED_SUBSTRATE_NONE, PREDEFINED_SUBSTRATE_CUSTOM, LATTICE_TYPE_HEXAGONAL, LATTICE_TYPE_SQUARE, LATTICE_TYPE_CUSTOM
 from ..logic.app_controller import ADSORBATE_LATTICE_TYPE_UNKNOWN
 
@@ -137,6 +138,7 @@ class MainWindow(QMainWindow):
         self._init_core_attributes()
 
         self.menu_manager = MenuActionManager(self) 
+        self.history_context_menu = HistoryContextMenu(self)
         self.real_space_visualizer_dialog_instance: Optional[RealSpaceFFTVisualizerDialog] = None
 
         self.dock_manager = DockPanelManager(
@@ -196,119 +198,12 @@ class MainWindow(QMainWindow):
         """Creates the status bar."""
         self.statusBar().showMessage("Ready - Load an image using File -> Open")
 
-    def _show_history_context_menu(self, position):
-        """Opens the context menu for history entries."""
-        if not self.history_manager:
-            return
-
-        item = self.history_list_widget.itemAt(position)
-        if item is None:
-            return
-
-        node_id = item.data(Qt.ItemDataRole.UserRole)
-        if not node_id:
-            return
-
-        node = self.history_manager.get_node_by_id(node_id)
-        if not node:
-            return
-
-        menu = QMenu(self)
-        is_root = node.parent_id is None or node.operation_name == "Original"
-
-        delete_step_action = None
-        if not is_root:
-            delete_step_action = menu.addAction("Delete Step")
-
-        original_image_id = item.data(Qt.ItemDataRole.UserRole + 2) or node.original_image_id
-        root_node = self.history_manager.get_root_node_for_node(node.node_id)
-        original_label = None
-        if root_node:
-            original_image_id = root_node.original_image_id
-            original_label = root_node.parameters.get("original_label")
-        if original_label is None:
-            original_label = node.parameters.get("original_label")
-
-        delete_original_action = None
-        if original_image_id:
-            label_text = original_label or f"Original Image {original_image_id}"
-            delete_original_action = menu.addAction(f"Delete {label_text}...")
-        else:
-            label_text = None
-
-        if not menu.actions():
-            return
-
-        chosen_action = menu.exec(self.history_list_widget.mapToGlobal(position))
-        if not chosen_action:
-            return
-
-        if delete_step_action and chosen_action == delete_step_action:
-            self._handle_delete_history_step(node_id)
-        elif delete_original_action and chosen_action == delete_original_action and original_image_id:
-            self._handle_delete_original_image(original_image_id, node_id, label_text)
-
-    def _handle_delete_history_step(self, node_id: str):
-        """Requests deletion of a single history entry."""
-        if not (self.app_controller and node_id):
-            return
-
-        confirmation = QMessageBox.question(
-            self,
-            "Delete Step",
-            "Are you sure you want to delete this history step?\nThis action cannot be undone.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        )
-        if confirmation != QMessageBox.StandardButton.Yes:
-            return
-
-        try:
-            success = self.app_controller.delete_history_step(node_id)
-        except AttributeError:
-            logger.error("AppController.delete_history_step is not available.")
-            success = False
-
-        if success:
-            self.statusBar().showMessage("History step deleted.", 3000)
-        else:
-            QMessageBox.warning(self, "Delete Failed", "Could not delete the selected history step.")
-
-    def _handle_delete_original_image(self, image_id: str, node_id: str, label_text: Optional[str]):
-        """Requests deletion of an entire original image branch."""
-        if not self.app_controller:
-            return
-
-        display_label = label_text or "this original image"
-        confirmation = QMessageBox.question(
-            self,
-            "Delete Original Image",
-            f"Delete {display_label} and all of its derived history steps?\nThis action cannot be undone.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        )
-        if confirmation != QMessageBox.StandardButton.Yes:
-            return
-
-        try:
-            success = self.app_controller.delete_original_image(image_id, node_id=node_id)
-        except TypeError:
-            success = self.app_controller.delete_original_image(image_id)  # type: ignore
-        except AttributeError:
-            logger.error("AppController.delete_original_image is not available.")
-            success = False
-
-        if success:
-            self.statusBar().showMessage(f"{display_label} deleted.", 3000)
-        else:
-            QMessageBox.warning(self, "Delete Failed", f"Could not delete {display_label}.")
-
     def _connect_signals(self):
         """Connects signals to slots."""
         if self.history_manager:
             self.history_list_widget.currentItemChanged.connect(self.on_history_selection_changed)
             self.history_manager.current_node_changed.connect(self._on_current_history_node_changed)
-            self.history_list_widget.customContextMenuRequested.connect(self._show_history_context_menu)
+            self.history_list_widget.customContextMenuRequested.connect(self.history_context_menu.show_menu)
 
         if self.app_controller:
             self.app_controller.file_loaded_successfully.connect(self._on_file_loaded_successfully)
