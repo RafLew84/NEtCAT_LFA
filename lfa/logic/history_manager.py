@@ -137,7 +137,12 @@ class HistoryManager(QObject):
     def get_node_by_id(self, node_id: str) -> Optional[HistoryNode]:
         return self.backend.history.get(node_id)
 
-    def set_current_node_by_id(self, node_id: Optional[str], emit_signal: bool = True) -> None:
+    def set_current_node_by_id(
+        self,
+        node_id: Optional[str],
+        emit_signal: bool = True,
+        force_signal: bool = False,
+    ) -> None:
         previous_node_id = self.backend.current_node_id
         try:
             self.backend.set_current_node(node_id)
@@ -151,9 +156,16 @@ class HistoryManager(QObject):
         self._update_selection(self.backend.current_node_id)
         self.history_list_widget.blockSignals(False)
 
-        if emit_signal and previous_node_id != self.backend.current_node_id:
+        if not emit_signal:
+            return
+
+        if force_signal:
             self.current_node_changed.emit(self.get_current_node())
-        elif emit_signal and self.backend.current_node_id is None and previous_node_id is not None:
+            return
+
+        if previous_node_id != self.backend.current_node_id:
+            self.current_node_changed.emit(self.get_current_node())
+        elif self.backend.current_node_id is None and previous_node_id is not None:
             self.current_node_changed.emit(None)
 
     def get_root_node_for_node(self, node_id: Optional[str]) -> Optional[HistoryNode]:
@@ -167,7 +179,11 @@ class HistoryManager(QObject):
             return None
 
         self.refresh_widget()
-        self.set_current_node_by_id(result.get("new_current_node_id"), emit_signal=True)
+        self.set_current_node_by_id(
+            result.get("new_current_node_id"),
+            emit_signal=True,
+            force_signal=True,
+        )
         return result
 
     def delete_original_image_branch(self, image_id: str) -> Optional[Dict[str, Optional[str]]]:
@@ -177,7 +193,11 @@ class HistoryManager(QObject):
             logger.warning("HistoryManager.delete_original_image_branch: Original image %s not found.", image_id)
             return None
         self.refresh_widget()
-        self.set_current_node_by_id(result.get("new_current_node_id"), emit_signal=True)
+        self.set_current_node_by_id(
+            result.get("new_current_node_id"),
+            emit_signal=True,
+            force_signal=True,
+        )
         return result
 
     # ------------------------------------------------------------------ Helper methods
