@@ -1,6 +1,6 @@
 # lfa/logic/history_manager.py
 import logging
-from typing import Dict, Optional, Any, List
+from typing import Dict, Optional, Any, List, Set
 from PyQt6.QtWidgets import QListWidget, QListWidgetItem
 from PyQt6.QtCore import Qt, pyqtSignal, QObject
 from ..core.history import HistoryNode
@@ -85,6 +85,28 @@ class HistoryManager(QObject):
             if existing_node and existing_node.original_image_id == node.original_image_id:
                 last_row = row
         return last_row + 1 if last_row >= 0 else count
+
+    def _collect_descendant_ids(self, node_id: str) -> Set[str]:
+        """
+        Collects the IDs of the node and all of its descendants.
+        """
+        descendants: Set[str] = set()
+        stack = [node_id]
+        nodes_snapshot = list(self.history.values())
+
+        while stack:
+            current_id = stack.pop()
+            if current_id in descendants:
+                continue
+            node = self.history.get(current_id)
+            if not node:
+                continue
+            descendants.add(current_id)
+            for candidate in nodes_snapshot:
+                if candidate.parent_id == current_id:
+                    stack.append(candidate.node_id)
+
+        return descendants
 
     def refresh_widget(self):
         """Rebuild the QListWidget from the current history tree."""
@@ -454,3 +476,94 @@ class HistoryManager(QObject):
         
         logger.warning(f"get_root_node_for_node: Reached iteration limit for {node_id}. Returning oldest ancestor found: {current_node.node_id}")
         return current_node
+
+    def delete_node_branch(self, node_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Deletes the specified node and all of its descendants from history.
+
+        Returns a dictionary with deletion details or None if deletion failed.
+        """
+        if not node_id:
+            logger.warning("HistoryManager.delete_node_branch called with empty node_id.")
+            return None
+
+        node = self.history.get(node_id)
+        if not node:
+            logger.warning("HistoryManager.delete_node_branch: Node %s not found.", node_id)
+            return None
+
+        descendants = self._collect_descendant_ids(node_id)
+        if not descendants:
+            logger.warning("HistoryManager.delete_node_branch: No descendants found for node %s.", node_id)
+            return None
+
+        parent_id = node.parent_id
+        original_image_id = node.original_image_id
+        is_root = node.operation_name == "Original" or node.parent_id is None
+
+        logger.info(
+            "HistoryManager: Deleting node %s (%s) with %d descendant(s).",
+            node_id,
+            node.operation_name,
+            len(descendants) - 1,
+        )
+
+        for removed_id in descendants:
+            self.history.pop(removed_id, None)
+
+        if is_root and original_image_id:
+            self.unregister_original_image(original_image_id)
+
+        # Remove root mapping entries pointing to deleted nodes (legacy safety)
+        for image_key, root_node_id in list(self._root_nodes_by_image_id.items()):
+            if root_node_id in descendants:
+                self._root_nodes_by_image_id.pop(image_key, None)
+
+        new_current_id = self.current_node_id
+        if new_current_id in descendants:
+            new_current_id = None
+
+        if new_current_id is None:
+            if parent_id and parent_id not in descendants and parent_id in self.history:
+                new_current_id = parent_id
+            else:
+                candidate_id = None
+                if original_image_id:
+                    ordered_nodes = sorted(self.history.values(), key=lambda n: n.timestamp)
+                    for remaining in ordered_nodes:
+                        if remaining.original_image_id == original_image_id and remaining.node_id not in descendants:
+                            candidate_id = remaining.node_id
+                            break
+                if candidate_id is None and self.history:
+                    candidate_id = min(self.history.values(), key=lambda n: n.timestamp).node_id
+                new_current_id = candidate_id
+
+        self.current_node_id = new_current_id
+        self.refresh_widget()
+        self.set_current_node_by_id(new_current_id, emit_signal=True)
+
+        return {
+            "deleted_node_ids": descendants,
+            "removed_original_image_id": original_image_id if is_root else None,
+            "new_current_node_id": new_current_id,
+        }
+
+    def delete_original_image_branch(self, image_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Deletes the entire history associated with the specified original image.
+        """
+        if not image_id:
+            logger.warning("HistoryManager.delete_original_image_branch called with empty image_id.")
+            return None
+
+        root_node_id = self._root_nodes_by_image_id.get(image_id)
+        if root_node_id:
+            return self.delete_node_branch(root_node_id)
+
+        # Fallback for legacy sessions without root mapping
+        for node in self.history.values():
+            if node.original_image_id == image_id and (node.parent_id is None or node.operation_name == "Original"):
+                return self.delete_node_branch(node.node_id)
+
+        logger.warning("HistoryManager.delete_original_image_branch: Original image %s not found.", image_id)
+        return None

@@ -404,6 +404,70 @@ class AppController(QObject):
         
         self.history_manager.current_node_changed.emit(self.history_manager.get_current_node())
 
+    def delete_history_step(self, node_id: str) -> bool:
+        """
+        Deletes a single history node (and its descendants) from the history tree.
+        """
+        if not node_id or not self.history_manager:
+            logger.warning("AppController.delete_history_step called with invalid parameters.")
+            return False
+
+        previous_node = self.history_manager.get_current_node()
+        previous_original_id = previous_node.original_image_id if previous_node else None
+
+        result = self.history_manager.delete_node_branch(node_id)
+        if not result:
+            logger.warning("AppController.delete_history_step: HistoryManager reported failure.")
+            return False
+
+        self._handle_history_deletion_result(result, previous_original_id)
+        return True
+
+    def delete_original_image(self, image_id: str, node_id: Optional[str] = None) -> bool:
+        """
+        Deletes an entire original image branch from the history.
+        """
+        if not image_id or not self.history_manager:
+            logger.warning("AppController.delete_original_image called with invalid parameters.")
+            return False
+
+        previous_node = self.history_manager.get_current_node()
+        previous_original_id = previous_node.original_image_id if previous_node else None
+
+        result = None
+        if node_id:
+            node = self.history_manager.get_node_by_id(node_id)
+            if node and node.original_image_id == image_id and (node.parent_id is None or node.operation_name == "Original"):
+                result = self.history_manager.delete_node_branch(node_id)
+        if result is None:
+            result = self.history_manager.delete_original_image_branch(image_id)
+
+        if not result:
+            logger.warning("AppController.delete_original_image: HistoryManager reported failure.")
+            return False
+
+        self._handle_history_deletion_result(result, previous_original_id)
+        return True
+
+    def _handle_history_deletion_result(self, result: Dict[str, Any], previous_original_id: Optional[str]):
+        """
+        Applies controller-level housekeeping after history nodes have been deleted.
+        """
+        removed_image_id = result.get("removed_original_image_id")
+        new_current_id = result.get("new_current_node_id")
+
+        if removed_image_id is not None or new_current_id is None:
+            logger.info("AppController: Clearing spot data after history deletion (original removed or no nodes remain).")
+            self.clear_all_spot_data()
+            return
+
+        current_node = self.history_manager.get_current_node() if self.history_manager else None
+        current_original_id = current_node.original_image_id if current_node else None
+
+        if previous_original_id and current_original_id != previous_original_id:
+            logger.info("AppController: Original image context changed after deletion; clearing spot data.")
+            self.clear_all_spot_data()
+
     def get_current_image_data_for_processing(self) -> Optional[Any]:
         """Gets the image data from the current history node for processing."""
         current_node = self.history_manager.get_current_node()

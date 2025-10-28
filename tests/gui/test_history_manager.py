@@ -151,6 +151,80 @@ def _add_original_image(history_manager: HistoryManager, label: str) -> tuple[Or
     return record, root_node
 
 
+def test_delete_node_branch_removes_descendants(history_manager: HistoryManager, list_widget: QListWidget, qtbot):
+    rec, root = _add_original_image(history_manager, "Original Image 1")
+    child = HistoryNode(
+        parent_id=root.node_id,
+        operation_name="Gaussian Blur",
+        parameters={"sigma": 1.2, "source_image_label": rec.display_name},
+        image_data=np.ones((4, 4), dtype=np.float32),
+        data_type="STM",
+        original_image_id=rec.image_id,
+    )
+    grandchild = HistoryNode(
+        parent_id=child.node_id,
+        operation_name="FFT",
+        parameters={"scaling_mode": "log", "source_image_label": rec.display_name},
+        image_data=np.ones((4, 4), dtype=np.float32),
+        data_type="FFT",
+        original_image_id=rec.image_id,
+    )
+    history_manager.add_node(child)
+    history_manager.add_node(grandchild)
+    history_manager.set_current_node_by_id(grandchild.node_id)
+
+    result = history_manager.delete_node_branch(child.node_id)
+    qtbot.wait(0)
+
+    assert result is not None
+    assert child.node_id not in history_manager.history
+    assert grandchild.node_id not in history_manager.history
+    assert root.node_id in history_manager.history
+    assert history_manager.current_node_id == root.node_id
+    assert list_widget.count() == 1
+    assert child.node_id in result["deleted_node_ids"]
+    assert grandchild.node_id in result["deleted_node_ids"]
+    assert result["removed_original_image_id"] is None
+
+
+def test_delete_original_image_branch_removes_all(history_manager: HistoryManager, list_widget: QListWidget, qtbot):
+    rec1, root1 = _add_original_image(history_manager, "Original Image 1")
+    child1 = HistoryNode(
+        parent_id=root1.node_id,
+        operation_name="Median Filter",
+        parameters={"size": 3, "source_image_label": rec1.display_name},
+        image_data=np.ones((4, 4), dtype=np.float32),
+        data_type="STM",
+        original_image_id=rec1.image_id,
+    )
+    history_manager.add_node(child1)
+
+    rec2, root2 = _add_original_image(history_manager, "Original Image 2")
+    child2 = HistoryNode(
+        parent_id=root2.node_id,
+        operation_name="FFT",
+        parameters={"scaling_mode": "log", "source_image_label": rec2.display_name},
+        image_data=np.ones((4, 4), dtype=np.float32),
+        data_type="FFT",
+        original_image_id=rec2.image_id,
+    )
+    history_manager.add_node(child2)
+    history_manager.set_current_node_by_id(child2.node_id)
+
+    result = history_manager.delete_original_image_branch(rec1.image_id)
+    qtbot.wait(0)
+
+    assert result is not None
+    assert result["removed_original_image_id"] == rec1.image_id
+    assert root1.node_id not in history_manager.history
+    assert child1.node_id not in history_manager.history
+    assert rec1.image_id not in history_manager.original_images
+    assert rec1.image_id not in history_manager.iter_original_image_ids()
+    assert rec2.image_id in history_manager.original_images
+    assert list_widget.count() == 2
+    assert history_manager.current_node_id == child2.node_id
+
+
 def test_multi_original_images_grouping(history_manager: HistoryManager, list_widget: QListWidget):
     """Węzły powinny być grupowane według obrazu źródłowego i zachowywać porządek."""
     rec1, root1 = _add_original_image(history_manager, "Original Image 1")
