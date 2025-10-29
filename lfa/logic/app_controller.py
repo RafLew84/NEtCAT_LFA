@@ -35,7 +35,7 @@ from PyQt6.QtWidgets import QFileDialog, QMessageBox
 from PyQt6.QtCore import Qt
 
 from .session_serializer import SessionSerializer
-from .services import HistoryOrchestrator, SessionService, SpotSetService
+from .services import HistoryOrchestrator, SessionService, SpotSetService, AnalysisExecutor
 
 if TYPE_CHECKING:  # pragma: no cover
     from .session_state import ControllerState
@@ -165,6 +165,7 @@ class AppController(QObject):
         self.session_serializer = SessionSerializer(self.history_manager)
         self.session_service = SessionService(self, self.history_service)
         self.spot_service = SpotSetService(self, ADSORBATE_LATTICE_TYPE_UNKNOWN)
+        self.analysis_executor = AnalysisExecutor(self)
 
 
         logger.info("AppController initialized.")
@@ -887,51 +888,25 @@ class AppController(QObject):
         return self.history_service.get_current_node()
 
     def can_load_metadata(self, history_node: Optional[HistoryNode]) -> bool:
-        if not history_node or not self.history_manager:
-            return False
-        root_node = self.history_manager.get_root_node_for_node(history_node.node_id)
-        if not root_node:
-            return False
-        parameters = getattr(root_node, "parameters", {}) or {}
-        return "raw_header" not in parameters
+        return self.analysis_executor.can_load_metadata(history_node)
 
     def can_calculate_fft(self, history_node: Optional[HistoryNode]) -> bool:
-        return bool(
-            history_node
-            and history_node.data_type == "STM"
-            and getattr(history_node, "image_data", None) is not None
-        )
+        return self.analysis_executor.can_calculate_fft(history_node)
 
     def can_select_spots(self, history_node: Optional[HistoryNode]) -> bool:
-        return bool(history_node and history_node.data_type == "FFT")
+        return self.analysis_executor.can_select_spots(history_node)
 
     def can_analyze_superstructure(self, history_node: Optional[HistoryNode]) -> bool:
-        return bool(
-            history_node
-            and history_node.data_type == "FFT"
-            and self.substrate_F_m2i is not None
-        )
+        return self.analysis_executor.can_analyze_superstructure(history_node)
 
     def can_visualize_real_space(self, history_node: Optional[HistoryNode]) -> bool:
-        return bool(
-            history_node
-            and history_node.data_type == "FFT"
-            and self.substrate_real_space_results
-        )
+        return self.analysis_executor.can_visualize_real_space(history_node)
 
     def can_open_real_space_reconstruction(self, history_node: Optional[HistoryNode]) -> bool:
-        return bool(
-            history_node
-            and history_node.data_type == "FFT"
-            and getattr(history_node, "complex_fft_data", None) is not None
-        )
+        return self.analysis_executor.can_open_real_space_reconstruction(history_node)
 
     def can_open_stm_transform(self, history_node: Optional[HistoryNode]) -> bool:
-        return bool(
-            history_node
-            and history_node.data_type == "STM"
-            and self.substrate_F_m2i is not None
-        )
+        return self.analysis_executor.can_open_stm_transform(history_node)
 
     def evaluate_fft_panel_state(
         self,
@@ -964,42 +939,11 @@ class AppController(QObject):
 
     def _can_calculate_substrate_real_space(self, history_node: HistoryNode) -> bool:
         """Check whether current data is sufficient to compute substrate real-space metrics."""
-        if not self._has_valid_substrate_definition():
-            return False
-        if not self.reference_ideal_substrate_spots_px:
-            return False
-        fft_shape = self._get_fft_data_shape(history_node)
-        if not fft_shape:
-            return False
-        expected_count = 0
-        if self.substrate_lattice_type == LATTICE_TYPE_HEXAGONAL:
-            expected_count = 6
-        elif self.substrate_lattice_type == LATTICE_TYPE_SQUARE:
-            expected_count = 4
-        if expected_count > 0:
-            return len(self.reference_ideal_substrate_spots_px) == expected_count
-        return len(self.reference_ideal_substrate_spots_px) >= 2
+        return self.analysis_executor.can_calculate_substrate_real_space(history_node)
 
     def _can_calculate_adsorbate_real_space(self, history_node: HistoryNode) -> bool:
         """Check whether current data is sufficient to compute adsorbate real-space metrics."""
-        idx = self.current_adsorbate_set_index
-        if not (
-            0 <= idx < len(self.corrected_adsorbate_spot_sets)
-            and self.corrected_adsorbate_spot_sets[idx]
-        ):
-            return False
-        fft_shape = self._get_fft_data_shape(history_node)
-        if not fft_shape:
-            return False
-        if not self.history_manager:
-            return False
-        root_node = self.history_manager.get_root_node_for_node(history_node.node_id)
-        if not root_node:
-            return False
-        params = getattr(root_node, "parameters", {}) or {}
-        if not (params.get("size_nm_x") and params.get("size_nm_y")):
-            return False
-        return len(self.corrected_adsorbate_spot_sets[idx]) >= 2
+        return self.analysis_executor.can_calculate_adsorbate_real_space(history_node)
 
     def add_new_node_to_history(self, new_node: HistoryNode):
         """

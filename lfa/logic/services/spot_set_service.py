@@ -250,12 +250,12 @@ class SpotSetService:
         can_calc_sub = (
             lattice_analysis_enabled
             and analysis_functions_available
-            and ctrl._can_calculate_substrate_real_space(history_node)
+            and ctrl.analysis_executor.can_calculate_substrate_real_space(history_node)
         )
         can_calc_ads = (
             lattice_analysis_enabled
             and analysis_functions_available
-            and ctrl._can_calculate_adsorbate_real_space(history_node)
+            and ctrl.analysis_executor.can_calculate_adsorbate_real_space(history_node)
         )
 
         return {
