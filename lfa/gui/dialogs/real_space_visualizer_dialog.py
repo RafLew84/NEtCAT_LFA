@@ -1,4 +1,4 @@
-# lfa/gui/dialogs/real_space_visualizer_dialog.py
+﻿# lfa/gui/dialogs/real_space_visualizer_dialog.py
 import logging
 import numpy as np
 from typing import Optional, List, Dict, Any, Tuple
@@ -41,6 +41,10 @@ except ImportError as e:
 
 from ..visualizers.real_space_state import RealSpaceVisualizerState
 from ..visualizers.real_space_pyvista_adapter import RealSpacePyVistaAdapter, RealSpaceSceneConfig
+from ..visualizers.real_space_view import (
+    RealSpaceVisualizerWidgets,
+    build_real_space_visualizer_ui,
+)
 from ..utils.display import format_float, format_pair
 
 logger = logging.getLogger(__name__)
@@ -128,6 +132,7 @@ class RealSpaceFFTVisualizerDialog(QDialog):
             if node and node.data_type == "FFT" and node.image_data is not None:
                 self.fft_data_to_display = node.image_data.copy()
 
+        self._widgets: Optional[RealSpaceVisualizerWidgets] = None
         self._init_ui()
         self._connect_signals()
         self.update_visualizations()
@@ -144,295 +149,21 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         - Control panel with display options and parameters
         - ROI selection and manipulation tools
         """
-        top_level_layout = QHBoxLayout(self)
-        main_splitter = QSplitter(Qt.Orientation.Horizontal)
-        top_level_layout.addWidget(main_splitter)
+        widgets = build_real_space_visualizer_ui(
+            self,
+            on_real_space_view_range_changed=self._on_real_space_view_range_changed if PYQTGRAPH_AVAILABLE else None,
+        )
+        self._widgets = widgets
 
-        self.fft_panel_widget = GraphicsLayoutWidget()
-        self.fft_view_box = self.fft_panel_widget.addViewBox(row=0, col=0, lockAspect=True, invertY=True)
-        self.fft_image_item_vis = ImageItem()
-        self.fft_view_box.addItem(self.fft_image_item_vis)
-        self.fft_view_box.setMenuEnabled(True)
-        self.fft_view_box.setMouseMode(ViewBox.PanMode)
-        main_splitter.addWidget(self.fft_panel_widget)
-
-        self.real_space_plot_widget = PlotWidget()
-        self.real_space_view_box = self.real_space_plot_widget.getViewBox()
-        if self.real_space_view_box:
-            self.real_space_view_box.sigRangeChanged.connect(self._on_real_space_view_range_changed)
-        plot_item_rs = self.real_space_plot_widget.getPlotItem()
-        if plot_item_rs:
-            plot_item_rs.setAspectLocked(True)
-            plot_item_rs.setTitle("Real Space Lattice Visualization")
-            plot_item_rs.setLabel('left', 'Y (nm)')
-            plot_item_rs.setLabel('bottom', 'X (nm)')
-            plot_item_rs.showGrid(x=True, y=True, alpha=0.3)
-        main_splitter.addWidget(self.real_space_plot_widget)
-
-        controls_panel_widget = QWidget()
-        controls_panel_layout = QVBoxLayout(controls_panel_widget)
-        controls_panel_widget.setMinimumWidth(350)
-        controls_panel_widget.setMaximumWidth(450)
-
-        display_options_group = QGroupBox("Display Options")
-        group_box_layout = QVBoxLayout(display_options_group)
-
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-
-        scroll_content_widget = QWidget()
-        self.display_options_form = QFormLayout(scroll_content_widget)
-
-        self.cb_show_substrate_real_lattice = QCheckBox("Substrate Real Lattice")
-        self.cb_show_substrate_real_lattice.setChecked(True)
-        self.display_options_form.addRow(self.cb_show_substrate_real_lattice)
-
-        self.adsorbate_display_checkbox_layout = QVBoxLayout()
-        self.display_options_form.addRow(QLabel("Adsorbate Sets (Real Space):"))
-        self.display_options_form.addRow(self.adsorbate_display_checkbox_layout)
-
-        self.custom_adsorbate_visibility_checkbox = QCheckBox("Custom Adsorbate Lattice")
-        self.custom_adsorbate_visibility_checkbox.setChecked(False)
-        self.adsorbate_display_checkbox_layout.addWidget(self.custom_adsorbate_visibility_checkbox)
-
-        self.adsorbate_sets_checkbox_layout = QVBoxLayout()
-        self.adsorbate_display_checkbox_layout.addLayout(self.adsorbate_sets_checkbox_layout)
-
-        self.cb_show_g_substrate_fft = QCheckBox("Substrate g* vectors (on FFT)")
-        self.cb_show_g_substrate_fft.setChecked(True)
-        self.display_options_form.addRow(self.cb_show_g_substrate_fft)
-
-        self.cb_show_g_adsorbate_fft = QCheckBox("Adsorbate g* vectors (Current Set, on FFT)")
-        self.cb_show_g_adsorbate_fft.setChecked(True)
-        self.display_options_form.addRow(self.cb_show_g_adsorbate_fft)
-
-        self.cb_visual_align = QCheckBox("Visually align adsorbate lattice to substrate")
-        self.cb_visual_align.setChecked(False)
-        self.cb_visual_align.setToolTip("Rotates only the visualization so the adsorbate a1 vector matches the substrate a1 vector.")
-        self.display_options_form.addRow(self.cb_visual_align)
-
-        self.substrate_lattice_cells_spin = QSpinBox()
-        self.substrate_lattice_cells_spin.setRange(1, 50)
-        self.substrate_lattice_cells_spin.setValue(10)
-        self.substrate_lattice_cells_spin.setToolTip("Number of substrate lattice cells drawn in each direction (N×N).")
-        self.display_options_form.addRow("Substrate lattice span (N):", self.substrate_lattice_cells_spin)
-
-        self.adsorbate_lattice_cells_spin = QSpinBox()
-        self.adsorbate_lattice_cells_spin.setRange(1, 50)
-        self.adsorbate_lattice_cells_spin.setValue(10)
-        self.adsorbate_lattice_cells_spin.setToolTip("Number of adsorbate lattice cells drawn in each direction (N×N).")
-        self.display_options_form.addRow("Adsorbate lattice span (N):", self.adsorbate_lattice_cells_spin)
-
-        self.substrate_atom_size_spin = QDoubleSpinBox()
-        self.substrate_atom_size_spin.setRange(1.0, 30.0)
-        self.substrate_atom_size_spin.setSingleStep(0.5)
-        self.substrate_atom_size_spin.setValue(8.0)
-        self.substrate_atom_size_spin.setToolTip("Marker size used for substrate lattice points.")
-        self.display_options_form.addRow("Substrate atom size:", self.substrate_atom_size_spin)
-
-        self.adsorbate_atom_size_spin = QDoubleSpinBox()
-        self.adsorbate_atom_size_spin.setRange(1.0, 30.0)
-        self.adsorbate_atom_size_spin.setSingleStep(0.5)
-        self.adsorbate_atom_size_spin.setValue(7.0)
-        self.adsorbate_atom_size_spin.setToolTip("Marker size used for adsorbate lattice points.")
-        self.display_options_form.addRow("Adsorbate atom size:", self.adsorbate_atom_size_spin)
-
-        self.custom_adsorbate_group = QGroupBox("Custom Adsorbate Definition")
-        custom_adsorbate_form = QFormLayout(self.custom_adsorbate_group)
-
-        self.custom_a1_x_spin = QDoubleSpinBox()
-        self.custom_a1_x_spin.setRange(-1000.0, 1000.0)
-        self.custom_a1_x_spin.setDecimals(4)
-        self.custom_a1_x_spin.setSingleStep(0.01)
-        self.custom_a1_x_spin.setValue(1.0)
-        custom_adsorbate_form.addRow("a1 x (nm):", self.custom_a1_x_spin)
-
-        self.custom_a1_y_spin = QDoubleSpinBox()
-        self.custom_a1_y_spin.setRange(-1000.0, 1000.0)
-        self.custom_a1_y_spin.setDecimals(4)
-        self.custom_a1_y_spin.setSingleStep(0.01)
-        self.custom_a1_y_spin.setValue(0.0)
-        custom_adsorbate_form.addRow("a1 y (nm):", self.custom_a1_y_spin)
-
-        self.custom_a2_x_spin = QDoubleSpinBox()
-        self.custom_a2_x_spin.setRange(-1000.0, 1000.0)
-        self.custom_a2_x_spin.setDecimals(4)
-        self.custom_a2_x_spin.setSingleStep(0.01)
-        self.custom_a2_x_spin.setValue(0.0)
-        custom_adsorbate_form.addRow("a2 x (nm):", self.custom_a2_x_spin)
-
-        self.custom_a2_y_spin = QDoubleSpinBox()
-        self.custom_a2_y_spin.setRange(-1000.0, 1000.0)
-        self.custom_a2_y_spin.setDecimals(4)
-        self.custom_a2_y_spin.setSingleStep(0.01)
-        self.custom_a2_y_spin.setValue(1.0)
-        custom_adsorbate_form.addRow("a2 y (nm):", self.custom_a2_y_spin)
-
-        self.custom_offset_x_spin = QDoubleSpinBox()
-        self.custom_offset_x_spin.setRange(-1000.0, 1000.0)
-        self.custom_offset_x_spin.setDecimals(4)
-        self.custom_offset_x_spin.setSingleStep(0.01)
-        self.custom_offset_x_spin.setValue(0.0)
-        custom_adsorbate_form.addRow("Offset x (nm):", self.custom_offset_x_spin)
-
-        self.custom_offset_y_spin = QDoubleSpinBox()
-        self.custom_offset_y_spin.setRange(-1000.0, 1000.0)
-        self.custom_offset_y_spin.setDecimals(4)
-        self.custom_offset_y_spin.setSingleStep(0.01)
-        self.custom_offset_y_spin.setValue(0.0)
-        custom_adsorbate_form.addRow("Offset y (nm):", self.custom_offset_y_spin)
-
-        self.custom_symbol_combo = QComboBox()
-        self.custom_symbol_combo.addItems(["o", "s", "t", "x", "+", "star", "d"])
-        self.custom_symbol_combo.blockSignals(True)
-        self.custom_symbol_combo.setCurrentText("star")
-        self.custom_symbol_combo.blockSignals(False)
-        custom_adsorbate_form.addRow("Marker symbol:", self.custom_symbol_combo)
-
-        button_row = QHBoxLayout()
-        self.custom_adsorbate_apply_button = QPushButton("Apply Custom Adsorbate")
-        self.custom_adsorbate_clear_button = QPushButton("Clear Custom Definition")
-        button_row.addWidget(self.custom_adsorbate_apply_button)
-        button_row.addWidget(self.custom_adsorbate_clear_button)
-        custom_adsorbate_form.addRow(button_row)
-
-        length_angle_container = QWidget()
-        length_angle_vbox = QVBoxLayout(length_angle_container)
-        length_angle_vbox.setContentsMargins(0, 0, 0, 0)
-        length_angle_vbox.setSpacing(4)
-
-        self.custom_adsorbate_length_angle_group = QGroupBox("Custom Adsorbate Definition (Length/Angle)")
-        custom_length_form = QFormLayout(self.custom_adsorbate_length_angle_group)
-
-        self.custom_a1_length_spin = QDoubleSpinBox()
-        self.custom_a1_length_spin.setRange(0.0, 1000.0)
-        self.custom_a1_length_spin.setDecimals(4)
-        self.custom_a1_length_spin.setSingleStep(0.01)
-        self.custom_a1_length_spin.setValue(1.0)
-        custom_length_form.addRow("a1 length (nm):", self.custom_a1_length_spin)
-
-        self.custom_a2_length_spin = QDoubleSpinBox()
-        self.custom_a2_length_spin.setRange(0.0, 1000.0)
-        self.custom_a2_length_spin.setDecimals(4)
-        self.custom_a2_length_spin.setSingleStep(0.01)
-        self.custom_a2_length_spin.setValue(1.0)
-        custom_length_form.addRow("a2 length (nm):", self.custom_a2_length_spin)
-
-        self.custom_angle_a1_spin = QDoubleSpinBox()
-        self.custom_angle_a1_spin.setRange(-360.0, 360.0)
-        self.custom_angle_a1_spin.setDecimals(3)
-        self.custom_angle_a1_spin.setSingleStep(0.5)
-        self.custom_angle_a1_spin.setValue(0.0)
-        custom_length_form.addRow("a1 angle (deg):", self.custom_angle_a1_spin)
-
-        self.custom_angle_between_spin = QDoubleSpinBox()
-        self.custom_angle_between_spin.setRange(0.0, 360.0)
-        self.custom_angle_between_spin.setDecimals(3)
-        self.custom_angle_between_spin.setSingleStep(0.5)
-        self.custom_angle_between_spin.setValue(60.0)
-        custom_length_form.addRow("Angle(a1, a2) (deg):", self.custom_angle_between_spin)
-
-        self.custom_length_convert_button = QPushButton("Convert to X/Y")
-        custom_length_form.addRow(self.custom_length_convert_button)
-
-        length_angle_vbox.addWidget(self.custom_adsorbate_length_angle_group)
-
-        self.custom_componented_group = QGroupBox("Custom Adsorbate Definition (Components)")
-        custom_cart_form = QFormLayout(self.custom_componented_group)
-        custom_cart_form.addRow(self.custom_adsorbate_group)
-        custom_cart_form.addRow(length_angle_container)
-        self.display_options_form.addRow(self.custom_componented_group)
-
-        self.supercell_size_spinbox = QSpinBox()
-        self.supercell_size_spinbox.setMinimum(1)
-        self.supercell_size_spinbox.setMaximum(50)
-        self.supercell_size_spinbox.setValue(5)
-        self.supercell_size_spinbox.setToolTip("Sets the NxN size of the supercell for 3D visualization.")
-        self.display_options_form.addRow("3D Supercell Size (NxN):", self.supercell_size_spinbox)
-
-        offsets_group = QGroupBox("3D Layer Offsets (nm)")
-        offsets_form = QFormLayout(offsets_group)
-        self.substrate_offset_x_spin = QDoubleSpinBox()
-        self.substrate_offset_x_spin.setRange(-100.0, 100.0)
-        self.substrate_offset_x_spin.setDecimals(3)
-        self.substrate_offset_x_spin.setSingleStep(0.05)
-        offsets_form.addRow("Substrate ΔX:", self.substrate_offset_x_spin)
-        self.substrate_offset_y_spin = QDoubleSpinBox()
-        self.substrate_offset_y_spin.setRange(-100.0, 100.0)
-        self.substrate_offset_y_spin.setDecimals(3)
-        self.substrate_offset_y_spin.setSingleStep(0.05)
-        offsets_form.addRow("Substrate ΔY:", self.substrate_offset_y_spin)
-        self.adsorbate_offset_x_spin = QDoubleSpinBox()
-        self.adsorbate_offset_x_spin.setRange(-100.0, 100.0)
-        self.adsorbate_offset_x_spin.setDecimals(3)
-        self.adsorbate_offset_x_spin.setSingleStep(0.05)
-        offsets_form.addRow("Adsorbate ΔX:", self.adsorbate_offset_x_spin)
-        self.adsorbate_offset_y_spin = QDoubleSpinBox()
-        self.adsorbate_offset_y_spin.setRange(-100.0, 100.0)
-        self.adsorbate_offset_y_spin.setDecimals(3)
-        self.adsorbate_offset_y_spin.setSingleStep(0.05)
-        offsets_form.addRow("Adsorbate ΔY:", self.adsorbate_offset_y_spin)
-        self.display_options_form.addRow(offsets_group)
-
-        self.launch_3d_button = QPushButton("Launch Interactive 3D Viewer")
-        self.launch_3d_button.setToolTip("Opens a new, interactive window with a 3D model of the lattices.")
-        self.display_options_form.addRow(self.launch_3d_button)
-
-        scroll_area.setWidget(scroll_content_widget)
-
-        group_box_layout.addWidget(scroll_area)
-
-        controls_panel_layout.addWidget(display_options_group)
-        transform_info_group = QGroupBox("Substrate Transformation Info")
-        transform_info_layout = QFormLayout(transform_info_group)
-        self.info_sub_rot_label = QLabel("-")
-        self.info_sub_scale_label = QLabel("-")
-        self.info_sub_rmse_label = QLabel("-")
-        transform_info_layout.addRow("Rot (M->I):", self.info_sub_rot_label)
-        transform_info_layout.addRow("Stretch (M->I):", self.info_sub_scale_label)
-        transform_info_layout.addRow("Fit RMSE (M->I, px):", self.info_sub_rmse_label)
-        controls_panel_layout.addWidget(transform_info_group)
-
-        sub_real_params_group = QGroupBox("Substrate Real Space Parameters")
-        sub_real_params_layout = QFormLayout(sub_real_params_group)
-        self.sub_real_a1_label = QLabel("- nm"); self.sub_real_a2_label = QLabel("- nm")
-        self.sub_real_alpha_label = QLabel("- °")
-        sub_real_params_layout.addRow("|a1|:", self.sub_real_a1_label); sub_real_params_layout.addRow("|a2|:", self.sub_real_a2_label); sub_real_params_layout.addRow("Angle α:", self.sub_real_alpha_label)
-        controls_panel_layout.addWidget(sub_real_params_group)
-        
-        ads_real_params_group = QGroupBox("Adsorbate Real Space Parameters")
-        ads_real_params_layout = QFormLayout(ads_real_params_group)
-        self.ads_set_combo_vis = QComboBox()
-        ads_real_params_layout.addRow("Select Adsorbate Set:", self.ads_set_combo_vis)
-        self.ads_real_a1_label = QLabel("- nm")
-        self.ads_real_a2_label = QLabel("- nm")
-        self.ads_real_alpha_label = QLabel("- °")
-        ads_real_params_layout.addRow("|a1|:", self.ads_real_a1_label)
-        ads_real_params_layout.addRow("|a2|:", self.ads_real_a2_label)
-        ads_real_params_layout.addRow("Angle α:", self.ads_real_alpha_label)
-        self.angle_sub_ads_label = QLabel("- °")
-        ads_real_params_layout.addRow("Sub-Ads Angle:", self.angle_sub_ads_label)
-        self.calculate_sub_ads_angle_button = QPushButton("Calculate Sub-Ads Angle")
-        ads_real_params_layout.addRow(self.calculate_sub_ads_angle_button)
-        controls_panel_layout.addWidget(ads_real_params_group)
-
-        controls_panel_layout.addStretch(1)
-        
-        self.close_button = QPushButton("Close")
-        button_layout_final = QHBoxLayout()
-        button_layout_final.addStretch(1)
-        button_layout_final.addWidget(self.close_button)
-        controls_panel_layout.addLayout(button_layout_final)
-
-        main_splitter.addWidget(controls_panel_widget)
-
-        main_splitter.setSizes([500, 400, 300]) 
-        main_splitter.setStretchFactor(0, 1)
-        main_splitter.setStretchFactor(1, 1)
-        main_splitter.setStretchFactor(2, 0)
+        for attr_name, value in widgets.__dict__.items():
+            if attr_name == "extra_references":
+                for extra_name, extra_value in value.items():
+                    setattr(self, extra_name, extra_value)
+                continue
+            setattr(self, attr_name, value)
 
         self._update_offset_controls_from_state()
+        return
 
     def _connect_signals(self):
         """
@@ -655,7 +386,7 @@ class RealSpaceFFTVisualizerDialog(QDialog):
             self._redraw_fft_overlays()
             self._real_space_force_autorange = True
             self._redraw_real_space_lattices()
-            self.angle_sub_ads_label.setText("- °")
+            self.angle_sub_ads_label.setText("- Â°")
         else:
              logger.warning(f"Visualizer: No user data for combo box index {combo_box_index}")
 
@@ -689,7 +420,7 @@ class RealSpaceFFTVisualizerDialog(QDialog):
             scale_text = format_pair(tuple(stretches), 3)
             rmse_text = format_float(analysis.get("rmse"), 3)
 
-            self.info_sub_rot_label.setText(f"{rotation_text}°" if rotation_text != "N/A" else "N/A")
+            self.info_sub_rot_label.setText(f"{rotation_text}Â°" if rotation_text != "N/A" else "N/A")
             self.info_sub_scale_label.setText(scale_text if scale_text != "-" else "-")
             self.info_sub_rmse_label.setText(f"{rmse_text} px" if rmse_text != "-" else "-")
         else:
@@ -702,7 +433,7 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         self._real_space_force_autorange = True
         self._redraw_real_space_lattices()
         self._update_real_space_param_labels()
-        self.angle_sub_ads_label.setText("- °")
+        self.angle_sub_ads_label.setText("- Â°")
 
 
     def _populate_adsorbate_set_combo_and_checkboxes(self):
@@ -1015,11 +746,11 @@ class RealSpaceFFTVisualizerDialog(QDialog):
             alpha_text = format_float(params.get("alpha_deg"), 2)
             self.sub_real_a1_label.setText(f"{a1_text} nm" if a1_text != "-" else "- nm")
             self.sub_real_a2_label.setText(f"{a2_text} nm" if a2_text != "-" else "- nm")
-            self.sub_real_alpha_label.setText(f"{alpha_text} °" if alpha_text != "-" else "- °")
+            self.sub_real_alpha_label.setText(f"{alpha_text} Â°" if alpha_text != "-" else "- Â°")
         else:
             self.sub_real_a1_label.setText("- nm")
             self.sub_real_a2_label.setText("- nm")
-            self.sub_real_alpha_label.setText("- °")
+            self.sub_real_alpha_label.setText("- Â°")
 
         current_ads_set_idx_vis = self.ads_set_combo_vis.currentData()
         if (
@@ -1033,13 +764,13 @@ class RealSpaceFFTVisualizerDialog(QDialog):
             alpha_text = format_float(params.get("alpha_deg"), 2)
             self.ads_real_a1_label.setText(f"{a1_text} nm" if a1_text != "-" else "- nm")
             self.ads_real_a2_label.setText(f"{a2_text} nm" if a2_text != "-" else "- nm")
-            self.ads_real_alpha_label.setText(f"{alpha_text} °" if alpha_text != "-" else "- °")
+            self.ads_real_alpha_label.setText(f"{alpha_text} Â°" if alpha_text != "-" else "- Â°")
         else:
             self.ads_real_a1_label.setText("- nm")
             self.ads_real_a2_label.setText("- nm")
-            self.ads_real_alpha_label.setText("- °")
+            self.ads_real_alpha_label.setText("- Â°")
         
-        self.angle_sub_ads_label.setText("- °")
+        self.angle_sub_ads_label.setText("- Â°")
         self.calculate_sub_ads_angle_button.setEnabled(bool(
             self.app_controller and self.app_controller.substrate_real_space_results and
             current_ads_set_idx_vis is not None and
@@ -1083,7 +814,7 @@ class RealSpaceFFTVisualizerDialog(QDialog):
                 angle_text = format_float(angle_for_display_deg, precision=3)
                 angle_display = f"{angle_text} deg" if angle_text != "-" else "-"
                 self.angle_sub_ads_label.setText(angle_display)
-                logger.info(f"Displayed angle between default a1 vectors: {angle_for_display_deg:.3f}°")
+                logger.info(f"Displayed angle between default a1 vectors: {angle_for_display_deg:.3f}Â°")
             else:
                 self.angle_sub_ads_label.setText("N/A (Zero vector)")
 
@@ -1115,7 +846,7 @@ class RealSpaceFFTVisualizerDialog(QDialog):
                 while alignment_angle_rad > np.pi: alignment_angle_rad -= 2 * np.pi
                 
                 self.visual_alignment_angle_rad = alignment_angle_rad
-                logger.info(f"Stored visual alignment angle (background): {np.degrees(self.visual_alignment_angle_rad):.3f}°")
+                logger.info(f"Stored visual alignment angle (background): {np.degrees(self.visual_alignment_angle_rad):.3f}Â°")
             else:
                 self.visual_alignment_angle_rad = 0.0
             
@@ -1196,3 +927,4 @@ class RealSpaceFFTVisualizerDialog(QDialog):
             spin.blockSignals(True)
             spin.setValue(value)
             spin.blockSignals(False)
+
