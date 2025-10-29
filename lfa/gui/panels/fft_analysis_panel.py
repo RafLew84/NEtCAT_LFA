@@ -18,11 +18,11 @@ except ImportError:  # pragma: no cover
     KNOWN_LATTICES = {"Placeholder (Error)": {}}
 
 from ..utils.display import format_float, format_ratio
-
-ADSORBATE_LATTICE_TYPE_UNKNOWN = "Unknown"
-ADSORBATE_LATTICE_TYPE_HEXAGONAL = "Hexagonal"
-ADSORBATE_LATTICE_TYPE_SQUARE = "Square"
-
+from ...core.constants import (
+    ADSORBATE_LATTICE_TYPE_HEXAGONAL,
+    ADSORBATE_LATTICE_TYPE_SQUARE,
+    ADSORBATE_LATTICE_TYPE_UNKNOWN,
+)
 
 logger = logging.getLogger(__name__)
 

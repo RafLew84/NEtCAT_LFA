@@ -61,13 +61,16 @@ except ImportError:
     def fit_2d_gaussian_in_roi(data, center, radius): return None
     def _gaussian_2d(*args, **kwargs): raise ImportError("Gaussian 2D function is not available")
 
-from ...logic.app_controller import ADSORBATE_LATTICE_TYPE_UNKNOWN, ADSORBATE_LATTICE_TYPE_HEXAGONAL, ADSORBATE_LATTICE_TYPE_SQUARE
+from ...core.constants import (
+    ADSORBATE_LATTICE_TYPE_HEXAGONAL,
+    ADSORBATE_LATTICE_TYPE_SQUARE,
+    ADSORBATE_LATTICE_TYPE_UNKNOWN,
+    REFINEMENT_DIRECT_CLICK,
+    REFINEMENT_GAUSSIAN_FIT,
+    REFINEMENT_MAX_PIXEL,
+)
 
 logger = logging.getLogger(__name__)
-
-REFINEMENT_DIRECT_CLICK = "Direct Click"
-REFINEMENT_MAX_PIXEL = "Max Pixel"
-REFINEMENT_GAUSSIAN_FIT = "2D Gaussian Fit"
 
 class AdsorbateSpotSelectionDialog(QDialog):
     """

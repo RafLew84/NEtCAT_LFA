@@ -44,8 +44,28 @@ except ImportError:
 
 
 try:
-    from ...analysis.peak_fitting import find_max_pixel_in_roi, fit_2d_gaussian_in_roi, _gaussian_2d, SCIPY_AVAILABLE
-    from ...analysis.lattice import KNOWN_LATTICES, get_reciprocal_points, get_nearest_reciprocal_points
+    from ...analysis.peak_fitting import (
+        find_max_pixel_in_roi,
+        fit_2d_gaussian_in_roi,
+        _gaussian_2d,
+        SCIPY_AVAILABLE,
+    )
+    from ...analysis.lattice import (
+        KNOWN_LATTICES,
+        get_reciprocal_points,
+        get_nearest_reciprocal_points,
+    )
+    from ...core.constants import (
+        LATTICE_TYPE_CUSTOM,
+        LATTICE_TYPE_HEXAGONAL,
+        LATTICE_TYPE_SQUARE,
+        PREDEFINED_SUBSTRATE_CUSTOM,
+        PREDEFINED_SUBSTRATE_FROM_SELECTION,
+        PREDEFINED_SUBSTRATE_NONE,
+        REFINEMENT_DIRECT_CLICK,
+        REFINEMENT_GAUSSIAN_FIT,
+        REFINEMENT_MAX_PIXEL,
+    )
     from ...core.history import HistoryNode
     from ...logic.history_manager import HistoryManager
     PEAK_FITTING_MODULE_AVAILABLE = True
@@ -59,18 +79,6 @@ except ImportError: # pragma: no cover
     def _gaussian_2d(*args, **kwargs): raise ImportError("Gaussian 2D function is not available")
 
 logger = logging.getLogger(__name__)
-
-REFINEMENT_DIRECT_CLICK = "Direct Click"
-REFINEMENT_MAX_PIXEL = "Max Pixel"
-REFINEMENT_GAUSSIAN_FIT = "2D Gaussian Fit"
-
-LATTICE_TYPE_HEXAGONAL = "hexagonal"
-LATTICE_TYPE_SQUARE = "square"
-LATTICE_TYPE_CUSTOM = "custom"
-
-PREDEFINED_SUBSTRATE_NONE = "None (Define a_surf below)"
-PREDEFINED_SUBSTRATE_CUSTOM = "<Manual Definition...>"
-PREDEFINED_SUBSTRATE_FROM_SELECTION = "<From Selection (Future)>"
 
 class SubstrateSpotSelectionDialog(QDialog):
     def __init__(self,

@@ -32,8 +32,14 @@ from ..core.history import HistoryNode
 from .ui_setup.menu_action_manager import MenuActionManager
 from .ui_setup.dock_panel_manager import DockPanelManager
 from .ui_setup.history_context_menu import HistoryContextMenu
-from ..gui.dialogs.substrate_spot_dialog import PREDEFINED_SUBSTRATE_NONE, PREDEFINED_SUBSTRATE_CUSTOM, LATTICE_TYPE_HEXAGONAL, LATTICE_TYPE_SQUARE, LATTICE_TYPE_CUSTOM
-from ..logic.app_controller import ADSORBATE_LATTICE_TYPE_UNKNOWN
+from ..core.constants import (
+    ADSORBATE_LATTICE_TYPE_UNKNOWN,
+    LATTICE_TYPE_CUSTOM,
+    LATTICE_TYPE_HEXAGONAL,
+    LATTICE_TYPE_SQUARE,
+    PREDEFINED_SUBSTRATE_CUSTOM,
+    PREDEFINED_SUBSTRATE_NONE,
+)
 
 try:
     from lfa.gui.dialogs.preprocessing_dialogs import (GaussianBlurDialog, PlaneLevelingDialog, 

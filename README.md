@@ -1,4 +1,4 @@
-# Lattice Fourier Analyzer (LFA)
+﻿# Lattice Fourier Analyzer (LFA)
 
 Lattice Fourier Analyzer (LFA) is a Python desktop application for the scientific
 analysis of scanning tunneling microscopy (STM) images. It guides the user from
@@ -72,23 +72,23 @@ explore the interface and analysis workflow.
 ## 3D Visualization Tips
 
 - Launch the interactive 3D lattice viewer from the real-space visualizer to inspect substrate and adsorbate supercells.
-- Use the new layer offset controls (ΔX/ΔY) to nudge substrate or adsorbate atoms when layers render side-by-side.
+- Use the layer offset controls (`dX`/`dY`) to nudge substrate or adsorbate atoms when layers render side-by-side.
 - These shifts are stored in the session, letting you fine-tune alignment before exporting screenshots or continuing analysis.
 ## Typical Workflow
 
 1. **Load data**: Use `File > Open...` to import STM files. Each image is added
-   as a separate root in the history panel (e.g., “Original Image 1”,
-   “Original Image 2”), letting you run a single analysis across multiple scans.
+   as a separate root in the history panel (for example, `Original Image 1`,
+   `Original Image 2`), letting you run a single analysis across multiple scans.
 2. **Inspect metadata**: Select any history node to review original-file details
    and processing parameters in the metadata dock, including the source image
    label for derived nodes.
 3. **Preprocess**: Apply leveling, filtering, or denoising operations. Each
-   step branches off its originating image, preserving the “Original Image N”
-   grouping so you always know which scan you’re editing.
+   step branches off its originating image, preserving the `Original Image N`
+   grouping so you always know which scan you're editing.
 4. **Compute FFT**: Choose a node from any image and run
    `Analysis > Calculate FFT...`; the dialog title indicates which original
    image the FFT belongs to. Use `Apply FFT` to append results without closing
-   the dialog—handy for sampling multiple ROIs or parameter sets before you hit
+   the dialog - handy for sampling multiple ROIs or parameter sets before you hit
    `Close`.
 5. **Analyze substrate**: In the FFT analysis dock, select your substrate,
    open `Select Substrate Spots...`, pick the primary Bragg peaks, and compute
@@ -98,9 +98,9 @@ explore the interface and analysis workflow.
    one image on FFTs derived from another.
 7. **Obtain parameters**: Use the analysis dock and specialized dialogs to
    compute lattice constants, superstructure periodicity, and real-space vectors.
-8. **Persist your work**: Save the session via `File > Save Analysis…`. Sessions
+8. **Persist your work**: Save the session via `File > Save Analysis...`. Sessions
    now capture all images, history branches, and cross-image metadata. Reloading
-   restores every “Original Image N” grouping so you can continue exactly where
+   restores every `Original Image N` grouping so you can continue exactly where
    you left off or load legacy sessions saved before multi-image support was
    added.
 
@@ -138,7 +138,26 @@ scripts/                 Utility scripts and helpers
 
 ## Development Notes
 
-- Run the automated test suite with `pytest`.
+- Install development dependencies:
+
+  ```bash
+  pip install -r requirements.txt -r requirements-dev.txt
+  ```
+
+- Format and lint the codebase:
+
+  ```bash
+  black lfa tests
+  ruff check .
+  ```
+
+- Run static type checks:
+
+  ```bash
+  mypy lfa
+  ```
+
+- Execute the automated test suite with `pytest`.
 - Build the documentation with
 
   ```bash

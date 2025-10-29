@@ -11,14 +11,16 @@ from typing import Dict, Tuple, List, Optional, Union, Any
 from ase import Atoms
 from ase.build import make_supercell
 
-LATTICE_TYPE_HEXAGONAL = "hexagonal"
-LATTICE_TYPE_SQUARE = "square"
-LATTICE_TYPE_CUSTOM = "custom"
-LATTICE_TYPE_UNKNOWN = "Unknown"
+from ..core.constants import (
+    ADSORBATE_LATTICE_TYPE_HEXAGONAL,
+    ADSORBATE_LATTICE_TYPE_SQUARE,
+    ADSORBATE_LATTICE_TYPE_UNKNOWN,
+    LATTICE_TYPE_CUSTOM,
+    LATTICE_TYPE_HEXAGONAL,
+    LATTICE_TYPE_SQUARE,
+)
 
-ADSORBATE_LATTICE_TYPE_UNKNOWN = "Unknown"
-ADSORBATE_LATTICE_TYPE_HEXAGONAL = "Hexagonal"
-ADSORBATE_LATTICE_TYPE_SQUARE = "Square"
+LATTICE_TYPE_UNKNOWN = "Unknown"
 
 logger = logging.getLogger(__name__)
 
@@ -27,73 +29,73 @@ logger = logging.getLogger(__name__)
 # Store type ('hexagonal', 'square') to determine reciprocal lattice calculation.
 KNOWN_LATTICES: Dict[str, Dict] = {
     "Au(111)": {
-        "type": "hexagonal",
+        "type": LATTICE_TYPE_HEXAGONAL,
         "a_bulk": 0.408, # nm
         "a_surf": 0.408 / np.sqrt(2), # nm (~0.288)
         "source": "Approx. bulk value"
     },
     "Ag(111)": {
-        "type": "hexagonal",
+        "type": LATTICE_TYPE_HEXAGONAL,
         "a_bulk": 0.409,
         "a_surf": 0.409 / np.sqrt(2), # ~0.289 nm
         "source": "Approx. bulk value"
     },
     "Cu(111)": {
-        "type": "hexagonal",
+        "type": LATTICE_TYPE_HEXAGONAL,
         "a_bulk": 0.361,
         "a_surf": 0.361 / np.sqrt(2), # ~0.255 nm
         "source": "Approx. bulk value"
     },
      "Cu(100)": {
-        "type": "square",
+        "type": LATTICE_TYPE_SQUARE,
         "a_bulk": 0.361,
         "a_surf": 0.361 / np.sqrt(2), # ~0.255 nm (side length of surface unit cell)
         "source": "Approx. bulk value"
     },
      "Ag(100)": {
-        "type": "square",
+        "type": LATTICE_TYPE_SQUARE,
         "a_bulk": 0.409,
         "a_surf": 0.409 / np.sqrt(2), # ~0.289 nm
         "source": "Approx. bulk value"
     },
     "Graphene": {
-        "type": "hexagonal",
+        "type": LATTICE_TYPE_HEXAGONAL,
         "a_surf": 0.246, # nm
         "source": "Typical value"
     },
     "HOPG": { # Often approximated as graphene for surface studies
-        "type": "hexagonal",
+        "type": LATTICE_TYPE_HEXAGONAL,
         "a_surf": 0.246, # nm
         "source": "Typical value"
     },
     "Au(100)": {
-        "type": "square",
+        "type": LATTICE_TYPE_SQUARE,
         "a_bulk": 0.408,  # nm (lattice constant)
         "a_surf": 0.408 / np.sqrt(2),  # ~0.288 nm
         "source": "Approx. bulk value"
     },
     # Platinum (Pt) - FCC
     "Pt(111)": {
-        "type": "hexagonal",
+        "type": LATTICE_TYPE_HEXAGONAL,
         "a_bulk": 0.392,  # nm
         "a_surf": 0.392 / np.sqrt(2),  # ~0.277 nm
         "source": "Approx. bulk value"
     },
     "Pt(100)": {
-        "type": "square",
+        "type": LATTICE_TYPE_SQUARE,
         "a_bulk": 0.392,
         "a_surf": 0.392 / np.sqrt(2),  # ~0.277 nm
         "source": "Approx. bulk value"
     },
     # Nickel (Ni) - FCC
     "Ni(111)": {
-        "type": "hexagonal",
+        "type": LATTICE_TYPE_HEXAGONAL,
         "a_bulk": 0.352,  # nm
         "a_surf": 0.352 / np.sqrt(2),  # ~0.249 nm
         "source": "Approx. bulk value"
     },
     "Ni(100)": {
-        "type": "square",
+        "type": LATTICE_TYPE_SQUARE,
         "a_bulk": 0.352,
         "a_surf": 0.352 / np.sqrt(2),  # ~0.249 nm
         "source": "Approx. bulk value"

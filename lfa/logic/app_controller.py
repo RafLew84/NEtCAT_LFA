@@ -14,7 +14,21 @@ from PyQt6.QtCore import QObject, pyqtSignal
 from ..core.data_models import STMImage, OriginalImageRecord 
 from ..io.factory import load_stm_file  
 from ..core.history import HistoryNode  
-from ..gui.dialogs.substrate_spot_dialog import PREDEFINED_SUBSTRATE_NONE, PREDEFINED_SUBSTRATE_CUSTOM
+from ..core.constants import (
+    ADSORBATE_LATTICE_TYPE_HEXAGONAL,
+    ADSORBATE_LATTICE_TYPE_SQUARE,
+    ADSORBATE_LATTICE_TYPE_UNKNOWN,
+    LATTICE_TYPE_CUSTOM,
+    LATTICE_TYPE_HEXAGONAL,
+    LATTICE_TYPE_SQUARE,
+    PREDEFINED_SUBSTRATE_CUSTOM,
+    PREDEFINED_SUBSTRATE_NONE,
+    REFINEMENT_DIRECT_CLICK,
+    REFINEMENT_GAUSSIAN_FIT,
+    REFINEMENT_MAX_PIXEL,
+    SPOT_SELECTION_ADSORBATE,
+    SPOT_SELECTION_SUBSTRATE,
+)
 
 from PyQt6.QtWidgets import QFileDialog, QMessageBox
 from PyQt6.QtCore import Qt
@@ -25,17 +39,6 @@ from .spot_manager import SpotManager
 
 logger = logging.getLogger(__name__)
 
-SPOT_SELECTION_SUBSTRATE = "Substrate"
-SPOT_SELECTION_ADSORBATE = "Adsorbate"
-
-REFINEMENT_DIRECT_CLICK = "Direct Click"
-REFINEMENT_MAX_PIXEL = "Max Pixel"
-REFINEMENT_GAUSSIAN_FIT = "2D Gaussian Fit"
-
-ADSORBATE_LATTICE_TYPE_UNKNOWN = "Unknown"
-ADSORBATE_LATTICE_TYPE_HEXAGONAL = "Hexagonal"
-ADSORBATE_LATTICE_TYPE_SQUARE = "Square"
-
 MAX_SUBSTRATE_SPOTS = 8
 
 try:
@@ -44,7 +47,6 @@ try:
         calculate_real_space_vectors_from_g, 
         convert_g_vector_px_to_nm_inv, 
         select_adsorbate_reciprocal_basis_vectors_px,
-        LATTICE_TYPE_HEXAGONAL, LATTICE_TYPE_SQUARE, LATTICE_TYPE_CUSTOM,
     )
     LATTICE_ANALYSIS_FUNCTIONS_AVAILABLE = True
 except ImportError: 
