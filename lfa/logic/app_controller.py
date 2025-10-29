@@ -1,10 +1,11 @@
-# lfa/logic/app_controller.py
+﻿# lfa/logic/app_controller.py
 """
 Central controller for the LFA application.
 Manages application state and coordinates operations between UI and backend modules.
 """
 import logging
 import os
+from dataclasses import dataclass
 import numpy as np
 
 from typing import Optional, List, Tuple, Dict, Any, TYPE_CHECKING
@@ -43,6 +44,16 @@ if TYPE_CHECKING:  # pragma: no cover
 logger = logging.getLogger(__name__)
 
 MAX_SUBSTRATE_SPOTS = 8
+
+@dataclass(frozen=True)
+class FFTPanelState:
+    fft_active: bool
+    edit_substrate_enabled: bool = False
+    edit_adsorbate_enabled: bool = False
+    reselect_adsorbate_enabled: bool = False
+    clear_all_adsorbate_sets_enabled: bool = False
+    can_calculate_substrate_rs: bool = False
+    can_calculate_adsorbate_rs: bool = False
 
 try:
     from ..analysis.lattice import (
@@ -96,6 +107,8 @@ class AppController(QObject):
         super().__init__(parent)
         
         self.history_manager = history_manager 
+        if self.history_manager and hasattr(self.history_manager, "active_node_changed"):
+            self.history_manager.active_node_changed.connect(self._on_history_active_node_changed)
 
         self.original_file_path: Optional[str] = None
 
@@ -1044,6 +1057,150 @@ class AppController(QObject):
         logger.info(f"AppController: Updated superstructure periodicity results: {results}")
         self.superstructure_periodicity_results_updated.emit(self.superstructure_periodicity_results)
 
+    def _on_history_active_node_changed(self, event: "ActiveNodeChangedEvent") -> None:
+        node = getattr(event, "node", None)
+        if node and getattr(node, "data_type", "") == "FFT" and getattr(node, "image_data", None) is not None:
+            self.current_fft_data_shape = node.image_data.shape
+        else:
+            self.current_fft_data_shape = None
+
+    def get_active_history_node(self) -> Optional[HistoryNode]:
+        if not self.history_manager:
+            return None
+        return self.history_manager.get_current_node()
+
+    def can_load_metadata(self, history_node: Optional[HistoryNode]) -> bool:
+        if not history_node or not self.history_manager:
+            return False
+        root_node = self.history_manager.get_root_node_for_node(history_node.node_id)
+        if not root_node:
+            return False
+        parameters = getattr(root_node, "parameters", {}) or {}
+        return "raw_header" not in parameters
+
+    def can_calculate_fft(self, history_node: Optional[HistoryNode]) -> bool:
+        return bool(
+            history_node
+            and history_node.data_type == "STM"
+            and getattr(history_node, "image_data", None) is not None
+        )
+
+    def can_select_spots(self, history_node: Optional[HistoryNode]) -> bool:
+        return bool(history_node and history_node.data_type == "FFT")
+
+    def can_analyze_superstructure(self, history_node: Optional[HistoryNode]) -> bool:
+        return bool(
+            history_node
+            and history_node.data_type == "FFT"
+            and self.substrate_F_m2i is not None
+        )
+
+    def can_visualize_real_space(self, history_node: Optional[HistoryNode]) -> bool:
+        return bool(
+            history_node
+            and history_node.data_type == "FFT"
+            and self.substrate_real_space_results
+        )
+
+    def can_open_real_space_reconstruction(self, history_node: Optional[HistoryNode]) -> bool:
+        return bool(
+            history_node
+            and history_node.data_type == "FFT"
+            and getattr(history_node, "complex_fft_data", None) is not None
+        )
+
+    def can_open_stm_transform(self, history_node: Optional[HistoryNode]) -> bool:
+        return bool(
+            history_node
+            and history_node.data_type == "STM"
+            and self.substrate_F_m2i is not None
+        )
+
+    def evaluate_fft_panel_state(
+        self,
+        history_node: Optional[HistoryNode],
+        lattice_analysis_enabled: bool,
+    ) -> FFTPanelState:
+        if not history_node or history_node.data_type != "FFT":
+            return FFTPanelState(fft_active=False)
+
+        ads_sets = self.adsorbate_spot_sets
+        current_idx = self.current_adsorbate_set_index
+        reselect_enabled = 0 <= current_idx < len(ads_sets) and bool(ads_sets[current_idx])
+        clear_all_enabled = any(ads_sets) if ads_sets else False
+
+        can_calc_sub = (
+            lattice_analysis_enabled
+            and LATTICE_ANALYSIS_FUNCTIONS_AVAILABLE
+            and self._can_calculate_substrate_real_space(history_node)
+        )
+        can_calc_ads = (
+            lattice_analysis_enabled
+            and LATTICE_ANALYSIS_FUNCTIONS_AVAILABLE
+            and self._can_calculate_adsorbate_real_space(history_node)
+        )
+
+        return FFTPanelState(
+            fft_active=True,
+            edit_substrate_enabled=True,
+            edit_adsorbate_enabled=True,
+            reselect_adsorbate_enabled=reselect_enabled,
+            clear_all_adsorbate_sets_enabled=clear_all_enabled,
+            can_calculate_substrate_rs=can_calc_sub,
+            can_calculate_adsorbate_rs=can_calc_ads,
+        )
+
+    def _has_valid_substrate_definition(self) -> bool:
+        if self.substrate_lattice_type == LATTICE_TYPE_CUSTOM:
+            return isinstance(self.custom_lattice_info, dict)
+        return bool(
+            self.substrate_lattice_type
+            and self.substrate_a_surf
+            and self.substrate_a_surf > 0
+        )
+
+    def _get_fft_data_shape(self, history_node: Optional[HistoryNode]) -> Optional[Tuple[int, int]]:
+        if history_node and history_node.data_type == "FFT" and getattr(history_node, "image_data", None) is not None:
+            return history_node.image_data.shape
+        return self.current_fft_data_shape
+
+    def _can_calculate_substrate_real_space(self, history_node: HistoryNode) -> bool:
+        if not self._has_valid_substrate_definition():
+            return False
+        if not self.reference_ideal_substrate_spots_px:
+            return False
+        fft_shape = self._get_fft_data_shape(history_node)
+        if not fft_shape:
+            return False
+        expected_count = 0
+        if self.substrate_lattice_type == LATTICE_TYPE_HEXAGONAL:
+            expected_count = 6
+        elif self.substrate_lattice_type == LATTICE_TYPE_SQUARE:
+            expected_count = 4
+        if expected_count > 0:
+            return len(self.reference_ideal_substrate_spots_px) == expected_count
+        return len(self.reference_ideal_substrate_spots_px) >= 2
+
+    def _can_calculate_adsorbate_real_space(self, history_node: HistoryNode) -> bool:
+        idx = self.current_adsorbate_set_index
+        if not (
+            0 <= idx < len(self.corrected_adsorbate_spot_sets)
+            and self.corrected_adsorbate_spot_sets[idx]
+        ):
+            return False
+        fft_shape = self._get_fft_data_shape(history_node)
+        if not fft_shape:
+            return False
+        if not self.history_manager:
+            return False
+        root_node = self.history_manager.get_root_node_for_node(history_node.node_id)
+        if not root_node:
+            return False
+        params = getattr(root_node, "parameters", {}) or {}
+        if not (params.get("size_nm_x") and params.get("size_nm_y")):
+            return False
+        return len(self.corrected_adsorbate_spot_sets[idx]) >= 2
+
     def add_new_node_to_history(self, new_node: HistoryNode):
         """
         Add a prepared history node and make it the current entry.
@@ -1078,6 +1235,11 @@ class AppController(QObject):
         if not isinstance(state, ControllerState):
             raise TypeError("Expected ControllerState when loading session data.")
         state.apply_to(self)
+
+
+
+
+
 
 
 

@@ -1,4 +1,4 @@
-# lfa/gui/main_window.py
+﻿# lfa/gui/main_window.py
 """
 Defines the main window for the Lattice Fourier Analyzer (LFA) application.
 """
@@ -1085,3 +1085,4 @@ class MainWindow(QMainWindow):
         """Handle the event when the user tries to close the window."""
         logger.info("Close event triggered. Exiting application.")
         event.accept()
+

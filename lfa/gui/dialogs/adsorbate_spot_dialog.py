@@ -160,6 +160,7 @@ class AdsorbateSpotSelectionDialog(QDialog):
         self.current_refinement_method = default_refinement_method
         self.refinement_roi_size = default_refinement_roi_size
         self.current_expected_type = initial_expected_type
+        self._cached_results: Optional[Dict[str, Any]] = None
 
         self.last_preview_gauss_fit_popt: Optional[np.ndarray] = None
         self.last_preview_gauss_fit_center_abs: Optional[Tuple[float, float]] = None
@@ -742,22 +743,46 @@ class AdsorbateSpotSelectionDialog(QDialog):
             logger.error(f"Error applying substrate correction to adsorbate spots: {e}")
             QMessageBox.critical(self, "Correction Error", f"Could not apply correction: {e}")
 
-    def get_dialog_results(self) -> Dict[str, Any]:
+    def _coerce_point(self, point: Any) -> Tuple[float, float]:
+        """Normalize various point representations to a simple pair of floats."""
+        try:
+            x, y = point  # tuple/list/np.ndarray
+        except TypeError:
+            if hasattr(point, "x") and hasattr(point, "y"):
+                x, y = point.x(), point.y()
+            else:
+                raise
+        return float(x), float(y)
+
+    def _build_result_payload(self) -> Dict[str, Any]:
+        raw_spots = [self._coerce_point(pt) for pt in self.selected_adsorbate_spots_raw]
+        corrected_spots = [self._coerce_point(pt) for pt in self.corrected_adsorbate_spots_in_ideal_system]
         return {
-            "raw_adsorbate_spots": list(self.selected_adsorbate_spots_raw),
-            "corrected_adsorbate_spots_in_ideal_system": list(self.corrected_adsorbate_spots_in_ideal_system),
+            "raw_adsorbate_spots": raw_spots,
+            "corrected_adsorbate_spots_in_ideal_system": corrected_spots,
             "adsorbate_set_index": self.adsorbate_set_index,
-            "expected_type": self.current_expected_type
+            "expected_type": self.current_expected_type,
         }
 
+    def get_dialog_results(self) -> Dict[str, Any]:
+        if self._cached_results is not None:
+            return {
+                "raw_adsorbate_spots": list(self._cached_results["raw_adsorbate_spots"]),
+                "corrected_adsorbate_spots_in_ideal_system": list(self._cached_results["corrected_adsorbate_spots_in_ideal_system"]),
+                "adsorbate_set_index": self._cached_results["adsorbate_set_index"],
+                "expected_type": self._cached_results["expected_type"],
+            }
+        return self._build_result_payload()
+
     def accept(self):
-        
+        self._cached_results = self._build_result_payload()
         logger.info(f"AdsorbateSpotSelectionDialog for set {self.adsorbate_set_index + 1} accepted. "
                     f"Raw spots: {len(self.selected_adsorbate_spots_raw)}, "
                     f"Corrected spots: {len(self.corrected_adsorbate_spots_in_ideal_system)}")
         super().accept()
 
     def reject(self):
+        self._cached_results = None
         logger.info(f"AdsorbateSpotSelectionDialog for set {self.adsorbate_set_index + 1} rejected.")
         super().reject()
 

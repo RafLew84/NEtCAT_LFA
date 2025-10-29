@@ -151,7 +151,7 @@ class DialogCoordinator:
             QMessageBox.warning(self._window, "Incorrect Data Type", "Adsorbate spots can only be selected on an FFT image.")
             logger.warning("Attempted to open adsorbate spot selection on non-FFT data.")
             return
-        _, data_type, fft_image_data_copy, source_image_id, source_label = current_node_info
+        node_id, data_type, fft_image_data_copy, source_image_id, source_label = current_node_info
         if data_type != "FFT":
             QMessageBox.warning(self._window, "Incorrect Data Type", "Adsorbate spots can only be selected on an FFT image.")
             logger.warning("Attempted to open adsorbate spot selection on non-FFT data.")
@@ -177,8 +177,17 @@ class DialogCoordinator:
         dialog = self._adsorbate_dialog_class(
             fft_image_data=fft_image_data_copy,
             current_adsorbate_spots=current_adsorbate_spots_for_set,
-            current_adsorbate_set_index=current_set_idx,
-            expected_adsorbate_type=initial_expected_type,
+            adsorbate_set_index=current_set_idx,
+            initial_expected_type=initial_expected_type,
+            history_manager=self._history,
+            current_fft_node_id=node_id,
+            default_refinement_method=self._controller.spot_refinement_method,
+            default_refinement_roi_size=self._controller.refinement_roi_size,
+            substrate_F_m2i=self._controller.substrate_F_m2i,
+            substrate_t_m2i=self._controller.substrate_t_m2i,
+            substrate_transform_analysis=self._controller.substrate_transform_analysis_m2i,
+            ideal_substrate_spots_for_display_px=list(self._controller.reference_ideal_substrate_spots_px),
+            fitted_substrate_spots_for_display_px=list(self._controller.displayable_fitted_substrate_spots_on_fft),
             parent=self._window,
         )
         dialog.source_image_id = source_image_id
@@ -188,8 +197,8 @@ class DialogCoordinator:
 
         if dialog.exec() == QDialog.DialogCode.Accepted:
             results = dialog.get_dialog_results()
-            raw_spots = results.get("raw_spots", [])
-            corrected_spots = results.get("corrected_spots", [])
+            raw_spots = results.get("raw_adsorbate_spots", [])
+            corrected_spots = results.get("corrected_adsorbate_spots_in_ideal_system", [])
             set_idx_from_dialog = results.get("adsorbate_set_index", current_set_idx)
             logger.info(
                 "Adsorbate spots dialog (set %s) accepted. Raw: %s, Corrected: %s",
@@ -239,7 +248,10 @@ class DialogCoordinator:
             fft_image_data=fft_image_data_copy,
             history_manager=self._history,
             current_fft_node_id=node_id,
-            app_controller=self._controller,
+            substrate_F_m2i=self._controller.substrate_F_m2i,
+            substrate_t_m2i=self._controller.substrate_t_m2i,
+            substrate_transform_analysis=self._controller.substrate_transform_analysis_m2i,
+            default_refinement_roi_size=self._controller.refinement_roi_size,
             parent=self._window,
         )
         dialog.source_image_id = source_image_id

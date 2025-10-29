@@ -226,3 +226,46 @@ def test_migrate_legacy_offsets_and_domain_wall_results():
     assert ads_pairs[0]["transformed"] == (10.0, 11.0)
     assert ads_pairs[1]["raw"] is None
     assert ads_pairs[1]["transformed"] == (12.0, 13.5)
+
+def test_history_manager_emits_active_node_event(qtbot):
+    list_widget = QListWidget()
+    qtbot.addWidget(list_widget)
+    history_manager = HistoryManager(list_widget)
+
+    captured = []
+    history_manager.active_node_changed.connect(captured.append)
+
+    record = OriginalImageRecord(display_name="Event Image")
+    history_manager.register_original_image(record)
+    node = HistoryNode(
+        operation_name="Original",
+        parameters={"original_label": record.display_name, "source_image_label": record.display_name},
+        image_data=np.zeros((2, 2), dtype=np.float32),
+        data_type="STM",
+        original_image_id=record.image_id,
+    )
+    history_manager.add_node(node)
+    history_manager.set_current_node_by_id(node.node_id)
+
+    assert captured, "Expected active_node_changed to emit when selecting a node"
+    payload = captured[-1]
+    assert payload.node_id == node.node_id
+    assert payload.node is node
+
+
+def test_history_manager_original_image_events(qtbot):
+    list_widget = QListWidget()
+    qtbot.addWidget(list_widget)
+    history_manager = HistoryManager(list_widget)
+
+    added = []
+    removed = []
+    history_manager.original_image_added.connect(added.append)
+    history_manager.original_image_removed.connect(removed.append)
+
+    record = OriginalImageRecord(display_name="Root")
+    history_manager.register_original_image(record)
+    assert added and added[0].image_id == record.image_id
+
+    history_manager.unregister_original_image(record.image_id)
+    assert removed and removed[0].image_id == record.image_id

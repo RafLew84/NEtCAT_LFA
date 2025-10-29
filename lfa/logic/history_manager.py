@@ -1,4 +1,5 @@
 import logging
+from dataclasses import dataclass
 from typing import Dict, List, Optional, TYPE_CHECKING
 
 from PyQt6.QtCore import QObject, Qt, pyqtSignal
@@ -12,6 +13,23 @@ if TYPE_CHECKING:  # pragma: no cover
     from .session_state import HistoryState
 
 
+@dataclass(frozen=True)
+class ActiveNodeChangedEvent:
+    """Represents an update to the currently active history node."""
+
+    node_id: Optional[str]
+    node: Optional[HistoryNode]
+    reason: str
+
+
+@dataclass(frozen=True)
+class OriginalImageEvent:
+    """Describes mutations involving original image roots."""
+
+    image_id: str
+    record: Optional[OriginalImageRecord]
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -19,6 +37,11 @@ class HistoryManager(QObject):
     """Qt-aware wrapper around the pure HistoryBackend."""
 
     current_node_changed = pyqtSignal(object)
+    active_node_changed = pyqtSignal(object)
+    original_image_added = pyqtSignal(object)
+    original_image_removed = pyqtSignal(object)
+    history_cleared = pyqtSignal()
+    history_structure_changed = pyqtSignal()
 
     def __init__(self, history_list_widget: QListWidget, parent: Optional[QObject] = None) -> None:
         super().__init__(parent)
@@ -72,7 +95,9 @@ class HistoryManager(QObject):
         self.backend.clear()
         self.history_list_widget.clear()
         logger.info("History cleared by HistoryManager.")
-        self.current_node_changed.emit(None)
+        self.history_structure_changed.emit()
+        self.history_cleared.emit()
+        self._emit_active_node_changed(reason="cleared")
 
     def refresh_widget(self) -> None:
         current_id = self.backend.current_node_id
@@ -97,13 +122,19 @@ class HistoryManager(QObject):
 
         self.history_list_widget.blockSignals(False)
         self.set_current_node_by_id(current_id, emit_signal=False)
+        self.history_structure_changed.emit()
 
     def register_original_image(self, record: OriginalImageRecord) -> None:
         self.backend.register_original_image(record)
         logger.debug("Registered original image record: %s", record.display_name)
+        self.original_image_added.emit(OriginalImageEvent(image_id=record.image_id, record=record))
+        self.history_structure_changed.emit()
 
     def unregister_original_image(self, image_id: str) -> None:
+        existing = self.backend.get_original_image_record(image_id)
         self.backend.unregister_original_image(image_id)
+        self.original_image_removed.emit(OriginalImageEvent(image_id=image_id, record=existing))
+        self.history_structure_changed.emit()
 
     def get_original_image_record(self, image_id: str) -> Optional[OriginalImageRecord]:
         return self.backend.get_original_image_record(image_id)
@@ -149,6 +180,7 @@ class HistoryManager(QObject):
         insert_row = self._determine_insertion_row(node)
         self.history_list_widget.insertItem(insert_row, item)
         logger.debug("HistoryManager added node: '%s' (ID: %s) at row %d", node.get_display_text(), node.node_id, insert_row)
+        self.history_structure_changed.emit()
         return item
 
     def get_current_node(self) -> Optional[HistoryNode]:
@@ -170,7 +202,7 @@ class HistoryManager(QObject):
         except KeyError:
             logger.error("HistoryManager: Cannot set current node to ID '%s' - not found in history.", node_id)
             if emit_signal:
-                self.current_node_changed.emit(self.get_current_node())
+                self._emit_active_node_changed(reason="invalid-selection")
             return
 
         self.history_list_widget.blockSignals(True)
@@ -181,13 +213,13 @@ class HistoryManager(QObject):
             return
 
         if force_signal:
-            self.current_node_changed.emit(self.get_current_node())
+            self._emit_active_node_changed(reason="forced")
             return
 
         if previous_node_id != self.backend.current_node_id:
-            self.current_node_changed.emit(self.get_current_node())
+            self._emit_active_node_changed(reason="selection-changed")
         elif self.backend.current_node_id is None and previous_node_id is not None:
-            self.current_node_changed.emit(None)
+            self._emit_active_node_changed(reason="selection-cleared")
 
     def get_root_node_for_node(self, node_id: Optional[str]) -> Optional[HistoryNode]:
         return self.backend.get_root_node_for_node(node_id)
@@ -222,6 +254,15 @@ class HistoryManager(QObject):
         return result
 
     # ------------------------------------------------------------------ Helper methods
+    def _emit_active_node_changed(self, reason: str) -> None:
+        payload = ActiveNodeChangedEvent(
+            node_id=self.backend.current_node_id,
+            node=self.get_current_node(),
+            reason=reason,
+        )
+        self.active_node_changed.emit(payload)
+        self.current_node_changed.emit(payload.node)
+
     def _create_item_for_node(self, node: HistoryNode) -> QListWidgetItem:
         item = QListWidgetItem(node.get_display_text())
         item.setData(Qt.ItemDataRole.UserRole, node.node_id)
