@@ -10,10 +10,15 @@ from PyQt6.QtWidgets import (
     QFormLayout, QRadioButton, QSpinBox, QComboBox, QCheckBox, QMessageBox,
     QGridLayout, QDoubleSpinBox, QApplication, QDockWidget
 )
-from PyQt6.QtCore import Qt, pyqtSlot, QPointF, QRectF
-from PyQt6.QtGui import QPen
+from PyQt6.QtCore import Qt, pyqtSlot, QPointF
 
 from ..utils.display import format_float, format_pair
+from .scenes import SubstrateSpotScene, MarkerSpec
+from .presenters.substrate_spot_presenter import (
+    SubstrateSpotPresenter,
+    SubstrateSpotState,
+    TransformComputationError,
+)
 
 try:
     import pyqtgraph as pg
@@ -117,7 +122,6 @@ class SubstrateSpotSelectionDialog(QDialog):
         self.current_fft_node_id = current_fft_node_id
 
         self.selected_spots: List[Tuple[float, float]] = list(current_spots) if current_spots else []
-        self.spot_markers_on_image = pg.ScatterPlotItem()
 
         self.current_refinement_method = default_refinement_method
         self.refinement_roi_size = default_refinement_roi_size
@@ -130,8 +134,6 @@ class SubstrateSpotSelectionDialog(QDialog):
             LATTICE_TYPE_SQUARE: 4,
             LATTICE_TYPE_CUSTOM: 0
         }
-        self.ideal_lattice_overlay_item: Optional[ScatterPlotItem] = None
-        
         self._initial_selected_substrate_name = initial_selected_substrate_name
         self._initial_custom_a_surf = initial_custom_a_surf
         self._initial_custom_definition = dict(initial_custom_definition) if initial_custom_definition else None
@@ -149,7 +151,26 @@ class SubstrateSpotSelectionDialog(QDialog):
         self.substrate_transform_analysis: Optional[Dict[str, Any]] = None
         self.fitted_substrate_spots_px: List[Tuple[float, float]] = list(initial_fitted_spots) if initial_fitted_spots else []
         self.calculated_ideal_substrate_spots_px: List[Tuple[float, float]] = []
-        self.fitted_spot_markers_on_image = pg.ScatterPlotItem()
+
+        presenter_state = SubstrateSpotState(
+            selected_spots=self.selected_spots,
+            lattice_type=self.current_lattice_type,
+            selected_definition=self._initial_selected_substrate_name,
+            custom_definition=self.current_custom_definition,
+            custom_a_surf=self.current_a_surf,
+            transform_matrix_F=self.substrate_transformation_matrix_F,
+            transform_translation_t=self.substrate_translation_vector_t,
+            transform_analysis=self.substrate_transform_analysis,
+            fitted_spots_px=self.fitted_substrate_spots_px,
+            ideal_spots_px_for_reference=self.calculated_ideal_substrate_spots_px,
+        )
+        self.presenter = SubstrateSpotPresenter(
+            history_manager=self.history_manager,
+            fft_node_id=self.current_fft_node_id,
+            fft_data=self.fft_data,
+            state=presenter_state,
+        )
+        self.scene = SubstrateSpotScene()
 
         self._init_ui()
         self._connect_signals()
@@ -278,27 +299,16 @@ class SubstrateSpotSelectionDialog(QDialog):
 
         left_controls_layout.addStretch(1)
         main_splitter.addWidget(left_controls_widget)
-        self.fft_plot_widget = GraphicsLayoutWidget()
-        self.fft_view_box = self.fft_plot_widget.addViewBox(row=0, col=0, lockAspect=True, invertY=True)
-        self.fft_image_item = ImageItem()
-        self.fft_view_box.addItem(self.fft_image_item)
-        self.fft_view_box.addItem(self.spot_markers_on_image)
-        self.fft_view_box.addItem(self.fitted_spot_markers_on_image)
-        self.fft_histogram = pg.HistogramLUTItem()
-        self.fft_histogram.setImageItem(self.fft_image_item)
-        self.fft_plot_widget.addItem(self.fft_histogram, row=0, col=1)
-        self.fft_view_box.setMenuEnabled(True)
-        self.fft_view_box.setMouseMode(ViewBox.PanMode)
-        self.fft_view_box.setMouseEnabled(x=True, y=True)
+        self.fft_plot_widget = self.scene.widget()
+        self.fft_view_box = self.scene.view_box
+        self.fft_image_item = self.scene.image_item
+        self.fft_histogram = self.scene.histogram
+        self.selection_roi = self.scene.roi()
 
         if self.fft_data is not None:
-            self.fft_image_item.setImage(self.fft_data.T)
+            self.scene.set_image(self.fft_data)
 
-        self.selection_roi = RectROI(pos=(0,0), size=(self.refinement_roi_size, self.refinement_roi_size),
-                                     pen=pg.mkPen('y', width=2), translateSnap=True, scaleSnap=True,
-                                     movable=True, resizable=True, rotatable=False)
-        self.fft_view_box.addItem(self.selection_roi)
-        self.selection_roi.setVisible(False)
+        self.selection_roi.setSize((self.refinement_roi_size, self.refinement_roi_size))
         main_splitter.addWidget(self.fft_plot_widget)
 
 
@@ -493,31 +503,27 @@ class SubstrateSpotSelectionDialog(QDialog):
         logger.debug("Cleared all substrate spots in dialog.")
 
     def _redraw_all_spot_markers(self):
-        """Update data on existing ScatterPlotItem objects."""
-        logger.debug("Redrawing substrate spot markers by updating data.")
+        """Update scene markers for selected and fitted spots."""
+        logger.debug("Redrawing substrate spot markers by updating scene overlays.")
 
-        if self.selected_spots:
-            spots_to_draw = [{'pos': spot, 'symbol': 'o', 'size': 10, 
-                            'pen': pg.mkPen('g', width=1.5), 'brush': pg.mkBrush(50,205,50,120)} 
-                            for spot in self.selected_spots]
-            self.spot_markers_on_image.setData(spots=spots_to_draw)
-        else:
-            self.spot_markers_on_image.clear()
+        selected_specs = [
+            MarkerSpec(pos=tuple(spot), symbol="o", size=10, pen=(0, 255, 0), brush=(50, 205, 50, 120))
+            for spot in self.selected_spots
+        ]
+        self.scene.show_selected_spots(selected_specs)
 
-        if self.fitted_substrate_spots_px:
-            spots_fitted_data = [{'pos': spot, 'symbol': 'x', 'size': 12,
-                                'pen': pg.mkPen('c', width=2.0)}
-                                for spot in self.fitted_substrate_spots_px]
-            self.fitted_spot_markers_on_image.setData(spots=spots_fitted_data)
-        else:
-            self.fitted_spot_markers_on_image.clear()
-            self.fft_view_box.scene().update()
+        fitted_specs = [
+            MarkerSpec(pos=tuple(spot), symbol="x", size=12, pen=(0, 255, 255))
+            for spot in self.fitted_substrate_spots_px
+        ]
+        self.scene.show_fitted_spots(fitted_specs)
 
     @pyqtSlot(float)
     def _on_custom_a_surf_changed(self, value: float):
         """Handles change in the custom a_surf spinbox."""
         if self.substrate_definition_combo.currentText() == PREDEFINED_SUBSTRATE_CUSTOM:
             self.current_a_surf = value
+            self.presenter.state.custom_a_surf = self.current_a_surf
             logger.debug(f"Dialog: Custom a_surf changed to: {self.current_a_surf}")
             self._update_transform_button_state()
             self._redraw_ideal_lattice_overlay()
@@ -526,9 +532,11 @@ class SubstrateSpotSelectionDialog(QDialog):
         """Refreshes the cached manual lattice definition from spinbox values."""
         if self.current_lattice_type != LATTICE_TYPE_CUSTOM:
             self.current_custom_definition = None
+            self.presenter.state.custom_definition = None
             return
         if self.substrate_definition_combo.currentText() != PREDEFINED_SUBSTRATE_CUSTOM:
             self.current_custom_definition = None
+            self.presenter.state.custom_definition = None
             return
 
         a_length = self.custom_vec_a_spinbox.value()
@@ -537,11 +545,13 @@ class SubstrateSpotSelectionDialog(QDialog):
 
         if a_length <= 0 or b_length <= 0:
             self.current_custom_definition = None
+            self.presenter.state.custom_definition = None
             return
 
         gamma_rad = math.radians(gamma_deg)
         if abs(math.sin(gamma_rad)) < 1e-6:
             self.current_custom_definition = None
+            self.presenter.state.custom_definition = None
             return
 
         a_vec = (float(a_length), 0.0)
@@ -561,6 +571,8 @@ class SubstrateSpotSelectionDialog(QDialog):
             "preferred_point_count": max(len(self.selected_spots), 6) if self.selected_spots else 6
         }
         self.current_a_surf = float(a_length)
+        self.presenter.state.custom_definition = dict(self.current_custom_definition)
+        self.presenter.state.custom_a_surf = self.current_a_surf
 
     @pyqtSlot(float)
     def _on_custom_vectors_changed(self, _value: float):
@@ -587,22 +599,10 @@ class SubstrateSpotSelectionDialog(QDialog):
             widget.setVisible(show_vectors)
 
     def _build_lattice_info_dict(self, preferred_point_count: Optional[int] = None) -> Optional[Dict[str, Any]]:
-        if self.current_lattice_type == LATTICE_TYPE_CUSTOM:
-            if not self.current_custom_definition:
-                return None
-            info = dict(self.current_custom_definition)
-            if preferred_point_count and preferred_point_count > 0:
-                info["preferred_point_count"] = preferred_point_count
-            return info
-
-        if self.current_lattice_type in (LATTICE_TYPE_HEXAGONAL, LATTICE_TYPE_SQUARE) and \
-           self.current_a_surf and self.current_a_surf > 0:
-            info: Dict[str, Any] = {"type": self.current_lattice_type, "a_surf": self.current_a_surf}
-            if preferred_point_count and preferred_point_count > 0:
-                info["preferred_point_count"] = preferred_point_count
-            return info
-
-        return None
+        self.presenter.state.lattice_type = self.current_lattice_type
+        self.presenter.state.custom_definition = self.current_custom_definition
+        self.presenter.state.custom_a_surf = self.current_a_surf
+        return self.presenter.build_lattice_info_dict(preferred_point_count=preferred_point_count)
 
     def _update_transform_button_state(self):
         """Enable/disable the Calculate Transformation button and update the status label."""
@@ -659,16 +659,22 @@ class SubstrateSpotSelectionDialog(QDialog):
                 self.substrate_translation_vector_t = None
                 self.substrate_transform_analysis = None
                 self.fitted_substrate_spots_px.clear()
+                self.calculated_ideal_substrate_spots_px.clear()
+                self.presenter.state.transform_matrix_F = None
+                self.presenter.state.transform_translation_t = None
+                self.presenter.state.transform_analysis = None
+                self.presenter.state.fitted_spots_px = self.fitted_substrate_spots_px
+                self.presenter.state.ideal_spots_px_for_reference = self.calculated_ideal_substrate_spots_px
                 self.rotation_angle_label.setText("Rotation: -")
                 self.scale_factor_label.setText("Scale (X,Y): -")
                 self.rmse_label.setText("RMSE (px): -")
                 self._redraw_all_spot_markers()
+                self.scene.show_pair_lines([])
 
     def _handle_fft_image_click(self, event):
         """Handle mouse clicks on the main FFT image."""
         if event.button() == Qt.MouseButton.LeftButton:
-            pos_viewbox = self.fft_view_box.mapSceneToView(event.scenePos())
-            mapped_pos = self.fft_image_item.mapToData(pos_viewbox)
+            mapped_pos = self.scene.map_scene_to_data(event.scenePos())
 
             if mapped_pos is not None:
                 kx, ky = int(round(mapped_pos.x())), int(round(mapped_pos.y()))
@@ -868,139 +874,48 @@ class SubstrateSpotSelectionDialog(QDialog):
         self.transform_status_label.setText("Calculating transformation...")
         QApplication.processEvents()
 
-        num_selected_spots = len(self.selected_spots)
-        if num_selected_spots < 3:
-            QMessageBox.warning(self, "Not Enough Spots", "Please select at least 3 substrate spots for transformation.")
-            self.transform_status_label.setText("Select >= 3 spots.")
-            return
-
-        lattice_info_for_calc = self._build_lattice_info_dict(preferred_point_count=max(num_selected_spots, 6))
-        if lattice_info_for_calc is None:
-            QMessageBox.warning(self, "Missing Lattice Info", "Please define lattice parameters first.")
-            self.transform_status_label.setText("Define lattice first.")
-            return
-
-        measured_spots_px = np.array(self.selected_spots, dtype=float)
-
-        print(f"measured_spots_px: {measured_spots_px}")
-
-        root_node = self.history_manager.get_root_node_for_node(self.current_fft_node_id)
-        if not (root_node and root_node.operation_name == "Original" and root_node.parameters):
-            QMessageBox.critical(self, "Error", "Could not get original image calibration data.")
-            self.transform_status_label.setText("Error: No calibration.")
-            return
-        
-        Lx_nm = root_node.parameters.get("size_nm_x")
-        Ly_nm = root_node.parameters.get("size_nm_y")
-        if self.fft_data is None: 
-            self.transform_status_label.setText("Error: No FFT data.")
-            return
-        fft_rows_ky, fft_cols_kx = self.fft_data.shape
-
-        if not (Lx_nm and Ly_nm and Lx_nm > 0 and Ly_nm > 0):
-            QMessageBox.critical(self, "Error", "Missing or invalid Lx/Ly calibration data.")
-            self.transform_status_label.setText("Error: Invalid Lx/Ly.")
-            return
-
-        ideal_points_g_nm_inv = get_nearest_reciprocal_points(lattice_info_for_calc)
-        if not ideal_points_g_nm_inv:
-            QMessageBox.critical(self, "Error", "Could not generate ideal reciprocal points.")
-            self.transform_status_label.setText("Error: No ideal pts.")
-            return
-
-        center_kx_px = fft_cols_kx / 2.0
-        center_ky_px = fft_rows_ky / 2.0
-        
-        ideal_spots_pool_px = np.array(
-            [(center_ky_px + (Gy * Ly_nm), center_kx_px + (Gx * Lx_nm))
-             for Gx, Gy in ideal_points_g_nm_inv], dtype=float
-        )
-
-        print(f"ideal_spots_pool_px: {ideal_spots_pool_px}")
-
         try:
-            from ...analysis.drift_correction import match_and_fit_transform, apply_affine_transform, analyze_affine_transform
-            
-            num_expected = len(measured_spots_px)
-            if ideal_spots_pool_px.shape[0] < num_expected: # pragma: no cover
-                 QMessageBox.warning(self, "Ideal Points Error", f"Not enough ideal points ({ideal_spots_pool_px.shape[0]}) generated to match {num_expected} measured spots. Try increasing max_hk.")
-                 self.transform_status_label.setText("Error: Ideal pts pool too small.")
-                 return
-
-            F, t, analysis, point_pairs = match_and_fit_transform(
-                measured_pts_px=measured_spots_px,
-                ideal_pts_pool_px=ideal_spots_pool_px,
-                num_expected_matches=num_expected
+            result = self.presenter.calculate_transform(
+                preferred_point_count=max(len(self.selected_spots), 6)
             )
-
-            print(f"F: {F}")
-
-            print("\nMatched point pairs with coordinates:")
-            final_measured_pts = measured_spots_px[[p[0] for p in point_pairs]]
-            final_ideal_pts = ideal_spots_pool_px[[p[1] for p in point_pairs]]
-            for i, (measured, ideal) in enumerate(zip(final_measured_pts, final_ideal_pts)):
-                print(f"Pair {i+1}: ({measured[0]:.2f}, {measured[1]:.2f}) -> "
-                      f"({ideal[0]:.2f}, {ideal[1]:.2f})")
-
-            if F is None or t is None or analysis is None or point_pairs is None: # pragma: no cover
-                QMessageBox.warning(self, "Transform Error", "Failed to calculate affine transformation. Points might be degenerate or too few unique matches.")
-                self.transform_status_label.setText("Transform failed.")
-                return
-
-            self.substrate_transformation_matrix_F = F
-            self.substrate_translation_vector_t = t
-            self.substrate_transform_analysis = analysis
-
-            for measured, ideal in zip(final_measured_pts, final_ideal_pts):
-                line = pg.PlotDataItem(
-                    x=[measured[0], ideal[0]],
-                    y=[measured[1], ideal[1]],
-                    pen=pg.mkPen('y', width=1, style=Qt.PenStyle.DashLine)
-                )
-                print(f"measured: {measured[0]}, {measured[1]}")
-                print(f"ideal: {ideal[0]}, {ideal[1]}")
-                self.fft_view_box.addItem(line)
-
-            ideal_points_that_were_matched = ideal_spots_pool_px[[p[1] for p in point_pairs]]
-
-            print(f"ideal_points_that_were_matched: {ideal_points_that_were_matched}")
-            measured_spots_used_in_fit = measured_spots_px[[p[0] for p in point_pairs]]
-            transformed_measured_to_ideal_space = apply_affine_transform(
-                measured_spots_used_in_fit,
-                F,
-                t 
-            )
-            print(f"transformed_ideals_onto_measured_space: {transformed_measured_to_ideal_space}")
-            
-            if transformed_measured_to_ideal_space is not None:
-                self.fitted_substrate_spots_px = [tuple(pt) for pt in transformed_measured_to_ideal_space]
+        except TransformComputationError as exc:
+            if exc.severity == "warning":
+                QMessageBox.warning(self, "Transform Error", exc.user_message)
             else:
-                self.fitted_substrate_spots_px = []
-
-            rotation_text = format_float(analysis.get("rotation_angle_deg"), precision=2)
-            rotation_display = rotation_text if rotation_text == "-" else f"{rotation_text} deg"
-            self.rotation_angle_label.setText(f"Rotation: {rotation_display}")
-
-            stretch_display = format_pair(analysis.get("principal_stretches"), precision=3)
-            self.scale_factor_label.setText(f"Stretches: {stretch_display}")
-
-            rmse_text = format_float(analysis.get("rmse"), precision=3)
-            self.rmse_label.setText(f"RMSE (px): {rmse_text}")
-            self.transform_status_label.setText("Transformation calculated.")
-
-        except ImportError:
-            QMessageBox.critical(self, "Error", "Drift correction module not available.")
-            self.transform_status_label.setText("Error: Module missing.")
+                QMessageBox.critical(self, "Transform Error", exc.user_message)
+            self.transform_status_label.setText(exc.status_message)
             return
-        except np.linalg.LinAlgError:
-            QMessageBox.warning(self, "Transform Error", "Linear algebra error (e.g., singular matrix). Cannot invert F.")
-            self.transform_status_label.setText("LinAlg Error.")
-            return
-        except Exception as e:
-            logger.exception("Error during transformation calculation")
-            QMessageBox.critical(self, "Error", f"An error occurred: {e}")
+        except Exception as exc:  # pragma: no cover
+            logger.exception("Unexpected error during transformation calculation: ")
+            QMessageBox.critical(self, "Error", f"An error occurred: {exc}")
             self.transform_status_label.setText("Error.")
             return
+
+        self.substrate_transformation_matrix_F = self.presenter.state.transform_matrix_F
+        self.substrate_translation_vector_t = self.presenter.state.transform_translation_t
+        self.substrate_transform_analysis = self.presenter.state.transform_analysis
+        self.fitted_substrate_spots_px = list(self.presenter.state.fitted_spots_px)
+        self.presenter.state.fitted_spots_px = self.fitted_substrate_spots_px
+        self.calculated_ideal_substrate_spots_px = list(self.presenter.state.ideal_spots_px_for_reference)
+        self.presenter.state.ideal_spots_px_for_reference = self.calculated_ideal_substrate_spots_px
+
+        pairs = [
+            (tuple(measured), tuple(ideal))
+            for measured, ideal in zip(result.measured_spots_px, result.ideal_spots_px)
+        ]
+        self.scene.show_pair_lines(pairs)
+
+        analysis = result.analysis
+        rotation_text = format_float(analysis.get("rotation_angle_deg"), precision=2)
+        rotation_display = rotation_text if rotation_text == "-" else f"{rotation_text} deg"
+        self.rotation_angle_label.setText(f"Rotation: {rotation_display}")
+
+        stretch_display = format_pair(analysis.get("principal_stretches"), precision=3)
+        self.scale_factor_label.setText(f"Stretches: {stretch_display}")
+
+        rmse_text = format_float(analysis.get("rmse"), precision=3)
+        self.rmse_label.setText(f"RMSE (px): {rmse_text}")
+        self.transform_status_label.setText("Transformation calculated.")
 
         self._redraw_all_spot_markers() 
 
@@ -1093,6 +1008,7 @@ class SubstrateSpotSelectionDialog(QDialog):
         else:
             self.current_lattice_type = None
         
+        self.presenter.state.lattice_type = self.current_lattice_type
         logger.debug(f"Dialog: General lattice type selected: {self.current_lattice_type}")
         self._populate_substrate_definition_combo()
         if self.current_lattice_type == LATTICE_TYPE_CUSTOM:
@@ -1106,9 +1022,11 @@ class SubstrateSpotSelectionDialog(QDialog):
         self.current_a_surf = None
         if self.current_lattice_type != LATTICE_TYPE_CUSTOM:
             self.current_custom_definition = None
+            self.presenter.state.custom_definition = None
 
         is_custom = (text == PREDEFINED_SUBSTRATE_CUSTOM)
         is_none_selection = (text == PREDEFINED_SUBSTRATE_NONE)
+        self.presenter.state.selected_definition = text
 
         if self.current_lattice_type == LATTICE_TYPE_CUSTOM:
             if is_custom:
@@ -1117,18 +1035,24 @@ class SubstrateSpotSelectionDialog(QDialog):
             else:
                 logger.debug("Dialog: Custom lattice definition disabled via combo selection.")
                 self.current_custom_definition = None
+                self.presenter.state.custom_definition = None
         else:
             if is_custom:
                 self.current_a_surf = self.custom_a_surf_spinbox.value()
+                self.presenter.state.custom_a_surf = self.current_a_surf
                 logger.debug(f"Dialog: Switched to custom a_surf definition. Current a_surf: {self.current_a_surf}")
             elif is_none_selection:
                 logger.debug("Dialog: Substrate definition set to None. No a_surf.")
+                self.presenter.state.custom_a_surf = None
             elif KNOWN_LATTICES and text in KNOWN_LATTICES:
                 self.current_a_surf = KNOWN_LATTICES[text].get("a_surf")
+                self.presenter.state.custom_a_surf = self.current_a_surf
                 known_type = KNOWN_LATTICES[text].get("type")
                 if known_type != self.current_lattice_type:
                     logger.warning(f"Mismatch between combo lattice type ({self.current_lattice_type}) and known lattice type for '{text}' ({known_type}). Using type from combo.")
                 logger.debug(f"Dialog: Selected predefined substrate '{text}'. a_surf: {self.current_a_surf}, type: {self.current_lattice_type}")
+            else:
+                self.presenter.state.custom_a_surf = None
 
         self._update_lattice_definition_inputs_visibility()
         self._update_add_spot_button_state()
@@ -1160,22 +1084,20 @@ class SubstrateSpotSelectionDialog(QDialog):
 
     def _redraw_ideal_lattice_overlay(self):
         """Redraws the ideal lattice overlay based on current lattice type and parameters."""
-        if self.ideal_lattice_overlay_item:
-            try: self.fft_view_box.removeItem(self.ideal_lattice_overlay_item)
-            except RuntimeError: pass
-            self.ideal_lattice_overlay_item = None
-
         if not self.show_ideal_lattice_checkbox.isChecked() or self.fft_data is None:
+            self.scene.show_ideal_overlay([])
             return
 
         lattice_info_for_calc = self._build_lattice_info_dict()
         if not lattice_info_for_calc:
             logger.debug("Cannot draw ideal lattice: definition not available.")
+            self.scene.show_ideal_overlay([])
             return
 
         root_node = self.history_manager.get_root_node_for_node(self.current_fft_node_id)
         if not (root_node and root_node.operation_name == "Original" and root_node.parameters):
             logger.warning("Could not trace to Original node or missing parameters for lattice overlay.")
+            self.scene.show_ideal_overlay([])
             return
         
         Lx_nm = root_node.parameters.get("size_nm_x")
@@ -1184,15 +1106,17 @@ class SubstrateSpotSelectionDialog(QDialog):
 
         if not (Lx_nm and Ly_nm and Lx_nm > 0 and Ly_nm > 0 and fft_data_cols_kx > 0 and fft_data_rows_ky > 0):
             logger.warning("Missing calibration data (Lx, Ly) or invalid FFT shape for lattice overlay.")
+            self.scene.show_ideal_overlay([])
             return
 
         ideal_points_g_nm_inv = get_nearest_reciprocal_points(lattice_info_for_calc)
 
         if not ideal_points_g_nm_inv:
             logger.warning("Could not get ideal reciprocal points for overlay.") # pragma: no cover
+            self.scene.show_ideal_overlay([])
             return
 
-        pixel_coords_for_scatter = []
+        overlay_specs = []
         center_display_kx = fft_data_cols_kx / 2.0
         center_display_ky = fft_data_rows_ky / 2.0
         self.calculated_ideal_substrate_spots_px.clear()
@@ -1201,39 +1125,33 @@ class SubstrateSpotSelectionDialog(QDialog):
             display_y_px = center_display_kx + (Gx_nm_inv * Lx_nm)
             display_x_px = center_display_ky + (Gy_nm_inv * Ly_nm)
             current_pixel_coord = (display_x_px, display_y_px)
-            pixel_coords_for_scatter.append({
-                'pos': (display_x_px, display_y_px), 
-                'symbol': '+', 'size': 10,
-                'pen': pg.mkPen('r', width=1.5), 'brush': pg.mkBrush(None)
-            })
-
             self.calculated_ideal_substrate_spots_px.append(current_pixel_coord)
-
-            print(f"display_x_px: {display_x_px}, display_y_px: {display_y_px}")
-        
-        if pixel_coords_for_scatter:
-            self.ideal_lattice_overlay_item = ScatterPlotItem()
-            self.ideal_lattice_overlay_item.setData(spots=pixel_coords_for_scatter)
-            self.fft_view_box.addItem(self.ideal_lattice_overlay_item)
+            overlay_specs.append(
+                MarkerSpec(pos=current_pixel_coord, symbol="+", size=10, pen=(255, 0, 0))
+            )
+            logger.debug("Ideal lattice point mapped to pixels: %s", current_pixel_coord)
+        self.presenter.state.ideal_spots_px_for_reference = self.calculated_ideal_substrate_spots_px
+        if overlay_specs:
+            self.scene.show_ideal_overlay(overlay_specs)
             logger.info("Displayed ideal lattice overlay for current definition.")
+        else:
+            self.scene.show_ideal_overlay([])
 
 
     def get_selected_spots(self) -> List[Tuple[float, float]]:
         return list(self.selected_spots)
 
     def get_dialog_results(self) -> Dict[str, Any]:
-        return {
-            "spots": list(self.selected_spots),
-            "lattice_type": self.current_lattice_type,
-            "a_surf": self.current_a_surf,
-            "substrate_definition": self.substrate_definition_combo.currentText(),
-            "custom_definition": dict(self.current_custom_definition) if self.current_custom_definition else None,
-            "transformation_F_m2i": self.substrate_transformation_matrix_F, 
-            "translation_t_m2i": self.substrate_translation_vector_t,
-            "transform_analysis_m2i": self.substrate_transform_analysis,    
-            "displayable_fitted_spots": list(self.fitted_substrate_spots_px),
-            "ideal_substrate_spots_px_for_reference": list(self.calculated_ideal_substrate_spots_px)
-        }
+        self.presenter.state.selected_definition = self.substrate_definition_combo.currentText()
+        self.presenter.state.lattice_type = self.current_lattice_type
+        self.presenter.state.custom_a_surf = self.current_a_surf
+        self.presenter.state.custom_definition = self.current_custom_definition
+        self.presenter.state.transform_matrix_F = self.substrate_transformation_matrix_F
+        self.presenter.state.transform_translation_t = self.substrate_translation_vector_t
+        self.presenter.state.transform_analysis = self.substrate_transform_analysis
+        self.presenter.state.fitted_spots_px = self.fitted_substrate_spots_px
+        self.presenter.state.ideal_spots_px_for_reference = self.calculated_ideal_substrate_spots_px
+        return self.presenter.build_results_dict()
 
     def accept(self):
         if self.current_lattice_type:

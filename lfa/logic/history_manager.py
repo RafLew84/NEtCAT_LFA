@@ -34,7 +34,25 @@ logger = logging.getLogger(__name__)
 
 
 class HistoryManager(QObject):
-    """Qt-aware wrapper around the pure HistoryBackend."""
+    """
+    Qt-aware wrapper around the pure HistoryBackend.
+
+    Signals
+    -------
+    active_node_changed(ActiveNodeChangedEvent)
+        Emitted whenever the current selection changes, alongside a reason
+        describing why (manual selection, clear, forced update, etc.).
+    original_image_added(OriginalImageEvent)
+        Fired after a new original image has been registered in the backend.
+    original_image_removed(OriginalImageEvent)
+        Fired after an original image (and its branch) is removed.
+    history_structure_changed()
+        Broadcast whenever the order or content of the list widget may have
+        changed and views should refresh any cached indices.
+    current_node_changed(HistoryNode | None)
+        Legacy signal kept for backwards compatibility. New code should prefer
+        ``active_node_changed`` to access the structured event payload.
+    """
 
     current_node_changed = pyqtSignal(object)
     active_node_changed = pyqtSignal(object)
@@ -92,6 +110,7 @@ class HistoryManager(QObject):
 
     # ------------------------------------------------------------------ Core operations
     def clear_history(self) -> None:
+        """Clear all history data and notify listeners about the reset."""
         self.backend.clear()
         self.history_list_widget.clear()
         logger.info("History cleared by HistoryManager.")
@@ -100,6 +119,7 @@ class HistoryManager(QObject):
         self._emit_active_node_changed(reason="cleared")
 
     def refresh_widget(self) -> None:
+        """Re-populate the QListWidget based on the backend's current state."""
         current_id = self.backend.current_node_id
         self.history_list_widget.blockSignals(True)
         self.history_list_widget.clear()
@@ -125,12 +145,14 @@ class HistoryManager(QObject):
         self.history_structure_changed.emit()
 
     def register_original_image(self, record: OriginalImageRecord) -> None:
+        """Register a new original image and emit the structured event."""
         self.backend.register_original_image(record)
         logger.debug("Registered original image record: %s", record.display_name)
         self.original_image_added.emit(OriginalImageEvent(image_id=record.image_id, record=record))
         self.history_structure_changed.emit()
 
     def unregister_original_image(self, image_id: str) -> None:
+        """Remove an original image branch and notify observers."""
         existing = self.backend.get_original_image_record(image_id)
         self.backend.unregister_original_image(image_id)
         self.original_image_removed.emit(OriginalImageEvent(image_id=image_id, record=existing))
@@ -164,6 +186,7 @@ class HistoryManager(QObject):
         self.set_current_node_by_id(self.current_node_id, emit_signal=True, force_signal=True)
 
     def add_node(self, node: HistoryNode) -> Optional[QListWidgetItem]:
+        """Insert a node into the backend and mirrored list widget."""
         if not node or not node.node_id:
             logger.error("HistoryManager: Attempted to add invalid or null node to history.")
             return None
@@ -225,6 +248,7 @@ class HistoryManager(QObject):
         return self.backend.get_root_node_for_node(node_id)
 
     def delete_node_branch(self, node_id: str) -> Optional[Dict[str, Optional[str]]]:
+        """Delete a node and its descendants, keeping selection consistent."""
         try:
             result = self.backend.delete_node_branch(node_id)
         except KeyError:
@@ -240,6 +264,7 @@ class HistoryManager(QObject):
         return result
 
     def delete_original_image_branch(self, image_id: str) -> Optional[Dict[str, Optional[str]]]:
+        """Remove an entire original image branch and re-evaluate selection."""
         try:
             result = self.backend.delete_original_image_branch(image_id)
         except KeyError:
@@ -255,6 +280,7 @@ class HistoryManager(QObject):
 
     # ------------------------------------------------------------------ Helper methods
     def _emit_active_node_changed(self, reason: str) -> None:
+        """Emit the rich event payload plus the legacy signal for compatibility."""
         payload = ActiveNodeChangedEvent(
             node_id=self.backend.current_node_id,
             node=self.get_current_node(),

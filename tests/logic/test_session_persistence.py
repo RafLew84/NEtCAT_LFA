@@ -233,7 +233,9 @@ def test_history_manager_emits_active_node_event(qtbot):
     history_manager = HistoryManager(list_widget)
 
     captured = []
+    legacy = []
     history_manager.active_node_changed.connect(captured.append)
+    history_manager.current_node_changed.connect(legacy.append)
 
     record = OriginalImageRecord(display_name="Event Image")
     history_manager.register_original_image(record)
@@ -251,6 +253,8 @@ def test_history_manager_emits_active_node_event(qtbot):
     payload = captured[-1]
     assert payload.node_id == node.node_id
     assert payload.node is node
+    assert payload.reason == "selection-changed"
+    assert legacy and legacy[-1] is node
 
 
 def test_history_manager_original_image_events(qtbot):

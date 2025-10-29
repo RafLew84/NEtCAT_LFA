@@ -35,7 +35,7 @@ from PyQt6.QtWidgets import QFileDialog, QMessageBox
 from PyQt6.QtCore import Qt
 
 from .session_serializer import SessionSerializer
-from .spot_manager import SpotManager
+from .services import HistoryOrchestrator, SessionService, SpotSetService
 
 if TYPE_CHECKING:  # pragma: no cover
     from .session_state import ControllerState
@@ -106,9 +106,10 @@ class AppController(QObject):
         """
         super().__init__(parent)
         
-        self.history_manager = history_manager 
+        self.history_manager = history_manager
         if self.history_manager and hasattr(self.history_manager, "active_node_changed"):
             self.history_manager.active_node_changed.connect(self._on_history_active_node_changed)
+        self.history_service = HistoryOrchestrator(history_manager)
 
         self.original_file_path: Optional[str] = None
 
@@ -162,70 +163,17 @@ class AppController(QObject):
 
         self.superstructure_periodicity_results: Optional[Dict[str, Any]] = None
         self.session_serializer = SessionSerializer(self.history_manager)
-        self.spot_manager = SpotManager(self, ADSORBATE_LATTICE_TYPE_UNKNOWN)
+        self.session_service = SessionService(self, self.history_service)
+        self.spot_service = SpotSetService(self, ADSORBATE_LATTICE_TYPE_UNKNOWN)
 
 
         logger.info("AppController initialized.")
 
     def save_analysis_session(self):
-        if not self.history_manager.get_current_node():
-            logger.warning("Attempted to save an empty session. Aborted.")
-            QMessageBox.information(None, "Save cancelled", "No active analysis is available to save.")
-            return
+        self.session_service.save_session()
 
-        if self.original_file_path:
-            base_name = os.path.basename(self.original_file_path)
-            suggested_name = os.path.splitext(base_name)[0] + ".lfa_proj"
-        else:
-            suggested_name = "analysis.lfa_proj"
-
-        files_filter = "LFA Project Files (*.lfa_proj);;All Files (*)"
-        file_path, _ = QFileDialog.getSaveFileName(
-            None, "Save analysis session", suggested_name, files_filter
-        )
-
-        if not file_path:
-            logger.info("Session save was cancelled by the user.")
-            return
-
-        logger.debug("Collecting session data for serialization...")
-        session_state = self.session_serializer.build_session_state(self)
-
-        try:
-            SessionSerializer.dump_to_file(file_path, session_state)
-            logger.info(f"Analysis session saved successfully at: {file_path}")
-            QMessageBox.information(None, "Saved", f"Sesja zostala pomyslnie zapisana w pliku:\n{os.path.basename(file_path)}")
-        except Exception as e:
-            logger.exception(f"Critical error while saving the session file: {e}")
-            QMessageBox.critical(None, "Save error", f"Wystapil blad podczas zapisu pliku:\n{e}")
     def load_analysis_session(self):
-        file_path, _ = QFileDialog.getOpenFileName(
-            None, "Load analysis session", "", "LFA Project Files (*.lfa_proj);;All Files (*)"
-        )
-
-        if not file_path:
-            logger.info("Session load was cancelled by the user.")
-            return
-
-        try:
-            session_state = SessionSerializer.load_from_file(file_path)
-        except Exception as e:
-            logger.exception(f"Critical error while loading the session file: {e}")
-            return
-
-        logger.info("Restoring controller state from session file...")
-
-        self.history_manager.clear_history()
-        self.clear_all_spot_data()
-
-        try:
-            self.session_serializer.restore_session(self, session_state)
-        except ValueError as exc:
-            logger.warning(f"Attempted to load an incompatible session: {exc}")
-            QMessageBox.warning(None, "Version error", str(exc))
-        except Exception as exc:
-            logger.exception(f"Failed to restore session: {exc}")
-            QMessageBox.critical(None, "Load error", f"Could not load session:\n{exc}")
+        self.session_service.load_session()
 
     def delete_history_step(self, node_id: str) -> bool:
         """
@@ -235,10 +183,10 @@ class AppController(QObject):
             logger.warning("AppController.delete_history_step called with invalid parameters.")
             return False
 
-        previous_node = self.history_manager.get_current_node()
+        previous_node = self.history_service.get_current_node()
         previous_original_id = previous_node.original_image_id if previous_node else None
 
-        result = self.history_manager.delete_node_branch(node_id)
+        result = self.history_service.delete_node_branch(node_id)
         if not result:
             logger.warning("AppController.delete_history_step: HistoryManager reported failure.")
             return False
@@ -254,16 +202,16 @@ class AppController(QObject):
             logger.warning("AppController.delete_original_image called with invalid parameters.")
             return False
 
-        previous_node = self.history_manager.get_current_node()
+        previous_node = self.history_service.get_current_node()
         previous_original_id = previous_node.original_image_id if previous_node else None
 
         result = None
         if node_id:
-            node = self.history_manager.get_node_by_id(node_id)
+            node = self.history_service.get_node_by_id(node_id)
             if node and node.original_image_id == image_id and (node.parent_id is None or node.operation_name == "Original"):
-                result = self.history_manager.delete_node_branch(node_id)
+                result = self.history_service.delete_node_branch(node_id)
         if result is None:
-            result = self.history_manager.delete_original_image_branch(image_id)
+            result = self.history_service.delete_original_image_branch(image_id)
 
         if not result:
             logger.warning("AppController.delete_original_image: HistoryManager reported failure.")
@@ -284,7 +232,7 @@ class AppController(QObject):
             self.clear_all_spot_data()
             return
 
-        current_node = self.history_manager.get_current_node() if self.history_manager else None
+        current_node = self.history_service.get_current_node()
         current_original_id = current_node.original_image_id if current_node else None
 
         if previous_original_id and current_original_id != previous_original_id:
@@ -293,9 +241,9 @@ class AppController(QObject):
 
     def get_current_image_data_for_processing(self) -> Optional[Any]:
         """Gets the image data from the current history node for processing."""
-        current_node = self.history_manager.get_current_node()
-        if current_node and current_node.image_data is not None:
-            return current_node.image_data.copy()
+        image_copy = self.history_service.get_current_image_data_copy()
+        if image_copy is not None:
+            return image_copy
         logger.warning("AppController: No current image data available for processing.")
         return None
 
@@ -304,29 +252,14 @@ class AppController(QObject):
         Returns information about the current node needed to open dialogs.
         Returns: Tuple (node_id, node_data_type, image_data_copy, original_image_id, original_image_label) or None.
         """
-        current_node = self.history_manager.get_current_node()
-        if current_node and current_node.image_data is not None:
-            source_image_id = current_node.original_image_id
-            source_label = None
-            if source_image_id:
-                record = self.history_manager.get_original_image_record(source_image_id)
-                if record:
-                    source_label = record.display_name
-            return (
-                current_node.node_id,
-                current_node.data_type,
-                current_node.image_data.copy(),
-                source_image_id,
-                source_label,
-            )
-        return None
+        return self.history_service.get_current_node_info_for_dialogs()
     
     def load_metadata_into_session(self):
         """
         Load metadata from a selected .stp file and attach it to the
         root history node so that a later save is possible.
         """
-        root_node = self.history_manager.get_root_node_for_node(self.history_manager.current_node_id)
+        root_node = self.history_service.get_root_node(self.history_manager.current_node_id)
         if not root_node:
             QMessageBox.warning(None, "Error", "Could not find the root node in the active history.")
             return
@@ -358,42 +291,7 @@ class AppController(QObject):
         """
         Clears all loaded data, history, and analysis results so the user can start fresh.
         """
-        logger.info("AppController: Resetting current analysis session.")
-        self.history_manager.clear_history()
-        self.clear_all_spot_data()
-
-        self.original_file_path = None
-        self.reference_ideal_substrate_spots_px.clear()
-        self.custom_lattice_info = None
-        self.last_selected_substrate = PREDEFINED_SUBSTRATE_NONE
-        self.current_substrate_a_surf = None
-        self.current_substrate_type = None
-        self.current_substrate_name = PREDEFINED_SUBSTRATE_NONE
-        self.substrate_definition_name = PREDEFINED_SUBSTRATE_NONE
-        self.substrate_lattice_type = None
-        self.substrate_a_surf = None
-        self.substrate_F_m2i = None
-        self.substrate_t_m2i = None
-        self.substrate_transform_analysis_m2i = None
-        self.displayable_fitted_substrate_spots_on_fft.clear()
-        self.show_ideal_lattice = True
-        self.current_fft_data_shape = None
-        self.user_selected_substrate_spots.clear()
-        self.substrate_visual_offset_nm = (0.0, 0.0)
-        self.adsorbate_visual_offsets_nm = {0: (0.0, 0.0)}
-
-        self.history_manager.refresh_widget()
-
-        self.substrate_definition_changed.emit()
-        self.substrate_transform_results_updated.emit()
-        self.substrate_real_space_params_updated.emit({})
-        self.adsorbate_sets_structure_changed.emit()
-        self.adsorbate_set_updated.emit(0)
-        self.adsorbate_real_space_params_updated.emit(0, {})
-        self.adsorbate_expected_type_updated.emit(0, ADSORBATE_LATTICE_TYPE_UNKNOWN)
-        self.superstructure_periodicity_results_updated.emit(None)
-        self.spot_lists_updated.emit()
-        logger.info("AppController: Session reset complete.")
+        self.session_service.reset_session()
 
     def load_file(self, file_path: str):
         """
@@ -412,7 +310,7 @@ class AppController(QObject):
 
             self.original_file_path = file_path
 
-            display_name = self.history_manager.get_next_original_display_name()
+            display_name = self.history_service.get_next_original_display_name()
             root_params = {
                 "raw_header": stm_image_obj.raw_header,
                 "filename": os.path.basename(file_path),
@@ -437,7 +335,6 @@ class AppController(QObject):
                 source_path=file_path,
                 extra_metadata=dict(root_params),
             )
-            self.history_manager.register_original_image(record)
             record.extra_metadata["source_image_id"] = record.image_id
             root_params["source_image_id"] = record.image_id
 
@@ -449,8 +346,7 @@ class AppController(QObject):
                 original_image_id=record.image_id,
             )
 
-            self.history_manager.add_node(root_node)
-            self.history_manager.set_current_node_by_id(root_node.node_id)
+            self.session_service.register_new_original(record, root_node)
 
             logger.info(
                 "AppController: File '%s' registered as %s (node_id=%s).",
@@ -947,63 +843,19 @@ class AppController(QObject):
 
     def clear_last_adsorbate_spot(self):
         """Removes the last added spot from the current adsorbate set."""
-        if self.spot_selection_mode == SPOT_SELECTION_ADSORBATE and \
-           0 <= self.current_adsorbate_set_index < len(self.adsorbate_spot_sets):
-            current_set = self.adsorbate_spot_sets[self.current_adsorbate_set_index]
-            if current_set:
-                removed_point = current_set.pop()
-                if self.current_adsorbate_set_index < len(self.corrected_adsorbate_spot_sets) and self.corrected_adsorbate_spot_sets[self.current_adsorbate_set_index]:
-                    self.corrected_adsorbate_spot_sets[self.current_adsorbate_set_index].pop()
-                if self.current_adsorbate_set_index in self.adsorbate_spot_pairs and self.adsorbate_spot_pairs[self.current_adsorbate_set_index]:
-                    self.adsorbate_spot_pairs[self.current_adsorbate_set_index].pop()
-                logger.info(f"Removed last adsorbate spot {removed_point} from set {self.current_adsorbate_set_index}.")
-                self.spot_lists_updated.emit()
-            else: logger.debug("No adsorbate spots in current set to clear.")
-        else: logger.debug("Not in adsorbate mode or invalid set index for clear_last_adsorbate_spot.")
+        self.spot_service.clear_last_adsorbate_spot()
 
     def reselect_current_adsorbate_set(self):
         """Clears all spots from the current adsorbate set."""
-        if self.spot_selection_mode == SPOT_SELECTION_ADSORBATE and \
-            0 <= self.current_adsorbate_set_index < len(self.adsorbate_spot_sets):
-            if self.adsorbate_spot_sets[self.current_adsorbate_set_index]:
-                self.adsorbate_spot_sets[self.current_adsorbate_set_index].clear()
-                if 0 <= self.current_adsorbate_set_index < len(self.corrected_adsorbate_spot_sets):
-                    self.corrected_adsorbate_spot_sets[self.current_adsorbate_set_index].clear()
-                self.adsorbate_spot_pairs[self.current_adsorbate_set_index] = []
-                logger.info(f"Cleared all spots from adsorbate set {self.current_adsorbate_set_index}.")
-                self.spot_lists_updated.emit()
-        else: logger.debug("Not in adsorbate mode or invalid set index for reselect_current_adsorbate_set.")
+        self.spot_service.clear_current_adsorbate_set()
 
     def set_expected_adsorbate_lattice_type(self, set_index: int, lattice_type: str):
         """Sets the expected lattice type for a given adsorbate set."""
-        valid_types = [ADSORBATE_LATTICE_TYPE_UNKNOWN, ADSORBATE_LATTICE_TYPE_HEXAGONAL, ADSORBATE_LATTICE_TYPE_SQUARE]
-        if not (0 <= set_index < len(self.adsorbate_spot_sets)) or lattice_type not in valid_types:
-            logger.warning(f"AppController: Invalid set_index {set_index} or lattice_type '{lattice_type}' for adsorbate.")
-            return
-        
-        if self.adsorbate_expected_lattice_types.get(set_index) != lattice_type:
-            self.adsorbate_expected_lattice_types[set_index] = lattice_type
-            logger.info(f"AppController: Expected lattice type for adsorbate set {set_index} set to '{lattice_type}'.")
-            if set_index in self.adsorbate_real_space_results:
-                del self.adsorbate_real_space_results[set_index]
-                if hasattr(self, 'adsorbate_real_space_params_updated'): self.adsorbate_real_space_params_updated.emit(set_index, {}) 
-            
-            self.adsorbate_expected_type_updated.emit(set_index, lattice_type)
+        self.spot_service.set_expected_adsorbate_lattice_type(set_index, lattice_type)
 
     def clear_all_adsorbate_sets(self):
         """Clears all adsorbate sets and resets to one empty set."""
-        if self.adsorbate_spot_sets != [[]] or self.current_adsorbate_set_index != 0:
-            self.adsorbate_spot_sets = [[]]
-            self.corrected_adsorbate_spot_sets = [[]]
-            self.current_adsorbate_set_index = 0
-            self.adsorbate_expected_lattice_types = {0: ADSORBATE_LATTICE_TYPE_UNKNOWN}
-            self.adsorbate_visual_offsets_nm = {0: (0.0, 0.0)}
-            logger.info("All adsorbate spot sets cleared. Reset to one empty set.")
-            self.adsorbate_sets_structure_changed.emit()
-            if hasattr(self, 'adsorbate_expected_type_updated'): self.adsorbate_expected_type_updated.emit(0, ADSORBATE_LATTICE_TYPE_UNKNOWN)
-            self.adsorbate_set_updated.emit(0)
-        else:
-            logger.debug("No adsorbate sets to clear or already in default state.")
+        self.spot_service.clear_all_adsorbate_sets()
 
     def update_adsorbate_set_results(self, 
                                      set_index: int, 
@@ -1012,44 +864,11 @@ class AppController(QObject):
         """
         Updates the raw and corrected spots for a given adsorbate set.
         """
-        if not (0 <= set_index < len(self.adsorbate_spot_sets)):
-            logger.error(f"AppController: Invalid set_index {set_index} for updating adsorbate spots.")
-            return
-
-        while len(self.corrected_adsorbate_spot_sets) <= set_index:
-            self.corrected_adsorbate_spot_sets.append([])
-
-        self.adsorbate_spot_pairs.setdefault(set_index, [])
-
-        raw_changed = self.adsorbate_spot_sets[set_index] != raw_spots
-        corrected_changed = self.corrected_adsorbate_spot_sets[set_index] != corrected_spots_ideal_system
-
-        if raw_changed:
-            self.adsorbate_spot_sets[set_index] = list(raw_spots)
-            logger.info(f"AppController: Updated raw adsorbate spots for set {set_index}. Count: {len(raw_spots)}")
-        
-        if corrected_changed:
-            self.corrected_adsorbate_spot_sets[set_index] = list(corrected_spots_ideal_system)
-            logger.info(f"AppController: Updated corrected adsorbate spots (ideal sys) for set {set_index}. Count: {len(corrected_spots_ideal_system)}")
-
-        pair_count = min(len(self.adsorbate_spot_sets[set_index]), len(self.corrected_adsorbate_spot_sets[set_index]))
-        if pair_count > 0:
-            self.adsorbate_spot_pairs[set_index] = [
-                (tuple(self.adsorbate_spot_sets[set_index][i]), tuple(self.corrected_adsorbate_spot_sets[set_index][i]))
-                for i in range(pair_count)
-            ]
-        else:
-            self.adsorbate_spot_pairs[set_index] = []
-
-        if raw_changed or corrected_changed:
-            self.adsorbate_set_updated.emit(set_index)
-            if raw_changed and hasattr(self, 'spot_lists_updated'):
-                 self.spot_lists_updated.emit()
-
-        if set_index in self.adsorbate_real_space_results:
-            del self.adsorbate_real_space_results[set_index]
-            self.adsorbate_real_space_params_updated.emit(set_index, {})
-            if hasattr(self, 'adsorbate_real_space_params_updated'): self.adsorbate_real_space_params_updated.emit(set_index, {})
+        self.spot_service.update_adsorbate_set_results(
+            set_index=set_index,
+            raw_spots=raw_spots,
+            corrected_spots_ideal_system=corrected_spots_ideal_system,
+        )
 
     def update_superstructure_periodicity_results(self, results: Optional[Dict[str, Any]]):
         """Updates and stores the superstructure periodicity analysis results."""
@@ -1065,9 +884,7 @@ class AppController(QObject):
             self.current_fft_data_shape = None
 
     def get_active_history_node(self) -> Optional[HistoryNode]:
-        if not self.history_manager:
-            return None
-        return self.history_manager.get_current_node()
+        return self.history_service.get_current_node()
 
     def can_load_metadata(self, history_node: Optional[HistoryNode]) -> bool:
         if not history_node or not self.history_manager:
@@ -1121,36 +938,16 @@ class AppController(QObject):
         history_node: Optional[HistoryNode],
         lattice_analysis_enabled: bool,
     ) -> FFTPanelState:
-        if not history_node or history_node.data_type != "FFT":
-            return FFTPanelState(fft_active=False)
-
-        ads_sets = self.adsorbate_spot_sets
-        current_idx = self.current_adsorbate_set_index
-        reselect_enabled = 0 <= current_idx < len(ads_sets) and bool(ads_sets[current_idx])
-        clear_all_enabled = any(ads_sets) if ads_sets else False
-
-        can_calc_sub = (
-            lattice_analysis_enabled
-            and LATTICE_ANALYSIS_FUNCTIONS_AVAILABLE
-            and self._can_calculate_substrate_real_space(history_node)
+        """Delegate FFT-panel enablement calculations to SpotSetService."""
+        panel_flags = self.spot_service.evaluate_fft_panel_state(
+            history_node=history_node,
+            lattice_analysis_enabled=lattice_analysis_enabled,
+            analysis_functions_available=LATTICE_ANALYSIS_FUNCTIONS_AVAILABLE,
         )
-        can_calc_ads = (
-            lattice_analysis_enabled
-            and LATTICE_ANALYSIS_FUNCTIONS_AVAILABLE
-            and self._can_calculate_adsorbate_real_space(history_node)
-        )
-
-        return FFTPanelState(
-            fft_active=True,
-            edit_substrate_enabled=True,
-            edit_adsorbate_enabled=True,
-            reselect_adsorbate_enabled=reselect_enabled,
-            clear_all_adsorbate_sets_enabled=clear_all_enabled,
-            can_calculate_substrate_rs=can_calc_sub,
-            can_calculate_adsorbate_rs=can_calc_ads,
-        )
+        return FFTPanelState(**panel_flags)
 
     def _has_valid_substrate_definition(self) -> bool:
+        """Return True when the substrate definition contains enough data for analysis."""
         if self.substrate_lattice_type == LATTICE_TYPE_CUSTOM:
             return isinstance(self.custom_lattice_info, dict)
         return bool(
@@ -1160,11 +957,13 @@ class AppController(QObject):
         )
 
     def _get_fft_data_shape(self, history_node: Optional[HistoryNode]) -> Optional[Tuple[int, int]]:
+        """Expose the FFT data shape, falling back to cached values when nodes lack arrays."""
         if history_node and history_node.data_type == "FFT" and getattr(history_node, "image_data", None) is not None:
             return history_node.image_data.shape
         return self.current_fft_data_shape
 
     def _can_calculate_substrate_real_space(self, history_node: HistoryNode) -> bool:
+        """Check whether current data is sufficient to compute substrate real-space metrics."""
         if not self._has_valid_substrate_definition():
             return False
         if not self.reference_ideal_substrate_spots_px:
@@ -1182,6 +981,7 @@ class AppController(QObject):
         return len(self.reference_ideal_substrate_spots_px) >= 2
 
     def _can_calculate_adsorbate_real_space(self, history_node: HistoryNode) -> bool:
+        """Check whether current data is sufficient to compute adsorbate real-space metrics."""
         idx = self.current_adsorbate_set_index
         if not (
             0 <= idx < len(self.corrected_adsorbate_spot_sets)
@@ -1206,23 +1006,22 @@ class AppController(QObject):
         Add a prepared history node and make it the current entry.
         """
         if self.history_manager:
-            self.history_manager.add_node(new_node)
-            self.history_manager.set_current_node_by_id(new_node.node_id)
-            logger.info(f"AppController: Added new node '{new_node.operation_name}' to history.")
+            self.history_service.add_node_and_select(new_node)
+            logger.info("AppController: Added new node '%s' to history.", new_node.operation_name)
 
     def add_new_adsorbate_set(self):
         """Adds a new, empty adsorbate spot set and sets it as current."""
-        self.spot_manager.add_new_adsorbate_set()
+        self.spot_service.add_new_adsorbate_set()
 
 
     def set_current_adsorbate_set_by_index(self, index: int):
         """Sets the current adsorbate set based on the index."""
-        self.spot_manager.set_current_adsorbate_set_by_index(index)
+        self.spot_service.set_current_adsorbate_set_by_index(index)
 
 
     def clear_all_spot_data(self):
         """Clears all spot data."""
-        self.spot_manager.clear_all_spot_data()
+        self.spot_service.clear_all_spot_data()
 
     def export_session_state(self) -> "ControllerState":
         from .session_state import ControllerState
