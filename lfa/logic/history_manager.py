@@ -1,5 +1,5 @@
 import logging
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, TYPE_CHECKING
 
 from PyQt6.QtCore import QObject, Qt, pyqtSignal
 from PyQt6.QtWidgets import QListWidget, QListWidgetItem
@@ -7,6 +7,9 @@ from PyQt6.QtWidgets import QListWidget, QListWidgetItem
 from ..core.data_models import OriginalImageRecord
 from ..core.history import HistoryNode
 from .history_backend import HistoryBackend
+
+if TYPE_CHECKING:  # pragma: no cover
+    from .session_state import HistoryState
 
 
 logger = logging.getLogger(__name__)
@@ -110,6 +113,24 @@ class HistoryManager(QObject):
 
     def get_next_original_display_name(self) -> str:
         return self.backend.get_next_original_display_name()
+
+    def rebuild_indexes(self) -> None:
+        """Rebuild internal indexes that connect history nodes with original images."""
+        self.backend.rebuild_indexes()
+
+    # ------------------------------------------------------------------ Session IO helpers
+    def export_session_state(self) -> "HistoryState":
+        from .session_state import HistoryState
+
+        return HistoryState.from_history_manager(self)
+
+    def load_session_state(self, state: "HistoryState") -> None:
+        from .session_state import HistoryState
+
+        if not isinstance(state, HistoryState):
+            raise TypeError("Expected HistoryState when loading session data.")
+        state.apply_to(self)
+        self.set_current_node_by_id(self.current_node_id, emit_signal=True, force_signal=True)
 
     def add_node(self, node: HistoryNode) -> Optional[QListWidgetItem]:
         if not node or not node.node_id:

@@ -10,6 +10,8 @@ from PyQt6.QtWidgets import QListWidget, QMessageBox, QFileDialog
 
 from lfa.logic.history_manager import HistoryManager
 from lfa.logic.app_controller import AppController
+from lfa.logic.session_migrations import CURRENT_SESSION_VERSION, migrate_payload
+from lfa.logic.session_serializer import SessionSerializer
 from lfa.core.history import HistoryNode
 from lfa.core.data_models import OriginalImageRecord
 
@@ -70,7 +72,7 @@ def test_save_session_includes_original_images(tmp_path, qtbot, monkeypatch):
     with session_path.open("rb") as fh:
         session_data = pickle.load(fh)
 
-    assert session_data["format_version"] == "1.1"
+    assert session_data["format_version"] == CURRENT_SESSION_VERSION
     history_data = session_data["history_data"]
     assert history_data["current_node_id"] == controller.history_manager.current_node_id
     original_images = {entry["image_id"]: entry for entry in history_data["original_images"]}
@@ -145,3 +147,82 @@ def test_load_legacy_v1_session(tmp_path, qtbot, monkeypatch):
     assert history_manager.original_images[ids[0]].display_name.startswith("Original Image")
     for node in history_manager.history.values():
         assert node.original_image_id == ids[0]
+
+
+def test_session_round_trip_preserves_offsets(qtbot):
+    controller, _, _ = _create_controller_with_images(qtbot)
+
+    controller.substrate_visual_offset_nm = (1.25, -0.75)
+    controller.adsorbate_spot_sets = [
+        [(1.0, 2.0), (3.0, 4.0)],
+        [(5.0, 6.0)],
+    ]
+    controller.corrected_adsorbate_spot_sets = [
+        [(1.1, 2.1), (3.1, 4.1)],
+        [(5.1, 6.1)],
+    ]
+    controller.adsorbate_visual_offsets_nm = {0: (0.0, 0.0), 1: (0.5, -0.5)}
+    controller.adsorbate_spot_pairs = {
+        0: [((1.0, 2.0), (1.1, 2.1))],
+        1: [((5.0, 6.0), (5.1, 6.1))],
+    }
+    controller.current_adsorbate_set_index = 1
+
+    serializer = SessionSerializer(controller.history_manager)
+    session_state = serializer.build_session_state(controller)
+
+    list_widget = QListWidget()
+    qtbot.addWidget(list_widget)
+    restored_history = HistoryManager(list_widget)
+    restored_controller = AppController(restored_history)
+
+    SessionSerializer(restored_history).restore_session(restored_controller, session_state)
+
+    assert restored_controller.substrate_visual_offset_nm == pytest.approx((1.25, -0.75))
+    assert restored_controller.adsorbate_visual_offsets_nm[1] == pytest.approx((0.5, -0.5))
+    assert restored_controller.current_adsorbate_set_index == 1
+    assert restored_controller.adsorbate_spot_pairs[1][0][0] == pytest.approx((5.0, 6.0))
+    assert restored_controller.adsorbate_spot_pairs[1][0][1] == pytest.approx((5.1, 6.1))
+
+
+def test_migrate_legacy_offsets_and_domain_wall_results():
+    payload = {
+        "format_version": "1.1",
+        "controller_state": {
+            "domain_wall_analysis_results": {"foo": "bar"},
+            "substrate_visual_offset_nm": {"dx": "1.5", "dy": "-2.5"},
+            "adsorbate_visual_offsets_nm": {"0": ["3.0", None], "1": {"x": "4.5", "y": "-6.25"}},
+            "substrate_spot_pairs": [
+                {"raw": ["1.0", "2.0"], "transformed": ["3.0", "4.0"]},
+                [["not-a-number", 5.0], [6.0, 7.0]],
+            ],
+            "adsorbate_spot_pairs": {
+                "1": [
+                    {"raw": ["8.0", "9.0"], "transformed": ["10.0", "11.0"]},
+                    [["bad", "data"], ["12.0", "13.5"]],
+                ]
+            },
+        },
+        "history_data": {},
+    }
+
+    migrated = migrate_payload(payload)
+
+    controller_state = migrated["controller_state"]
+    assert migrated["format_version"] == CURRENT_SESSION_VERSION
+    assert controller_state["superstructure_periodicity_results"] == {"foo": "bar"}
+    assert controller_state["substrate_visual_offset_nm"] == (1.5, -2.5)
+    assert controller_state["adsorbate_visual_offsets_nm"][0] == (0.0, 0.0)
+    assert controller_state["adsorbate_visual_offsets_nm"][1] == (4.5, -6.25)
+
+    spot_pairs = controller_state["substrate_spot_pairs"]
+    assert spot_pairs[0]["raw"] == (1.0, 2.0)
+    assert spot_pairs[0]["transformed"] == (3.0, 4.0)
+    assert spot_pairs[1]["raw"] is None
+    assert spot_pairs[1]["transformed"] == (6.0, 7.0)
+
+    ads_pairs = controller_state["adsorbate_spot_pairs"][1]
+    assert ads_pairs[0]["raw"] == (8.0, 9.0)
+    assert ads_pairs[0]["transformed"] == (10.0, 11.0)
+    assert ads_pairs[1]["raw"] is None
+    assert ads_pairs[1]["transformed"] == (12.0, 13.5)

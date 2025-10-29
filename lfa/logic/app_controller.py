@@ -7,7 +7,7 @@ import logging
 import os
 import numpy as np
 
-from typing import Optional, List, Tuple, Dict, Any
+from typing import Optional, List, Tuple, Dict, Any, TYPE_CHECKING
 
 from PyQt6.QtCore import QObject, pyqtSignal
 
@@ -35,6 +35,9 @@ from PyQt6.QtCore import Qt
 
 from .session_serializer import SessionSerializer
 from .spot_manager import SpotManager
+
+if TYPE_CHECKING:  # pragma: no cover
+    from .session_state import ControllerState
 
 
 logger = logging.getLogger(__name__)
@@ -173,10 +176,10 @@ class AppController(QObject):
             return
 
         logger.debug("Collecting session data for serialization...")
-        session_data = self.session_serializer.build_session_payload(self)
+        session_state = self.session_serializer.build_session_state(self)
 
         try:
-            SessionSerializer.dump_to_file(file_path, session_data)
+            SessionSerializer.dump_to_file(file_path, session_state)
             logger.info(f"Analysis session saved successfully at: {file_path}")
             QMessageBox.information(None, "Saved", f"Sesja zostala pomyslnie zapisana w pliku:\n{os.path.basename(file_path)}")
         except Exception as e:
@@ -192,7 +195,7 @@ class AppController(QObject):
             return
 
         try:
-            session_data = SessionSerializer.load_from_file(file_path)
+            session_state = SessionSerializer.load_from_file(file_path)
         except Exception as e:
             logger.exception(f"Critical error while loading the session file: {e}")
             return
@@ -203,7 +206,7 @@ class AppController(QObject):
         self.clear_all_spot_data()
 
         try:
-            self.session_serializer.restore_session(self, session_data)
+            self.session_serializer.restore_session(self, session_state)
         except ValueError as exc:
             logger.warning(f"Attempted to load an incompatible session: {exc}")
             QMessageBox.warning(None, "Version error", str(exc))
@@ -1063,6 +1066,18 @@ class AppController(QObject):
     def clear_all_spot_data(self):
         """Clears all spot data."""
         self.spot_manager.clear_all_spot_data()
+
+    def export_session_state(self) -> "ControllerState":
+        from .session_state import ControllerState
+
+        return ControllerState.from_controller(self)
+
+    def load_session_state(self, state: "ControllerState") -> None:
+        from .session_state import ControllerState
+
+        if not isinstance(state, ControllerState):
+            raise TypeError("Expected ControllerState when loading session data.")
+        state.apply_to(self)
 
 
 
