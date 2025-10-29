@@ -1080,7 +1080,9 @@ class RealSpaceFFTVisualizerDialog(QDialog):
                 dot_product = np.dot(a1_s_vec, a1_a_vec)
                 cos_theta = np.clip(dot_product / (norm_s * norm_a), -1.0, 1.0)
                 angle_for_display_deg = np.degrees(np.arccos(cos_theta))
-                self.angle_sub_ads_label.setText(f"{angle_for_display_deg:.3f}°")
+                angle_text = format_float(angle_for_display_deg, precision=3)
+                angle_display = f"{angle_text} deg" if angle_text != "-" else "-"
+                self.angle_sub_ads_label.setText(angle_display)
                 logger.info(f"Displayed angle between default a1 vectors: {angle_for_display_deg:.3f}°")
             else:
                 self.angle_sub_ads_label.setText("N/A (Zero vector)")

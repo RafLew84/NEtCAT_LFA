@@ -13,6 +13,8 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, pyqtSlot, QPointF, QRectF
 from PyQt6.QtGui import QPen
 
+from ..utils.display import format_float, format_pair
+
 try:
     import pyqtgraph as pg
     ImageView = pg.ImageView
@@ -409,7 +411,8 @@ class SubstrateSpotSelectionDialog(QDialog):
     def _update_spots_list_widget(self):
         self.spots_list_widget.clear()
         for i, (kx, ky) in enumerate(self.selected_spots):
-            self.spots_list_widget.addItem(f"S{i+1}: ({kx:.2f}, {ky:.2f})")
+            point_text = format_pair((kx, ky), precision=2)
+            self.spots_list_widget.addItem(f"S{i+1}: {point_text}")
         self._update_add_spot_button_state()
 
     def _populate_substrate_definition_combo(self):
@@ -974,11 +977,15 @@ class SubstrateSpotSelectionDialog(QDialog):
             else:
                 self.fitted_substrate_spots_px = []
 
-            self.rotation_angle_label.setText(f"Rotation: {analysis.get('rotation_angle_deg', 'N/A'):.2f}°")
-            s_x = analysis.get('principal_stretches', [np.nan, np.nan])[0]
-            s_y = analysis.get('principal_stretches', [np.nan, np.nan])[1]
-            self.scale_factor_label.setText(f"Stretches: ({s_x:.3f}, {s_y:.3f})")
-            self.rmse_label.setText(f"RMSE (px): {analysis.get('rmse', 'N/A'):.3f}")
+            rotation_text = format_float(analysis.get("rotation_angle_deg"), precision=2)
+            rotation_display = rotation_text if rotation_text == "-" else f"{rotation_text} deg"
+            self.rotation_angle_label.setText(f"Rotation: {rotation_display}")
+
+            stretch_display = format_pair(analysis.get("principal_stretches"), precision=3)
+            self.scale_factor_label.setText(f"Stretches: {stretch_display}")
+
+            rmse_text = format_float(analysis.get("rmse"), precision=3)
+            self.rmse_label.setText(f"RMSE (px): {rmse_text}")
             self.transform_status_label.setText("Transformation calculated.")
 
         except ImportError:
@@ -1067,9 +1074,11 @@ class SubstrateSpotSelectionDialog(QDialog):
             self._update_spots_list_widget()
             self._redraw_all_spot_markers()
             self._update_transform_button_state()
-            self.status_label.setText(f"Spot {len(self.selected_spots)} added: ({refined_kx:.2f}, {refined_ky:.2f}).")
+            point_text = format_pair((refined_kx, refined_ky), precision=2)
+            self.status_label.setText(f"Spot {len(self.selected_spots)} added: {point_text}.")
         else:
-            self.status_label.setText(f"Spot ({refined_kx:.2f}, {refined_ky:.2f}) already selected.")
+            point_text = format_pair((refined_kx, refined_ky), precision=2)
+            self.status_label.setText(f"Spot {point_text} already selected.")
 
     @pyqtSlot(str)
     def _on_lattice_type_changed(self, text: Optional[str] = None):

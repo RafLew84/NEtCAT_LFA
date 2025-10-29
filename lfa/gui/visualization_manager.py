@@ -4,6 +4,8 @@ import numpy as np
 from typing import Optional, List, Tuple, Union, Dict, Any
 from PyQt6.QtCore import QObject, pyqtSignal, QPointF, Qt 
 
+from .utils.display import sanitize_numeric_array
+
 try:
     import pyqtgraph as pg
 except ImportError:
@@ -185,19 +187,20 @@ class VisualizationManager(QObject):
 
     def update_substrate_raw_spots(self, raw_points: List[Tuple[float, float]]) -> None:
         """Render raw substrate spot markers."""
-        if not self.view_box: 
+        if not self.view_box:
             return
 
         if self.substrate_raw_markers:
             self._remove_item_from_view(self.substrate_raw_markers)
             self.substrate_raw_markers = None
 
-        if not raw_points:
+        points_array = sanitize_numeric_array(raw_points) if raw_points else None
+        if points_array is None or points_array.size == 0:
             return
 
         try:
             marker = pg.ScatterPlotItem(
-                pos=np.asarray(raw_points, dtype=float),
+                pos=points_array,
                 symbol='x',
                 size=11,
                 pen=pg.mkPen((255, 215, 0), width=2),
@@ -206,24 +209,25 @@ class VisualizationManager(QObject):
             marker.setVisible(self._substrate_raw_visible)
             self.view_box.addItem(marker)
             self.substrate_raw_markers = marker
-        except Exception as exc: 
+        except Exception as exc:
             logger.exception("VisualizationManager: Failed to draw raw substrate spots: %s", exc)
 
     def update_substrate_transformed_spots(self, transformed_points: List[Tuple[float, float]]) -> None:
         """Render transformed substrate spot markers."""
-        if not self.view_box: 
+        if not self.view_box:
             return
 
         if self.substrate_transformed_markers:
             self._remove_item_from_view(self.substrate_transformed_markers)
             self.substrate_transformed_markers = None
 
-        if not transformed_points:
+        points_array = sanitize_numeric_array(transformed_points) if transformed_points else None
+        if points_array is None or points_array.size == 0:
             return
 
         try:
             marker = pg.ScatterPlotItem(
-                pos=np.asarray(transformed_points, dtype=float),
+                pos=points_array,
                 symbol='o',
                 size=11,
                 pen=pg.mkPen((0, 200, 140), width=2),
@@ -252,12 +256,14 @@ class VisualizationManager(QObject):
 
         new_lines: List[pg.PlotDataItem] = []
         for raw_point, transformed_point in spot_pairs:
-            if raw_point is None or transformed_point is None:
+            raw_array = sanitize_numeric_array(raw_point) if raw_point is not None else None
+            transformed_array = sanitize_numeric_array(transformed_point) if transformed_point is not None else None
+            if raw_array is None or transformed_array is None or raw_array.size < 2 or transformed_array.size < 2:
                 continue
             try:
                 line_item = pg.PlotDataItem(
-                    x=[raw_point[0], transformed_point[0]],
-                    y=[raw_point[1], transformed_point[1]],
+                    x=[raw_array[0], transformed_array[0]],
+                    y=[raw_array[1], transformed_array[1]],
                     pen=pg.mkPen((180, 180, 180, 180), width=1, style=Qt.PenStyle.DashLine)
                 )
                 line_item.setVisible(self._substrate_raw_visible and self._substrate_transformed_visible)
@@ -309,12 +315,13 @@ class VisualizationManager(QObject):
         if existing_marker:
             self._remove_item_from_view(existing_marker)
 
-        if not raw_points:
+        points_array = sanitize_numeric_array(raw_points) if raw_points else None
+        if points_array is None or points_array.size == 0:
             return
 
         try:
             marker = pg.ScatterPlotItem(
-                pos=np.asarray(raw_points, dtype=float),
+                pos=points_array,
                 symbol='x',
                 size=10,
                 pen=pg.mkPen((255, 140, 0), width=2),
@@ -335,12 +342,13 @@ class VisualizationManager(QObject):
         if existing_marker:
             self._remove_item_from_view(existing_marker)
 
-        if not transformed_points:
+        points_array = sanitize_numeric_array(transformed_points) if transformed_points else None
+        if points_array is None or points_array.size == 0:
             return
 
         try:
             marker = pg.ScatterPlotItem(
-                pos=np.asarray(transformed_points, dtype=float),
+                pos=points_array,
                 symbol='s',
                 size=10,
                 pen=pg.mkPen((70, 130, 180), width=2),
@@ -370,12 +378,14 @@ class VisualizationManager(QObject):
 
         new_lines: List[pg.PlotDataItem] = []
         for raw_point, transformed_point in spot_pairs:
-            if raw_point is None or transformed_point is None:
+            raw_array = sanitize_numeric_array(raw_point) if raw_point is not None else None
+            transformed_array = sanitize_numeric_array(transformed_point) if transformed_point is not None else None
+            if raw_array is None or transformed_array is None or raw_array.size < 2 or transformed_array.size < 2:
                 continue
             try:
                 line_item = pg.PlotDataItem(
-                    x=[raw_point[0], transformed_point[0]],
-                    y=[raw_point[1], transformed_point[1]],
+                    x=[raw_array[0], transformed_array[0]],
+                    y=[raw_array[1], transformed_array[1]],
                     pen=pg.mkPen((255, 140, 0, 160), width=1, style=Qt.PenStyle.DashLine)
                 )
                 line_item.setVisible(self._adsorbate_raw_visible and self._adsorbate_transformed_visible)

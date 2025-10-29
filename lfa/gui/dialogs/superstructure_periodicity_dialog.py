@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import (
     QGridLayout, QSplitter, QLineEdit
 )
 
+from ..utils.display import format_float, format_pair, format_ratio
 from PyQt6.QtCore import Qt, pyqtSlot, QTimer 
 
 from ...analysis.drift_correction import apply_affine_transform
@@ -364,11 +365,22 @@ class SuperstructurePeriodicityDialog(QDialog):
 
         if results:
             self._final_results = results
-            self.distance_fft_label.setText(f"{results['dist_px']:.2f} px | {results['dist_nm_inv']:.4f} nm⁻¹")
-            self.distance_real_space_label.setText(f"{results['periodicity_nm']:.3f} nm")
-            self.intensity_ratio_label.setText(f"{results['intensity_ratio']:.3f}")
-            self.amplitude_ratio_label.setText(f"{results['amplitude_ratio']:.3f}")
-            self.max_value_label.setText(f"{results['max_value_ratio']:.3f}")
+
+            dist_px_text = format_float(results.get('dist_px'), precision=2)
+            dist_nm_inv_text = format_float(results.get('dist_nm_inv'), precision=4)
+            self.distance_fft_label.setText(
+                f"{dist_px_text} px | {dist_nm_inv_text} nm^-1"
+            )
+
+            periodicity_text = format_float(results.get('periodicity_nm'), precision=3)
+            self.distance_real_space_label.setText(f"{periodicity_text} nm")
+
+            intensity_text = format_ratio(results.get('intensity_ratio'), precision=3)
+            amplitude_text = format_ratio(results.get('amplitude_ratio'), precision=3)
+            max_value_text = format_ratio(results.get('max_value_ratio'), precision=3)
+            self.intensity_ratio_label.setText(intensity_text)
+            self.amplitude_ratio_label.setText(amplitude_text)
+            self.max_value_label.setText(max_value_text)
             self.status_label.setText("Calculation successful.")
         else:
             QMessageBox.critical(self, "Calculation Error", "Could not calculate superstructure periodicity parameters.")
@@ -534,20 +546,20 @@ class SuperstructurePeriodicityDialog(QDialog):
         if self.sub_transform_analysis:
             self.dist_sub_transform_info_label_status.setText("Status: Available")
             
-            rot_angle = self.sub_transform_analysis.get('rotation_angle_deg', 'N/A')
-            rot_text = f"{rot_angle:.2f}°" if isinstance(rot_angle, (int, float)) else "N/A"
-            self.dist_sub_transform_info_label_rot.setText(rot_text)
+            rot_angle = self.sub_transform_analysis.get('rotation_angle_deg')
+            rot_text = format_float(rot_angle, precision=2)
+            rot_display = rot_text if rot_text == '-' else f"{rot_text} deg"
+            self.dist_sub_transform_info_label_rot.setText(rot_display)
 
-            stretches = self.sub_transform_analysis.get('principal_stretches', [np.nan, np.nan])
-            if stretches is not None and len(stretches) == 2:
-                scale_text = f"({stretches[0]:.3f}, {stretches[1]:.3f})"
-            else:
-                scale_text = "N/A"
-            self.dist_sub_transform_info_label_scale.setText(scale_text)
+            stretch_pair = format_pair(
+                self.sub_transform_analysis.get('principal_stretches'),
+                precision=3,
+            )
+            self.dist_sub_transform_info_label_scale.setText(stretch_pair)
 
-            rmse = self.sub_transform_analysis.get('rmse', 'N/A')
-            rmse_text = f"{rmse:.3f} px" if isinstance(rmse, (int, float)) else "N/A"
-            self.dist_sub_transform_info_label_rmse.setText(rmse_text)
+            rmse_text = format_float(self.sub_transform_analysis.get('rmse'), precision=3)
+            rmse_display = rmse_text if rmse_text == '-' else f"{rmse_text} px"
+            self.dist_sub_transform_info_label_rmse.setText(rmse_display)
             
             logger.info("Displayed available substrate transformation info.")
         else:

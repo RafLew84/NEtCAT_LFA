@@ -69,6 +69,7 @@ from ...core.constants import (
     REFINEMENT_GAUSSIAN_FIT,
     REFINEMENT_MAX_PIXEL,
 )
+from ..utils.display import format_float, format_pair
 
 logger = logging.getLogger(__name__)
 
@@ -485,7 +486,8 @@ class AdsorbateSpotSelectionDialog(QDialog):
             return
         
         for i, (kx, ky) in enumerate(self.corrected_adsorbate_spots_in_ideal_system):
-            self.corrected_spots_list_widget.addItem(f"Corr. A{i+1}: ({kx:.2f}, {ky:.2f}) [Ideal Sys]")
+            pair_text = format_pair((kx, ky), precision=2)
+            self.corrected_spots_list_widget.addItem(f"Corr. A{i+1}: {pair_text} [Ideal Sys]")
 
     @pyqtSlot()
     def _on_refinement_method_changed(self):
@@ -571,7 +573,8 @@ class AdsorbateSpotSelectionDialog(QDialog):
             self._redraw_all_markers_in_dialog()
             self.status_label.setText(f"Adsorbate spot {len(self.selected_adsorbate_spots_raw)} added.")
         else: 
-            self.status_label.setText(f"Adsorbate spot ({ref_kx:.2f},{ref_ky:.2f}) already selected.")
+            point_text = format_pair((ref_kx, ref_ky), precision=2)
+            self.status_label.setText(f"Adsorbate spot {point_text} already selected.")
         self._clear_last_preview_gauss_fit()
         self._update_correction_button_state()
 
@@ -579,7 +582,8 @@ class AdsorbateSpotSelectionDialog(QDialog):
     def _update_adsorbate_spots_list_widget(self):
         self.spots_list_widget.clear()
         for i, (kx,ky) in enumerate(self.selected_adsorbate_spots_raw): 
-            self.spots_list_widget.addItem(f"A{i+1} (S{self.adsorbate_set_index+1}): ({kx:.2f},{ky:.2f})")
+            point_text = format_pair((kx, ky), precision=2)
+            self.spots_list_widget.addItem(f"A{i+1} (S{self.adsorbate_set_index+1}): {point_text}")
         self._update_add_spot_button_state()
         self._update_correction_button_state()
 
@@ -684,17 +688,35 @@ class AdsorbateSpotSelectionDialog(QDialog):
 
     def _display_substrate_transform_info(self):
         if self.sub_transform_analysis:
+            rotation_text = format_float(
+                self.sub_transform_analysis.get("rotation_angle_deg"), precision=2
+            )
+            rotation_display = rotation_text if rotation_text == "-" else f"{rotation_text} deg"
+
+            stretch_display = format_pair(
+                self.sub_transform_analysis.get("principal_stretches"), precision=3
+            )
+
+            rmse_text = format_float(
+                self.sub_transform_analysis.get("rmse"), precision=3
+            )
+
             self.sub_transform_info_label_status.setText("Status: Substrate transform data available.")
-            self.sub_transform_info_label_rot.setText(f"Sub. Rotation (M->I): {self.sub_transform_analysis.get('rotation_angle_deg', 'N/A'):.2f}°")
-            s_x,s_y = self.sub_transform_analysis.get('principal_stretches',[np.nan,np.nan])
-            self.sub_transform_info_label_scale.setText(f"Sub. Stretches (M->I): ({s_x:.3f}, {s_y:.3f})")
-            self.sub_transform_info_label_rmse.setText(f"Sub. Fit RMSE (M->I, px): {self.sub_transform_analysis.get('rmse', 'N/A'):.3f}")
+            self.sub_transform_info_label_rot.setText(
+                f"Sub. Rotation (M->I): {rotation_display}"
+            )
+            self.sub_transform_info_label_scale.setText(
+                f"Sub. Stretches (M->I): {stretch_display}"
+            )
+            self.sub_transform_info_label_rmse.setText(
+                f"Sub. Fit RMSE (M->I, px): {rmse_text}"
+            )
         else:
             self.sub_transform_info_label_status.setText("Status: Substrate transform not passed to dialog.")
             self.sub_transform_info_label_rot.setText("Sub. Rotation: -")
             self.sub_transform_info_label_scale.setText("Sub. Scale (X,Y): -")
             self.sub_transform_info_label_rmse.setText("Sub. RMSE (px): -")
-        self._update_correction_button_state() 
+        self._update_correction_button_state()
 
     @pyqtSlot()
     def _on_apply_substrate_correction_clicked(self):

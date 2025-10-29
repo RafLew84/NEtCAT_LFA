@@ -40,6 +40,7 @@ from ..core.constants import (
     PREDEFINED_SUBSTRATE_CUSTOM,
     PREDEFINED_SUBSTRATE_NONE,
 )
+from .utils.display import format_float, format_pair
 
 try:
     from lfa.gui.dialogs.preprocessing_dialogs import (GaussianBlurDialog, PlaneLevelingDialog, 
@@ -589,6 +590,7 @@ class MainWindow(QMainWindow):
             self.app_controller.reset_session()
         if hasattr(self, "metadata_widget") and self.metadata_widget:
             self.metadata_widget.clear_labels()
+
         self.display_image_data()
         self._update_action_states()
         self.statusBar().showMessage("Session cleared.", 3000)
@@ -784,16 +786,26 @@ class MainWindow(QMainWindow):
         if hasattr(self, 'fft_analysis_panel_widget') and self.fft_analysis_panel_widget:
             analysis = self.app_controller.substrate_transform_analysis_m2i
             if analysis:
-                self.fft_analysis_panel_widget.rotation_angle_label.setText(f"Rotation (M->I): {analysis.get('rotation_angle_deg', 'N/A'):.2f}°")
-                s_x = analysis.get('principal_stretches', [np.nan, np.nan])[0]
-                s_y = analysis.get('principal_stretches', [np.nan, np.nan])[1]
-                self.fft_analysis_panel_widget.scale_factor_label.setText(f"Stretches (M->I): ({s_x:.3f}, {s_y:.3f})")
-                self.fft_analysis_panel_widget.rmse_label.setText(f"Fit RMSE (M->I, px): {analysis.get('rmse', 'N/A'):.3f}")
+                rotation_text = format_float(analysis.get("rotation_angle_deg"), precision=2)
+                rotation_display = rotation_text if rotation_text == "-" else f"{rotation_text} deg"
+
+                stretch_display = format_pair(analysis.get("principal_stretches"), precision=3)
+
+                rmse_text = format_float(analysis.get("rmse"), precision=3)
+
+                self.fft_analysis_panel_widget.rotation_angle_label.setText(
+                    f"Rotation (M->I): {rotation_display}"
+                )
+                self.fft_analysis_panel_widget.scale_factor_label.setText(
+                    f"Stretches (M->I): {stretch_display}"
+                )
+                self.fft_analysis_panel_widget.rmse_label.setText(
+                    f"Fit RMSE (M->I, px): {rmse_text}"
+                )
             else:
                 self.fft_analysis_panel_widget.rotation_angle_label.setText("Rotation: -")
                 self.fft_analysis_panel_widget.scale_factor_label.setText("Stretches: -")
                 self.fft_analysis_panel_widget.rmse_label.setText("RMSE: -")
-
         self.display_image_data() 
         self._update_action_states()
 

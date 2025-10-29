@@ -17,7 +17,7 @@ except ImportError:  # pragma: no cover
     )
     KNOWN_LATTICES = {"Placeholder (Error)": {}}
 
-from ..utils.display import format_float, format_ratio
+from ..utils.display import format_float, format_pair, format_ratio
 from ...core.constants import (
     ADSORBATE_LATTICE_TYPE_HEXAGONAL,
     ADSORBATE_LATTICE_TYPE_SQUARE,
@@ -254,11 +254,15 @@ class FFTAnalysisPanel(QWidget):
 
     def update_transform_results_display(self, analysis_results: Optional[Dict[str, Any]]):
         if analysis_results:
-            self.rotation_angle_label.setText(f"Rotation (M->I): {analysis_results.get('rotation_angle_deg', 'N/A'):.2f}°")
-            s_x = analysis_results.get('principal_stretches', [np.nan, np.nan])[0]
-            s_y = analysis_results.get('principal_stretches', [np.nan, np.nan])[1]
-            self.scale_factor_label.setText(f"Stretches (M->I): ({s_x:.3f}, {s_y:.3f})")
-            self.rmse_label.setText(f"Fit RMSE (M->I, px): {analysis_results.get('rmse', 'N/A'):.3f}")
+            rotation_text = format_float(analysis_results.get('rotation_angle_deg'), precision=2)
+            rotation_display = rotation_text if rotation_text == '-' else f"{rotation_text} deg"
+            self.rotation_angle_label.setText(f"Rotation (M->I): {rotation_display}")
+
+            stretch_display = format_pair(analysis_results.get('principal_stretches'), precision=3)
+            self.scale_factor_label.setText(f"Stretches (M->I): {stretch_display}")
+
+            rmse_text = format_float(analysis_results.get('rmse'), precision=3)
+            self.rmse_label.setText(f"Fit RMSE (M->I, px): {rmse_text}")
         else:
             self.rotation_angle_label.setText("Rotation: -")
             self.scale_factor_label.setText("Stretches: -")
