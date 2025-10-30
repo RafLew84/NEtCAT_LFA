@@ -17,23 +17,18 @@ from PyQt6.QtWidgets import (
     QFormLayout, QRadioButton, QSpinBox, QCheckBox, QMessageBox, QComboBox,
     QGridLayout, QSplitter
 )
-from PyQt6.QtGui import QPen, QVector3D
 from PyQt6.QtCore import Qt, pyqtSlot 
 
 try:
     import pyqtgraph as pg
     ImageItem = pg.ImageItem
     RectROI = pg.RectROI
-    ScatterPlotItem = pg.ScatterPlotItem
-    ViewBox = pg.ViewBox
     GraphicsLayoutWidget = pg.GraphicsLayoutWidget
     PYQTGRAPH_AVAILABLE = True
 except ImportError:
     pg = None
     ImageItem = None
     RectROI = None
-    ScatterPlotItem = None
-    ViewBox = None
     GraphicsLayoutWidget = None
     PYQTGRAPH_AVAILABLE = False
     logging.error("AdsorbateSpotSelectionDialog: PyQtGraph or pyqtgraph.opengl not found.")
@@ -70,6 +65,13 @@ from ...core.constants import (
     REFINEMENT_MAX_PIXEL,
 )
 from ..utils.display import format_float, format_pair
+from .scenes import AdsorbateSpotScene, MarkerSpec
+from .presenters import (
+    AdsorbateSpotPresenter,
+    AdsorbateSpotPresenterError,
+    AdsorbateSpotState,
+    MissingTransformError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -84,12 +86,12 @@ class AdsorbateSpotSelectionDialog(QDialog):
     - Visualize spots in both 2D and 3D views
     
     Attributes:
-        fft_data (np.ndarray): The FFT image data
-        history_manager (HistoryManager): Manager for operation history
-        current_fft_node_id (str): ID of the current FFT node
-        adsorbate_set_index (int): Index of the current adsorbate set
-        selected_adsorbate_spots_raw (List[Tuple[float, float]]): List of selected adsorbate spots
-        corrected_adsorbate_spots_in_ideal_system (List[Tuple[float, float]]): List of corrected spots
+        fft_data (np.ndarray): The FFT image data.
+        history_manager (HistoryManager): Manager for operation history.
+        current_fft_node_id (str): ID of the current FFT node.
+        adsorbate_set_index (int): Index of the current adsorbate set.
+        presenter (AdsorbateSpotPresenter): Encapsulates non-UI logic and exposes state.
+        state (AdsorbateSpotState): Backing storage for raw/corrected spots and expected lattice hints.
     """
     def __init__(self,
                  fft_image_data: Optional[np.ndarray],
@@ -142,31 +144,39 @@ class AdsorbateSpotSelectionDialog(QDialog):
         self.current_fft_node_id = current_fft_node_id
         self.adsorbate_set_index = adsorbate_set_index
 
-        self.selected_adsorbate_spots_raw: List[Tuple[float, float]] = list(current_adsorbate_spots) if current_adsorbate_spots else []
-        self.raw_adsorbate_spot_markers: Optional[ScatterPlotItem] = None
-
-        self.sub_F_m2i = substrate_F_m2i
-        self.sub_t_m2i = substrate_t_m2i
-        self.sub_transform_analysis = substrate_transform_analysis
-        
-        self.ideal_substrate_spots_to_display_px = list(ideal_substrate_spots_for_display_px) if ideal_substrate_spots_for_display_px else []
-        self.fitted_substrate_spots_to_display_px = list(fitted_substrate_spots_for_display_px) if fitted_substrate_spots_for_display_px else []
-        self.ideal_substrate_marker_item: Optional[ScatterPlotItem] = None
-        self.fitted_substrate_marker_item: Optional[ScatterPlotItem] = None
-
-        self.corrected_adsorbate_spots_in_ideal_system: List[Tuple[float, float]] = []
-        self.corrected_adsorbate_marker_item: Optional[ScatterPlotItem] = None
+        presenter_state = AdsorbateSpotState(
+            set_index=adsorbate_set_index,
+            raw_spots=list(current_adsorbate_spots) if current_adsorbate_spots else [],
+            corrected_spots=[],
+            expected_type=initial_expected_type,
+            substrate_matrix_F=substrate_F_m2i,
+            substrate_translation_t=substrate_t_m2i,
+            substrate_analysis=substrate_transform_analysis,
+            ideal_reference_spots_px=list(ideal_substrate_spots_for_display_px)
+            if ideal_substrate_spots_for_display_px
+            else [],
+            fitted_reference_spots_px=list(fitted_substrate_spots_for_display_px)
+            if fitted_substrate_spots_for_display_px
+            else [],
+        )
+        self.presenter = AdsorbateSpotPresenter(state=presenter_state)
+        self.state = self.presenter.state
 
         self.current_refinement_method = default_refinement_method
         self.refinement_roi_size = default_refinement_roi_size
-        self.current_expected_type = initial_expected_type
         self._cached_results: Optional[Dict[str, Any]] = None
+
+        self.scene = AdsorbateSpotScene(initial_roi_size=self.refinement_roi_size)
+        if self.fft_data is not None:
+            self.scene.set_image(self.fft_data)
+        self.selection_roi = self.scene.roi()
+        self.fft_view_box = self.scene.view_box
+        self.fft_image_item = self.scene.image_item
+        self.fft_histogram = self.scene.histogram
 
         self.last_preview_gauss_fit_popt: Optional[np.ndarray] = None
         self.last_preview_gauss_fit_center_abs: Optional[Tuple[float, float]] = None
         self.last_preview_gauss_roi_state: Optional[Dict] = None
-        self.gl_roi_placeholder: Optional[QWidget] = None
-        self.gl_gauss_placeholder: Optional[QWidget] = None
 
         self._init_ui()
         self._connect_signals() 
@@ -176,9 +186,12 @@ class AdsorbateSpotSelectionDialog(QDialog):
         self._update_add_spot_button_state() 
         self._update_correction_button_state()
 
-        if self.current_refinement_method == REFINEMENT_MAX_PIXEL: self.rb_refine_max_pixel.setChecked(True)
-        elif self.current_refinement_method == REFINEMENT_GAUSSIAN_FIT: self.rb_refine_gaussian.setChecked(True)
-        else: self.rb_refine_direct.setChecked(True)
+        if self.current_refinement_method == REFINEMENT_MAX_PIXEL:
+            self.rb_refine_max_pixel.setChecked(True)
+        elif self.current_refinement_method == REFINEMENT_GAUSSIAN_FIT:
+            self.rb_refine_gaussian.setChecked(True)
+        else:
+            self.rb_refine_direct.setChecked(True)
         self.refinement_roi_size_spinbox.setValue(self.refinement_roi_size)
         
         self._on_refinement_method_changed()
@@ -205,7 +218,7 @@ class AdsorbateSpotSelectionDialog(QDialog):
             ADSORBATE_LATTICE_TYPE_HEXAGONAL,
             ADSORBATE_LATTICE_TYPE_SQUARE
         ])
-        self.expected_type_combo.setCurrentText(self.current_expected_type)
+        self.expected_type_combo.setCurrentText(self.state.expected_type)
         expected_type_layout.addRow("Lattice Type:", self.expected_type_combo)
         left_controls_layout.addWidget(expected_type_group)
 
@@ -256,19 +269,7 @@ class AdsorbateSpotSelectionDialog(QDialog):
         left_controls_layout.addStretch(1)
         main_splitter.addWidget(left_controls_widget)
 
-        self.fft_plot_widget = GraphicsLayoutWidget()
-        self.fft_view_box = self.fft_plot_widget.addViewBox(row=0, col=0, lockAspect=True, invertY=True)
-        self.fft_image_item = ImageItem()
-        self.fft_view_box.addItem(self.fft_image_item)
-        self.fft_histogram = pg.HistogramLUTItem()
-        self.fft_histogram.setImageItem(self.fft_image_item)
-        self.fft_plot_widget.addItem(self.fft_histogram, row=0, col=1)
-        self.fft_view_box.setMenuEnabled(True)
-        self.fft_view_box.setMouseMode(ViewBox.PanMode)
-        self.fft_view_box.setMouseEnabled(x=True, y=True)
-        if self.fft_data is not None: self.fft_image_item.setImage(self.fft_data.T)
-        self.selection_roi = RectROI(pos=(0,0), size=(self.refinement_roi_size, self.refinement_roi_size), pen=pg.mkPen('m', width=2), translateSnap=True, scaleSnap=True, movable=True, resizable=True, rotatable=False)
-        self.fft_view_box.addItem(self.selection_roi)
+        self.fft_plot_widget = self.scene.widget()
         self.selection_roi.setVisible(False)
         main_splitter.addWidget(self.fft_plot_widget)
 
@@ -388,8 +389,13 @@ class AdsorbateSpotSelectionDialog(QDialog):
     @pyqtSlot(str)
     def _on_expected_type_changed(self, new_type: str):
         """Update internal state after expected type change."""
-        self.current_expected_type = new_type
-        logger.debug(f"Adsorbate dialog: Expected type changed to '{new_type}'.")
+        try:
+            self.presenter.set_expected_type(new_type)
+        except ValueError as exc:  # pragma: no cover - UI guarded by combo entries
+            logger.warning("Rejected invalid expected type '%s': %s", new_type, exc)
+            self.expected_type_combo.setCurrentText(self.state.expected_type)
+        else:
+            logger.debug("Adsorbate dialog: Expected type changed to '%s'.", new_type)
 
     def _clear_last_preview_gauss_fit(self):
         self.last_preview_gauss_fit_popt = None
@@ -482,11 +488,11 @@ class AdsorbateSpotSelectionDialog(QDialog):
         Displays the corrected spots in the ideal coordinate system.
         """
         self.corrected_spots_list_widget.clear()
-        if not self.corrected_adsorbate_spots_in_ideal_system:
+        if not self.state.corrected_spots:
             self.corrected_spots_list_widget.addItem("No corrected spots yet.")
             return
         
-        for i, (kx, ky) in enumerate(self.corrected_adsorbate_spots_in_ideal_system):
+        for i, (kx, ky) in enumerate(self.state.corrected_spots):
             pair_text = format_pair((kx, ky), precision=2)
             self.corrected_spots_list_widget.addItem(f"Corr. A{i+1}: {pair_text} [Ideal Sys]")
 
@@ -568,12 +574,11 @@ class AdsorbateSpotSelectionDialog(QDialog):
                     logger.warning("Adsorbate GaussFit FAILED for Add Spot. Using ROI center.")
         
         new_spot = (ref_kx, ref_ky)
-        if new_spot not in self.selected_adsorbate_spots_raw: 
-            self.selected_adsorbate_spots_raw.append(new_spot)
+        if self.presenter.add_raw_spot(new_spot):
             self._update_adsorbate_spots_list_widget()
             self._redraw_all_markers_in_dialog()
-            self.status_label.setText(f"Adsorbate spot {len(self.selected_adsorbate_spots_raw)} added.")
-        else: 
+            self.status_label.setText(f"Adsorbate spot {len(self.state.raw_spots)} added.")
+        else:
             point_text = format_pair((ref_kx, ref_ky), precision=2)
             self.status_label.setText(f"Adsorbate spot {point_text} already selected.")
         self._clear_last_preview_gauss_fit()
@@ -582,7 +587,7 @@ class AdsorbateSpotSelectionDialog(QDialog):
 
     def _update_adsorbate_spots_list_widget(self):
         self.spots_list_widget.clear()
-        for i, (kx,ky) in enumerate(self.selected_adsorbate_spots_raw): 
+        for i, (kx,ky) in enumerate(self.state.raw_spots): 
             point_text = format_pair((kx, ky), precision=2)
             self.spots_list_widget.addItem(f"A{i+1} (S{self.adsorbate_set_index+1}): {point_text}")
         self._update_add_spot_button_state()
@@ -592,16 +597,16 @@ class AdsorbateSpotSelectionDialog(QDialog):
     def _remove_selected_spot(self):
         ci = self.spots_list_widget.currentItem()
         if ci: row=self.spots_list_widget.row(ci)
-        if 0 <= row < len(self.selected_adsorbate_spots_raw): 
-            del self.selected_adsorbate_spots_raw[row]
+        else: 
+            row = -1
+        if self.presenter.remove_raw_spot(row):
             self._update_adsorbate_spots_list_widget()
             self._redraw_all_markers_in_dialog()
             logger.debug(f"Removed adsorbate spot at idx {row}")
 
     @pyqtSlot()
     def _clear_all_spots_in_dialog(self):
-        self.selected_adsorbate_spots_raw.clear()
-        self.corrected_adsorbate_spots_in_ideal_system.clear()
+        self.presenter.clear_raw_spots()
         self._update_adsorbate_spots_list_widget()
         self._update_corrected_adsorbate_spots_list_widget()
         self._redraw_all_markers_in_dialog()
@@ -610,46 +615,34 @@ class AdsorbateSpotSelectionDialog(QDialog):
 
     def _redraw_all_markers_in_dialog(self):
         logger.debug("AdsorbateDialog: Redrawing all markers...")
-        if self.raw_adsorbate_spot_markers: 
-            try: 
-                self.fft_view_box.removeItem(self.raw_adsorbate_spot_markers)
-                self.raw_adsorbate_spot_markers = None 
-            except RuntimeError: pass
-        if self.ideal_substrate_marker_item: 
-            try: 
-                self.fft_view_box.removeItem(self.ideal_substrate_marker_item)
-                self.ideal_substrate_marker_item = None 
-            except RuntimeError: pass
-        if self.fitted_substrate_marker_item: 
-            try: 
-                self.fft_view_box.removeItem(self.fitted_substrate_marker_item)
-                self.fitted_substrate_marker_item = None 
-            except RuntimeError: pass
-        if self.corrected_adsorbate_marker_item: 
-            try: 
-                self.fft_view_box.removeItem(self.corrected_adsorbate_marker_item)
-                self.corrected_adsorbate_marker_item = None 
-            except RuntimeError: pass
+        self.scene.show_raw_spots(self.state.raw_spots)
 
-        if self.selected_adsorbate_spots_raw:
-            d=[{'pos':s,'symbol':'o','size':10,'pen':pg.mkPen('y',width=1.5),'brush':pg.mkBrush(0,0,255,120)} for s in self.selected_adsorbate_spots_raw]
-            self.raw_adsorbate_spot_markers=ScatterPlotItem(spots=d)
-            self.fft_view_box.addItem(self.raw_adsorbate_spot_markers)
-        if self.show_ideal_substrate_checkbox.isChecked() and self.ideal_substrate_spots_to_display_px:
-            d=[{'pos':s,'symbol':'+','size':12,'pen':pg.mkPen('m',width=1.5)} for s in self.ideal_substrate_spots_to_display_px]
-            self.ideal_substrate_marker_item=ScatterPlotItem(spots=d)
-            self.fft_view_box.addItem(self.ideal_substrate_marker_item)
-        if self.show_fitted_substrate_checkbox.isChecked() and self.fitted_substrate_spots_to_display_px:
-            d=[{'pos':s,'symbol':'x','size':12,'pen':pg.mkPen('c',width=2.0)} for s in self.fitted_substrate_spots_to_display_px]
-            self.fitted_substrate_marker_item=ScatterPlotItem(spots=d)
-            self.fft_view_box.addItem(self.fitted_substrate_marker_item)
-        
-        if self.show_corrected_adsorbate_checkbox.isChecked() and self.corrected_adsorbate_spots_in_ideal_system and self.sub_F_m2i is not None and self.sub_t_m2i is not None:
-            try:
-                if self.corrected_adsorbate_spots_in_ideal_system is not None: d=[{'pos':tuple(p),'symbol':'s','size':10,'pen':pg.mkPen('r',width=1.5),'brush':pg.mkBrush(255,0,0,120)} for p in self.corrected_adsorbate_spots_in_ideal_system]
-                self.corrected_adsorbate_marker_item=ScatterPlotItem(spots=d)
-                self.fft_view_box.addItem(self.corrected_adsorbate_marker_item)
-            except Exception as e:logger.error(f"Error transforming corrected adsorbate spots for display: {e}")
+        ideal_specs: List[MarkerSpec] = []
+        if self.show_ideal_substrate_checkbox.isChecked():
+            ideal_specs = [
+                MarkerSpec(pos=tuple(map(float, pt)), symbol="+", size=12, pen=(255, 0, 255))
+                for pt in self.state.ideal_reference_spots_px
+            ]
+
+        fitted_specs: List[MarkerSpec] = []
+        if self.show_fitted_substrate_checkbox.isChecked():
+            fitted_specs = [
+                MarkerSpec(pos=tuple(map(float, pt)), symbol="x", size=12, pen=(0, 255, 255))
+                for pt in self.state.fitted_reference_spots_px
+            ]
+
+        self.scene.show_reference_overlay(ideal_specs=ideal_specs, fitted_specs=fitted_specs)
+
+        corrected_visible = (
+            self.show_corrected_adsorbate_checkbox.isChecked()
+            and self.state.corrected_spots
+            and self.state.substrate_matrix_F is not None
+            and self.state.substrate_translation_t is not None
+        )
+        if corrected_visible:
+            self.scene.show_corrected_spots(self.state.corrected_spots)
+        else:
+            self.scene.show_corrected_spots([])
 
     def _handle_fft_image_click(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -675,31 +668,33 @@ class AdsorbateSpotSelectionDialog(QDialog):
             
     def _update_add_spot_button_state(self):
         self.add_adsorbate_spot_button.setEnabled(self.selection_roi.isVisible())
-        num_sel = len(self.selected_adsorbate_spots_raw)
+        num_sel = len(self.state.raw_spots)
         min_req = 3 
         if num_sel < min_req : self.status_label.setText(f"Select at least {min_req-num_sel} more adsorbate spot(s). Current: {num_sel}.")
         else: self.status_label.setText(f"Selected {num_sel} adsorbate spots. Ready to add or correct.")
 
 
     def _update_correction_button_state(self):
-        can_correct = bool(self.sub_F_m2i is not None and self.sub_t_m2i is not None and self.selected_adsorbate_spots_raw)
+        can_correct = self.presenter.can_apply_correction()
         self.apply_correction_button.setEnabled(can_correct)
-        if not (self.sub_F_m2i is not None and self.sub_t_m2i is not None):
+        if not (
+            self.state.substrate_matrix_F is not None
+            and self.state.substrate_translation_t is not None
+        ):
             self.sub_transform_info_label_status.setText("Status: Substrate transform not available to apply.")
 
     def _display_substrate_transform_info(self):
-        if self.sub_transform_analysis:
-            rotation_text = format_float(
-                self.sub_transform_analysis.get("rotation_angle_deg"), precision=2
-            )
+        analysis = self.state.substrate_analysis
+        if analysis:
+            rotation_text = format_float(analysis.get("rotation_angle_deg"), precision=2)
             rotation_display = rotation_text if rotation_text == "-" else f"{rotation_text} deg"
 
             stretch_display = format_pair(
-                self.sub_transform_analysis.get("principal_stretches"), precision=3
+                analysis.get("principal_stretches"), precision=3
             )
 
             rmse_text = format_float(
-                self.sub_transform_analysis.get("rmse"), precision=3
+                analysis.get("rmse"), precision=3
             )
 
             self.sub_transform_info_label_status.setText("Status: Substrate transform data available.")
@@ -722,63 +717,49 @@ class AdsorbateSpotSelectionDialog(QDialog):
     @pyqtSlot()
     def _on_apply_substrate_correction_clicked(self):
         logger.info("Apply Substrate Correction button clicked in Adsorbate Dialog.")
-        if self.sub_F_m2i is None or self.sub_t_m2i is None or not self.selected_adsorbate_spots_raw:
-            QMessageBox.warning(self, "Cannot Correct", "Substrate transformation data is not available or no adsorbate spots are selected to correct.")
+        if not self.presenter.can_apply_correction():
+            QMessageBox.warning(
+                self,
+                "Cannot Correct",
+                "Substrate transformation data is not available or no adsorbate spots are selected to correct.",
+            )
             return
 
         try:
-            from ...analysis.drift_correction import apply_affine_transform
-            raw_spots_np = np.array(self.selected_adsorbate_spots_raw, dtype=float)
-            corrected_spots_np = apply_affine_transform(raw_spots_np, self.sub_F_m2i, self.sub_t_m2i)
-            print(f"corrected_spots_np: {corrected_spots_np}")
-            
-            if corrected_spots_np is not None:
-                self.corrected_adsorbate_spots_in_ideal_system = [tuple(pt) for pt in corrected_spots_np]
-                logger.info(f"Applied substrate correction to {len(self.corrected_adsorbate_spots_in_ideal_system)} adsorbate spots.")
-                self._update_corrected_adsorbate_spots_list_widget()
-                self._redraw_all_markers_in_dialog() 
-                self.status_label.setText(f"{len(self.corrected_adsorbate_spots_in_ideal_system)} adsorbate spots corrected (in ideal system).")
-            else: raise ValueError("apply_affine_transform returned None for adsorbate spots.")
-        except Exception as e:
-            logger.error(f"Error applying substrate correction to adsorbate spots: {e}")
-            QMessageBox.critical(self, "Correction Error", f"Could not apply correction: {e}")
+            corrected = self.presenter.apply_substrate_correction()
+        except MissingTransformError as exc:
+            QMessageBox.warning(self, "Cannot Correct", str(exc))
+            return
+        except AdsorbateSpotPresenterError as exc:
+            logger.error("Error applying substrate correction: %s", exc)
+            QMessageBox.critical(self, "Correction Error", str(exc))
+            return
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.exception("Unexpected error during substrate correction.")
+            QMessageBox.critical(self, "Correction Error", str(exc))
+            return
 
-    def _coerce_point(self, point: Any) -> Tuple[float, float]:
-        """Normalize various point representations to a simple pair of floats."""
-        try:
-            x, y = point  # tuple/list/np.ndarray
-        except TypeError:
-            if hasattr(point, "x") and hasattr(point, "y"):
-                x, y = point.x(), point.y()
-            else:
-                raise
-        return float(x), float(y)
+        logger.info("Applied substrate correction to %s adsorbate spots.", len(corrected))
+        self._update_corrected_adsorbate_spots_list_widget()
+        self._redraw_all_markers_in_dialog()
+        self.status_label.setText(f"{len(corrected)} adsorbate spots corrected (in ideal system).")
 
     def _build_result_payload(self) -> Dict[str, Any]:
-        raw_spots = [self._coerce_point(pt) for pt in self.selected_adsorbate_spots_raw]
-        corrected_spots = [self._coerce_point(pt) for pt in self.corrected_adsorbate_spots_in_ideal_system]
-        return {
-            "raw_adsorbate_spots": raw_spots,
-            "corrected_adsorbate_spots_in_ideal_system": corrected_spots,
-            "adsorbate_set_index": self.adsorbate_set_index,
-            "expected_type": self.current_expected_type,
-        }
+        return self.presenter.build_results_dict()
 
     def get_dialog_results(self) -> Dict[str, Any]:
         if self._cached_results is not None:
-            return {
-                "raw_adsorbate_spots": list(self._cached_results["raw_adsorbate_spots"]),
-                "corrected_adsorbate_spots_in_ideal_system": list(self._cached_results["corrected_adsorbate_spots_in_ideal_system"]),
-                "adsorbate_set_index": self._cached_results["adsorbate_set_index"],
-                "expected_type": self._cached_results["expected_type"],
-            }
+            return dict(self._cached_results)
         return self._build_result_payload()
 
     def accept(self):
         self._cached_results = self._build_result_payload()
-        logger.info(f"AdsorbateSpotSelectionDialog for set {self.adsorbate_set_index + 1} accepted. "
-                    f"Raw spots: {len(self.selected_adsorbate_spots_raw)}, "
-                    f"Corrected spots: {len(self.corrected_adsorbate_spots_in_ideal_system)}")
+        logger.info(
+            "AdsorbateSpotSelectionDialog for set %s accepted. Raw spots: %s, Corrected spots: %s",
+            self.adsorbate_set_index + 1,
+            len(self.state.raw_spots),
+            len(self.state.corrected_spots),
+        )
         super().accept()
 
     def reject(self):

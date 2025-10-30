@@ -1,5 +1,9 @@
+from pathlib import Path
 import numpy as np
 import pytest
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 pytest.importorskip("PyQt6", reason="PyQt6 is required for spot-selection dialog tests")
 pytest.importorskip("pytestqt", reason="pytest-qt is required for qtbot fixture")
@@ -79,11 +83,11 @@ def test_adsorbate_max_pixel_centers_marker(adsorbate_dialog, monkeypatch):
         lambda data, center, radius: (6, 12)
     )
     adsorbate_dialog.current_refinement_method = ADS_REFINEMENT_MAX_PIXEL
-    adsorbate_dialog.selected_adsorbate_spots_raw.clear()
+    adsorbate_dialog.state.raw_spots.clear()
 
     adsorbate_dialog._add_current_adsorbate_spot_from_roi()
 
-    assert adsorbate_dialog.selected_adsorbate_spots_raw
-    x, y = adsorbate_dialog.selected_adsorbate_spots_raw[-1]
+    assert adsorbate_dialog.state.raw_spots
+    x, y = adsorbate_dialog.state.raw_spots[-1]
     assert x == pytest.approx(12.5)
     assert y == pytest.approx(6.5)

@@ -1,5 +1,9 @@
+from pathlib import Path
 import numpy as np
 import pytest
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 pytest.importorskip("PyQt6", reason="PyQt6 is required for adsorbate dialog tests")
 pytest.importorskip("pytestqt", reason="pytest-qt provides the qtbot fixture")
@@ -22,8 +26,8 @@ def test_adsorbate_dialog_caches_results_on_accept(qtbot):
     )
 
     qtbot.addWidget(dialog)
-    dialog.selected_adsorbate_spots_raw = [(1.0, 2.0), (5.0, 6.0)]
-    dialog.corrected_adsorbate_spots_in_ideal_system = [(10.0, 11.0)]
+    dialog.state.raw_spots = [(1.0, 2.0), (5.0, 6.0)]
+    dialog.state.corrected_spots = [(10.0, 11.0)]
 
     dialog.accept()
     results = dialog.get_dialog_results()
