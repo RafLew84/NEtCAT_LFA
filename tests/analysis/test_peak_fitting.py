@@ -2,8 +2,12 @@
 """
 Unit tests for peak fitting functions in lfa.analysis.peak_fitting.
 """
+from pathlib import Path
 import numpy as np
 import pytest
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import logging
 
 # Importuj funkcje do testowania
@@ -137,7 +141,8 @@ def test_fit_gaussian_perfect_peak(gaussian_peak_image):
 
     fit_result = fit_2d_gaussian_in_roi(img, center_yx_click, roi_radius)
     assert fit_result is not None, "Gaussian fit failed to return a result."
-    y0_fit, x0_fit = fit_result
+    y0_fit, x0_fit = fit_result.center
+    assert fit_result.center_std is not None and all(sigma >= 0 for sigma in fit_result.center_std)
 
     # Check if the fitted center is close to the true sub-pixel center
     assert np.isclose(y0_fit, y0_true, atol=0.1), f"Fitted y0 ({y0_fit:.2f}) far from true y0 ({y0_true:.2f})"
@@ -158,7 +163,7 @@ def test_fit_gaussian_noisy_peak(noisy_peak_image, gaussian_peak_image):
 
     fit_result = fit_2d_gaussian_in_roi(noisy_gauss_img, center_yx_click, roi_radius)
     assert fit_result is not None
-    y0_fit, x0_fit = fit_result
+    y0_fit, x0_fit = fit_result.center
 
     # Expect slightly larger tolerance due to noise
     assert np.isclose(y0_fit, y0_true, atol=0.5), f"Fitted y0 ({y0_fit:.2f}) too far from true y0 ({y0_true:.2f}) on noisy data"
@@ -204,7 +209,7 @@ def test_fit_gaussian_small_roi_on_peak(gaussian_peak_image):
     # It's hard to assert specific failure without knowing curve_fit's exact behavior.
     # For now, check it returns something, or None if it fails robustly.
     if fit_result is not None:
-        logger.info(f"Small ROI fit result: {fit_result}. True: ({y0_true}, {x0_true})")
+        logger.info(f"Small ROI fit result: {fit_result.center}. True: ({y0_true}, {x0_true})")
         # Don't be too strict on accuracy for very small ROIs on broad peaks
         # y0_fit, x0_fit = fit_result
         # assert np.isclose(y0_fit, y0_true, atol=1.0) # Wider tolerance

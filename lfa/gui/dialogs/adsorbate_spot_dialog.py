@@ -42,7 +42,14 @@ except ImportError: # pragma: no cover
     def scipy_curve_fit(*args, **kwargs): raise ImportError("scipy.optimize.curve_fit is not available")
 
 try:
-    from ...analysis.peak_fitting import find_max_pixel_in_roi, fit_2d_gaussian_in_roi, _gaussian_2d, SCIPY_AVAILABLE
+    from ...analysis.peak_fitting import (
+        find_max_pixel_in_roi,
+        fit_2d_gaussian_in_roi,
+        refine_peak_parabola_3x3,
+        refine_peak_local_dft,
+        _gaussian_2d,
+        SCIPY_AVAILABLE,
+    )
     from ...analysis.lattice import KNOWN_LATTICES, get_reciprocal_points
     from ...core.history import HistoryNode
     from ...logic.history_manager import HistoryManager
@@ -54,6 +61,8 @@ except ImportError:
     logging.error("AdsorbateSpotSelectionDialog: Could not import peak_fitting or lattice modules.")
     def find_max_pixel_in_roi(data, center, radius): return center
     def fit_2d_gaussian_in_roi(data, center, radius): return None
+    def refine_peak_parabola_3x3(data, center): return None
+    def refine_peak_local_dft(data, center, radius, upsample_factor=8): return None
     def _gaussian_2d(*args, **kwargs): raise ImportError("Gaussian 2D function is not available")
 
 from ...core.constants import (
@@ -63,6 +72,8 @@ from ...core.constants import (
     REFINEMENT_DIRECT_CLICK,
     REFINEMENT_GAUSSIAN_FIT,
     REFINEMENT_MAX_PIXEL,
+    REFINEMENT_PARABOLA_3X3,
+    REFINEMENT_LOCAL_DFT,
 )
 from ..utils.display import format_float, format_pair
 from .scenes import AdsorbateSpotScene, MarkerSpec
@@ -74,6 +85,8 @@ from .presenters import (
 )
 
 logger = logging.getLogger(__name__)
+
+PARABOLA_PATCH_SIZE = 3
 
 class AdsorbateSpotSelectionDialog(QDialog):
     """
@@ -164,6 +177,10 @@ class AdsorbateSpotSelectionDialog(QDialog):
 
         self.current_refinement_method = default_refinement_method
         self.refinement_roi_size = default_refinement_roi_size
+        if self.refinement_roi_size % 2 == 0:
+            self.refinement_roi_size += 1
+        self._last_non_parabola_roi_size = self.refinement_roi_size
+        self._suppress_roi_callback = False
         self._cached_results: Optional[Dict[str, Any]] = None
 
         self.scene = AdsorbateSpotScene(initial_roi_size=self.refinement_roi_size)
@@ -190,6 +207,10 @@ class AdsorbateSpotSelectionDialog(QDialog):
             self.rb_refine_max_pixel.setChecked(True)
         elif self.current_refinement_method == REFINEMENT_GAUSSIAN_FIT:
             self.rb_refine_gaussian.setChecked(True)
+        elif self.current_refinement_method == REFINEMENT_PARABOLA_3X3:
+            self.rb_refine_parabola.setChecked(True)
+        elif self.current_refinement_method == REFINEMENT_LOCAL_DFT:
+            self.rb_refine_local_dft.setChecked(True)
         else:
             self.rb_refine_direct.setChecked(True)
         self.refinement_roi_size_spinbox.setValue(self.refinement_roi_size)
@@ -229,9 +250,13 @@ class AdsorbateSpotSelectionDialog(QDialog):
         self.rb_refine_direct.setChecked(True)
         self.rb_refine_max_pixel = QRadioButton(REFINEMENT_MAX_PIXEL)
         self.rb_refine_gaussian = QRadioButton(REFINEMENT_GAUSSIAN_FIT)
+        self.rb_refine_parabola = QRadioButton(REFINEMENT_PARABOLA_3X3)
+        self.rb_refine_local_dft = QRadioButton(REFINEMENT_LOCAL_DFT)
         refinement_layout.addRow(self.rb_refine_direct)
         refinement_layout.addRow(self.rb_refine_max_pixel)
         refinement_layout.addRow(self.rb_refine_gaussian)
+        refinement_layout.addRow(self.rb_refine_parabola)
+        refinement_layout.addRow(self.rb_refine_local_dft)
         self.refinement_roi_size_spinbox = QSpinBox()
         self.refinement_roi_size_spinbox.setMinimum(3)
         self.refinement_roi_size_spinbox.setMaximum(31)
@@ -370,6 +395,8 @@ class AdsorbateSpotSelectionDialog(QDialog):
         self.rb_refine_direct.toggled.connect(self._on_refinement_method_changed)
         self.rb_refine_max_pixel.toggled.connect(self._on_refinement_method_changed)
         self.rb_refine_gaussian.toggled.connect(self._on_refinement_method_changed)
+        self.rb_refine_parabola.toggled.connect(self._on_refinement_method_changed)
+        self.rb_refine_local_dft.toggled.connect(self._on_refinement_method_changed)
         self.refinement_roi_size_spinbox.valueChanged.connect(self._on_refinement_roi_size_changed)
 
         self.add_adsorbate_spot_button.clicked.connect(self._add_current_adsorbate_spot_from_roi)
@@ -397,6 +424,62 @@ class AdsorbateSpotSelectionDialog(QDialog):
         else:
             logger.debug("Adsorbate dialog: Expected type changed to '%s'.", new_type)
 
+    def _update_selection_roi_geometry(self, size: int) -> None:
+        """Resize the selection ROI while keeping its centre fixed."""
+        if not hasattr(self, "selection_roi"):
+            return
+        current_pos = self.selection_roi.pos()
+        current_size = self.selection_roi.size()
+        center_x = current_pos.x() + current_size.x() / 2
+        center_y = current_pos.y() + current_size.y() / 2
+        self._suppress_roi_callback = True
+        try:
+            self.selection_roi.setPos((center_x - size / 2, center_y - size / 2), update=False)
+            self.selection_roi.setSize((size, size), update=False)
+        finally:
+            self._suppress_roi_callback = False
+
+    def _apply_refinement_roi_size(
+        self,
+        size: int,
+        *,
+        update_spinbox: bool = True,
+        remember_for_freeform: bool = True,
+    ) -> None:
+        """
+        Clamp and apply the requested ROI size.
+
+        Parameters
+        ----------
+        size:
+            Desired ROI edge length in pixels.
+        update_spinbox:
+            Whether to synchronise the spinbox with the new value.
+        remember_for_freeform:
+            Whether to update the cached ROI size used when exiting
+            fixed-size modes such as the parabolic 3x3 refinement.
+        """
+        if not hasattr(self, "refinement_roi_size_spinbox"):
+            self.refinement_roi_size = size
+            return
+
+        minimum = self.refinement_roi_size_spinbox.minimum()
+        maximum = self.refinement_roi_size_spinbox.maximum()
+        clamped = max(minimum, min(int(size), maximum))
+        if clamped % 2 == 0:
+            clamped = clamped + 1 if clamped < maximum else clamped - 1
+        self.refinement_roi_size = clamped
+
+        if remember_for_freeform and self.current_refinement_method != REFINEMENT_PARABOLA_3X3:
+            self._last_non_parabola_roi_size = clamped
+
+        if update_spinbox and self.refinement_roi_size_spinbox.value() != clamped:
+            self.refinement_roi_size_spinbox.blockSignals(True)
+            self.refinement_roi_size_spinbox.setValue(clamped)
+            self.refinement_roi_size_spinbox.blockSignals(False)
+
+        self._update_selection_roi_geometry(clamped)
+
     def _clear_last_preview_gauss_fit(self):
         self.last_preview_gauss_fit_popt = None
         self.last_preview_gauss_fit_center_abs = None
@@ -408,17 +491,36 @@ class AdsorbateSpotSelectionDialog(QDialog):
         if roi_item is None: roi_item = self.selection_roi
         if not isinstance(roi_item, RectROI): return
 
+        if self._suppress_roi_callback:
+            return
+
         if roi_item.isVisible():
             roi_pos = roi_item.pos()
             roi_size = roi_item.size()
+            logger.debug(
+                "Adsorbate ROI changing: Pos (%.1f, %.1f), Size (%.1f, %.1f)",
+                roi_pos.x(),
+                roi_pos.y(),
+                roi_size.x(),
+                roi_size.y(),
+            )
             current_roi_w = int(round(roi_size.x()))
+            if self.current_refinement_method == REFINEMENT_PARABOLA_3X3 and current_roi_w != PARABOLA_PATCH_SIZE:
+                self._apply_refinement_roi_size(
+                    PARABOLA_PATCH_SIZE,
+                    remember_for_freeform=False,
+                )
+                return
             if current_roi_w != self.refinement_roi_size_spinbox.value() and \
                self.refinement_roi_size_spinbox.minimum() <= current_roi_w <= self.refinement_roi_size_spinbox.maximum() and \
                current_roi_w % 2 != 0:
                 self.refinement_roi_size_spinbox.blockSignals(True)
                 self.refinement_roi_size_spinbox.setValue(current_roi_w)
                 self.refinement_roi_size_spinbox.blockSignals(False)
-            
+            self.refinement_roi_size = current_roi_w
+            if self.current_refinement_method != REFINEMENT_PARABOLA_3X3:
+                self._last_non_parabola_roi_size = current_roi_w
+
             self._clear_last_preview_gauss_fit()
             self._update_roi_previews()
 
@@ -450,26 +552,36 @@ class AdsorbateSpotSelectionDialog(QDialog):
             if self.rb_refine_gaussian.isChecked():
                 fitted_gauss_2d_for_preview = None
                 if PEAK_FITTING_MODULE_AVAILABLE and SCIPY_OPTIMIZE_AVAILABLE and SCIPY_AVAILABLE:
-                    patch_h, patch_w = roi_patch.shape
-                    p_y,p_x=np.mgrid[0:patch_h,0:patch_w]
-                    p_xy_flat=(p_y.flatten(),p_x.flatten())
-                    p_data_flat=roi_patch.flatten()
+                    patch_radius = self.refinement_roi_size // 2
+                    max_h, max_w = self.fft_data.shape  # type: ignore
+                    eff_center_ky = np.clip(int(round(y0_roi + (y1_cl - y0_cl) / 2)), patch_radius, max_h - 1 - patch_radius)
+                    eff_center_kx = np.clip(int(round(x0_roi + (x1_cl - x0_cl) / 2)), patch_radius, max_w - 1 - patch_radius)
                     try:
-                        p0_gauss = [roi_patch.max()-roi_patch.min(),patch_h/2.,patch_w/2.,patch_w/4.,patch_h/4.,0.,roi_patch.min()]
-                        if callable(scipy_curve_fit) and callable(_gaussian_2d):
-                            popt_gauss,pcov_gauss=scipy_curve_fit(_gaussian_2d,p_xy_flat,p_data_flat,p0=p0_gauss,maxfev=3000)
-                            self.last_preview_gauss_fit_popt=popt_gauss
-                            abs_fit_ky=y0_roi+popt_gauss[1]
-                            abs_fit_kx=x0_roi+popt_gauss[2]
-                            self.last_preview_gauss_fit_center_abs=(abs_fit_kx,abs_fit_ky)
-                            self.last_preview_gauss_roi_state=self.selection_roi.getState().copy()
-                            logger.info(f"Adsorbate Preview GaussFit OK. Center: {self.last_preview_gauss_fit_center_abs}") # type: ignore
-                            fitted_gauss_flat=_gaussian_2d(p_xy_flat,*popt_gauss)
-                            fitted_gauss_2d_for_preview=fitted_gauss_flat.reshape(patch_h,patch_w)
-                    except Exception as e:
-                        logger.warning(f"Adsorbate GaussFit Preview failed: {e}")
+                        fit_preview = fit_2d_gaussian_in_roi(self.fft_data, (eff_center_ky, eff_center_kx), patch_radius)
+                        if fit_preview:
+                            self.last_preview_gauss_fit_popt = fit_preview.popt
+                            self.last_preview_gauss_fit_center_abs = (
+                                float(fit_preview.center[1]),
+                                float(fit_preview.center[0]),
+                            )
+                            self.last_preview_gauss_roi_state = self.selection_roi.getState().copy()
+                            logger.info("Adsorbate Preview GaussFit OK. Center: %s", self.last_preview_gauss_fit_center_abs)
+                            if fit_preview.popt is not None:
+                                patch_h, patch_w = fit_preview.roi_patch.shape
+                                p_y, p_x = np.mgrid[0:patch_h, 0:patch_w]
+                                fitted_gauss_flat = _gaussian_2d(
+                                    (p_y.flatten(), p_x.flatten()), *fit_preview.popt
+                                )
+                                fitted_gauss_2d_for_preview = fitted_gauss_flat.reshape(patch_h, patch_w)
+                            else:
+                                fitted_gauss_2d_for_preview = fit_preview.roi_patch
+                        else:
+                            self._clear_last_preview_gauss_fit()
+                            fitted_gauss_2d_for_preview = roi_patch
+                    except Exception as e:  # pragma: no cover - defensive
+                        logger.warning("Adsorbate GaussFit Preview failed: %s", e)
                         self._clear_last_preview_gauss_fit()
-                        fitted_gauss_2d_for_preview=roi_patch
+                        fitted_gauss_2d_for_preview = roi_patch
                 if self.enable_gauss_2d_preview_checkbox.isChecked() and hasattr(self,'gaussian_preview_2d_image_item'):
                     if fitted_gauss_2d_for_preview is not None: self.gaussian_preview_2d_image_item.setImage(fitted_gauss_2d_for_preview.T)
                     else: self.gaussian_preview_2d_image_item.setImage(roi_patch.T)
@@ -498,36 +610,96 @@ class AdsorbateSpotSelectionDialog(QDialog):
 
     @pyqtSlot()
     def _on_refinement_method_changed(self):
+        previous_method = self.current_refinement_method
         is_gaussian_mode = self.rb_refine_gaussian.isChecked()
-        if hasattr(self, 'gauss_2d_container'): self.gauss_2d_container.setVisible(is_gaussian_mode)
-        if self.rb_refine_direct.isChecked(): 
-            self.current_refinement_method=REFINEMENT_DIRECT_CLICK
+        if hasattr(self, 'gauss_2d_container'):
+            self.gauss_2d_container.setVisible(is_gaussian_mode)
+
+        if self.rb_refine_direct.isChecked():
+            new_method = REFINEMENT_DIRECT_CLICK
+        elif self.rb_refine_max_pixel.isChecked():
+            new_method = REFINEMENT_MAX_PIXEL
+        elif self.rb_refine_gaussian.isChecked():
+            new_method = REFINEMENT_GAUSSIAN_FIT
+        elif self.rb_refine_parabola.isChecked():
+            new_method = REFINEMENT_PARABOLA_3X3
+        elif self.rb_refine_local_dft.isChecked():
+            new_method = REFINEMENT_LOCAL_DFT
+        else:
+            new_method = REFINEMENT_MAX_PIXEL
+
+        self.current_refinement_method = new_method
+
+        if new_method == REFINEMENT_DIRECT_CLICK:
+            if previous_method == REFINEMENT_PARABOLA_3X3:
+                self._apply_refinement_roi_size(
+                    self._last_non_parabola_roi_size,
+                    remember_for_freeform=False,
+                )
             self.refinement_roi_size_spinbox.setEnabled(False)
             self.selection_roi.setVisible(False)
             self.add_adsorbate_spot_button.setEnabled(False)
             self.status_label.setText("Click directly on FFT to add adsorbate spot.")
-        else: 
-            self.current_refinement_method = REFINEMENT_MAX_PIXEL if self.rb_refine_max_pixel.isChecked() else REFINEMENT_GAUSSIAN_FIT
-            self.refinement_roi_size_spinbox.setEnabled(True)
-            self.add_adsorbate_spot_button.setEnabled(self.selection_roi.isVisible())
+        else:
+            if not self.selection_roi.isVisible():
+                self.selection_roi.setVisible(True)
+            if previous_method != REFINEMENT_PARABOLA_3X3 and new_method == REFINEMENT_PARABOLA_3X3:
+                self._last_non_parabola_roi_size = self.refinement_roi_size
+            if new_method == REFINEMENT_PARABOLA_3X3:
+                self._apply_refinement_roi_size(
+                    PARABOLA_PATCH_SIZE,
+                    remember_for_freeform=False,
+                )
+            elif previous_method == REFINEMENT_PARABOLA_3X3:
+                self._apply_refinement_roi_size(
+                    self._last_non_parabola_roi_size,
+                    remember_for_freeform=False,
+                )
+            else:
+                self._apply_refinement_roi_size(
+                    self.refinement_roi_size,
+                    remember_for_freeform=False,
+                )
+
+            self.add_adsorbate_spot_button.setEnabled(True)
             self.status_label.setText("Click on FFT to place ROI, or drag ROI. Then Add Spot.")
-        if not is_gaussian_mode: self._clear_last_preview_gauss_fit()
+
+        self.refinement_roi_size_spinbox.setEnabled(
+            self.current_refinement_method not in (REFINEMENT_DIRECT_CLICK, REFINEMENT_PARABOLA_3X3)
+        )
+
+        if not is_gaussian_mode:
+            self._clear_last_preview_gauss_fit()
+
         self._update_roi_previews()
-        logger.debug(f"Adsorbate refinement method: {self.current_refinement_method}")
+        logger.debug("Adsorbate refinement method: %s", self.current_refinement_method)
 
     @pyqtSlot(int)
     def _on_refinement_roi_size_changed(self, value: int):
-        self.refinement_roi_size = value
+        if self.current_refinement_method == REFINEMENT_PARABOLA_3X3:
+            if value != PARABOLA_PATCH_SIZE:
+                self.refinement_roi_size_spinbox.blockSignals(True)
+                self.refinement_roi_size_spinbox.setValue(PARABOLA_PATCH_SIZE)
+                self.refinement_roi_size_spinbox.blockSignals(False)
+            self._apply_refinement_roi_size(
+                PARABOLA_PATCH_SIZE,
+                update_spinbox=False,
+                remember_for_freeform=False,
+            )
+            self._clear_last_preview_gauss_fit()
+            if self.selection_roi.isVisible():
+                self._update_roi_previews()
+            logger.debug("Adsorbate refinement ROI size forced to 3x3 for parabolic mode.")
+            return
+
+        self._apply_refinement_roi_size(
+            value,
+            update_spinbox=False,
+            remember_for_freeform=True,
+        )
         self._clear_last_preview_gauss_fit()
         if self.selection_roi.isVisible():
-            current_pos = self.selection_roi.pos()
-            old_size = self.selection_roi.size()
-            center_x = current_pos.x()+old_size.x()/2
-            center_y = current_pos.y()+old_size.y()/2
-            new_pos_x = center_x-value/2
-            new_pos_y = center_y-value/2
-            self.selection_roi.setPos((new_pos_x, new_pos_y), update=False)
-            self.selection_roi.setSize((value,value), update=False)
+            self._update_roi_previews()
             self._handle_roi_region_changing()
         logger.debug(f"Adsorbate refinement ROI size: {self.refinement_roi_size}")
 
@@ -565,14 +737,64 @@ class AdsorbateSpotSelectionDialog(QDialog):
                 max_h,max_w=self.fft_data.shape
                 eff_cky=np.clip(cky,pr,max_h-1-pr)
                 eff_ckx=np.clip(ckx,pr,max_w-1-pr)
-                fit_res=fit_2d_gaussian_in_roi(self.fft_data,(eff_cky,eff_ckx),pr)
-                if fit_res: 
-                    _popt, (fky_abs,fkx_abs), _patch = fit_res
-                    ref_kx,ref_ky=float(fkx_abs),float(fky_abs)
-                    logger.info(f"NEW Adsorbate GaussFit: ({ref_kx:.2f},{ref_ky:.2f})")
+                fit_res = fit_2d_gaussian_in_roi(self.fft_data, (eff_cky, eff_ckx), pr)
+                if fit_res:
+                    ref_kx = float(fit_res.center[1])
+                    ref_ky = float(fit_res.center[0])
+                    if fit_res.center_std:
+                        std_x = fit_res.center_std[1]
+                        std_y = fit_res.center_std[0]
+                        logger.info(
+                            "NEW Adsorbate GaussFit: (%.2f +/- %.3f, %.2f +/- %.3f)",
+                            ref_kx,
+                            std_x,
+                            ref_ky,
+                            std_y,
+                        )
+                    else:
+                        logger.info("NEW Adsorbate GaussFit: (%.2f, %.2f)", ref_kx, ref_ky)
                 else: 
                     logger.warning("Adsorbate GaussFit FAILED for Add Spot. Using ROI center.")
-        
+        elif self.current_refinement_method == REFINEMENT_PARABOLA_3X3 and PEAK_FITTING_MODULE_AVAILABLE:
+            result = refine_peak_parabola_3x3(self.fft_data, (cky, ckx))
+            if result:
+                ref_kx = float(result.center[1])
+                ref_ky = float(result.center[0])
+                if result.center_std:
+                    std_x = result.center_std[1]
+                    std_y = result.center_std[0]
+                    logger.info(
+                        "Parabolic 3x3 refinement: (%.2f +/- %.3f, %.2f +/- %.3f)",
+                        ref_kx,
+                        std_x,
+                        ref_ky,
+                        std_y,
+                    )
+                else:
+                    logger.info("Parabolic 3x3 refinement: (%.2f, %.2f)", ref_kx, ref_ky)
+            else:
+                logger.warning("Parabolic 3x3 refinement failed. Using ROI center.")
+        elif self.current_refinement_method == REFINEMENT_LOCAL_DFT and PEAK_FITTING_MODULE_AVAILABLE:
+            pr = max(1, self.refinement_roi_size // 2)
+            result = refine_peak_local_dft(self.fft_data, (cky, ckx), pr)
+            if result:
+                ref_kx = float(result.center[1])
+                ref_ky = float(result.center[0])
+                if result.center_std:
+                    std_x = result.center_std[1]
+                    std_y = result.center_std[0]
+                    logger.info(
+                        "Local DFT refinement: (%.2f +/- %.3f, %.2f +/- %.3f)",
+                        ref_kx,
+                        std_x,
+                        ref_ky,
+                        std_y,
+                    )
+                else:
+                    logger.info("Local DFT refinement: (%.2f, %.2f)", ref_kx, ref_ky)
+            else:
+                logger.warning("Local DFT refinement failed. Using ROI center.")
+
         new_spot = (ref_kx, ref_ky)
         if self.presenter.add_raw_spot(new_spot):
             self._update_adsorbate_spots_list_widget()

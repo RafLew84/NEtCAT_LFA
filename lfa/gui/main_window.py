@@ -42,6 +42,11 @@ from ..core.constants import (
     LATTICE_TYPE_SQUARE,
     PREDEFINED_SUBSTRATE_CUSTOM,
     PREDEFINED_SUBSTRATE_NONE,
+    REFINEMENT_DIRECT_CLICK,
+    REFINEMENT_MAX_PIXEL,
+    REFINEMENT_GAUSSIAN_FIT,
+    REFINEMENT_PARABOLA_3X3,
+    REFINEMENT_LOCAL_DFT,
 )
 from .utils.display import format_float, format_pair
 
@@ -62,12 +67,28 @@ except ImportError:
     logging.warning("Could not import preprocessing dialogs. Preprocessing options may be unavailable.")
 
 try:
-    from ..analysis.peak_fitting import find_max_pixel_in_roi, fit_2d_gaussian_in_roi
+    from ..analysis.peak_fitting import (
+        find_max_pixel_in_roi,
+        fit_2d_gaussian_in_roi,
+        refine_peak_parabola_3x3,
+        refine_peak_local_dft,
+    )
     PEAK_FITTING_AVAILABLE = True
 except ImportError:
     logging.error("Could not import peak fitting functions.")
-    def find_max_pixel_in_roi(data, center, radius): return center
-    def fit_2d_gaussian_in_roi(data, center, radius): return None
+
+    def find_max_pixel_in_roi(data, center, radius):
+        return center
+
+    def fit_2d_gaussian_in_roi(data, center, radius):
+        return None
+
+    def refine_peak_parabola_3x3(data, center):
+        return None
+
+    def refine_peak_local_dft(data, center, radius, upsample_factor=8):
+        return None
+
     PEAK_FITTING_AVAILABLE = False
 
 try:
@@ -137,6 +158,11 @@ class MainWindow(QMainWindow):
         self._setup_main_layout() 
         self.metadata_widget = MetadataWidget(self) # Create content widgets
         self.fft_analysis_panel_widget = FFTAnalysisPanel(self)
+        self.custom_option_text = getattr(self.fft_analysis_panel_widget, "custom_option_text", "<Custom Define...>")
+        self.substrate_combo = getattr(self.fft_analysis_panel_widget, "substrate_combo", None)
+        self.adsorbate_set_combo = getattr(self.fft_analysis_panel_widget, "adsorbate_set_combo", None)
+        self.custom_lattice_info: Optional[Dict[str, Any]] = None
+        self.last_selected_substrate: str = PREDEFINED_SUBSTRATE_NONE
 
         self.history_manager = HistoryManager(self.history_list_widget, self)
         self.app_controller = AppController(history_manager=self.history_manager)
@@ -1029,7 +1055,11 @@ class MainWindow(QMainWindow):
     @pyqtSlot(QPointF)
     def _on_fft_view_clicked_from_visualizer(self, mapped_data_pos: QPointF):
         """Handles the click event in the FFT view."""
-        logger.debug(f"MainWindow: Received FFT click at data coords (kx, ky): ({mapped_data_pos.x():.2f}, {mapped_data_pos.y():.2f})")
+        logger.debug(
+            "MainWindow: FFT click (kx, ky) = (%.2f, %.2f)",
+            mapped_data_pos.x(),
+            mapped_data_pos.y(),
+        )
         current_node = self.history_manager.get_current_node()
         if not (current_node and current_node.data_type == "FFT" and current_node.image_data is not None):
             logger.warning("_on_fft_view_clicked_from_visualizer: No valid FFT data node active.")
@@ -1038,34 +1068,93 @@ class MainWindow(QMainWindow):
         kx_from_signal, ky_from_signal = mapped_data_pos.x(), mapped_data_pos.y()
         kx_int, ky_int = int(round(kx_from_signal)), int(round(ky_from_signal))
         original_fft_data = current_node.image_data
-        fft_data_rows_ky, fft_data_cols_kx = original_fft_data.shape
-        if not (0 <= ky_int < fft_data_rows_ky and 0 <= kx_int < fft_data_cols_kx):
-            logger.debug(f"Click data coords outside original FFT data bounds. Ignoring.")
+        fft_rows, fft_cols = original_fft_data.shape
+        if not (0 <= ky_int < fft_rows and 0 <= kx_int < fft_cols):
+            logger.debug("FFT click outside data bounds. Ignored.")
             return
 
-        center_yx_for_refinement = (ky_int, kx_int)
-        refined_kx, refined_ky = kx_int, ky_int
+        center_yx = (ky_int, kx_int)
+        refined_kx, refined_ky = float(kx_int), float(ky_int)
 
-        current_refinement_method = self.app_controller.spot_refinement_method
-        current_refinement_radius = self.app_controller.refinement_roi_size // 2
+        current_method = self.app_controller.spot_refinement_method
+        roi_radius = max(1, self.app_controller.refinement_roi_size // 2)
 
-        logger.debug(f"Refinement: Method='{current_refinement_method}', Radius for func={current_refinement_radius}, Click (ky,kx)=({ky_int},{kx_int})")
-        if current_refinement_method == "Max Pixel":
-            if PEAK_FITTING_AVAILABLE:
-                refined_ky_temp, refined_kx_temp = find_max_pixel_in_roi(original_fft_data, center_yx_for_refinement, current_refinement_radius)
-                refined_kx, refined_ky = int(refined_kx_temp), int(refined_ky_temp)
-                logger.info(f"Max Pixel refined: (orig_kx={kx_int}, orig_ky={ky_int}) -> (ref_kx={refined_kx}, ref_ky={refined_ky})")
-        elif current_refinement_method == "2D Gaussian Fit":
-            if PEAK_FITTING_AVAILABLE:
-                fit_result = fit_2d_gaussian_in_roi(original_fft_data, center_yx_for_refinement, current_refinement_radius)
+        logger.debug(
+            "Refinement request: method=%s radius=%s click=(%s,%s)",
+            current_method,
+            roi_radius,
+            ky_int,
+            kx_int,
+        )
+
+        if not PEAK_FITTING_AVAILABLE:
+            logger.warning("Peak fitting backend unavailable; falling back to integer-rounded click.")
+        else:
+            if current_method == REFINEMENT_MAX_PIXEL:
+                refined_ky_tmp, refined_kx_tmp = find_max_pixel_in_roi(original_fft_data, center_yx, roi_radius)
+                refined_kx, refined_ky = float(refined_kx_tmp), float(refined_ky_tmp)
+                logger.info(
+                    "Max Pixel refined: (orig_kx=%s, orig_ky=%s) -> (ref_kx=%.2f, ref_ky=%.2f)",
+                    kx_int,
+                    ky_int,
+                    refined_kx,
+                    refined_ky,
+                )
+            elif current_method == REFINEMENT_GAUSSIAN_FIT:
+                fit_result = fit_2d_gaussian_in_roi(original_fft_data, center_yx, roi_radius)
                 if fit_result:
-                    refined_ky_float, refined_kx_float = fit_result
-                    refined_kx, refined_ky = int(round(refined_kx_float)), int(round(refined_ky_float))
-                    logger.info(f"2D Gaussian Fit refined: -> (ref_kx_float={refined_kx_float:.2f}, ref_ky_float={refined_ky_float:.2f}) -> int({refined_kx},{refined_ky})")
+                    refined_ky, refined_kx = fit_result.center
+                    if fit_result.center_std:
+                        std_y, std_x = fit_result.center_std
+                        logger.info(
+                            "2D Gaussian Fit refined: (%.2f +/- %.3f, %.2f +/- %.3f)",
+                            refined_kx,
+                            std_x,
+                            refined_ky,
+                            std_y,
+                        )
+                    else:
+                        logger.info("2D Gaussian Fit refined: (%.2f, %.2f)", refined_kx, refined_ky)
                 else:
                     logger.warning("2D Gaussian Fit failed. Using rounded click position.")
+            elif current_method == REFINEMENT_PARABOLA_3X3:
+                result = refine_peak_parabola_3x3(original_fft_data, center_yx)
+                if result:
+                    refined_ky, refined_kx = result.center
+                    if result.center_std:
+                        std_y, std_x = result.center_std
+                        logger.info(
+                            "Parabolic 3x3 refined: (%.2f +/- %.3f, %.2f +/- %.3f)",
+                            refined_kx,
+                            std_x,
+                            refined_ky,
+                            std_y,
+                        )
+                    else:
+                        logger.info("Parabolic 3x3 refined: (%.2f, %.2f)", refined_kx, refined_ky)
+                else:
+                    logger.warning("Parabolic 3x3 refinement failed. Using rounded click position.")
+            elif current_method == REFINEMENT_LOCAL_DFT:
+                result = refine_peak_local_dft(original_fft_data, center_yx, roi_radius)
+                if result:
+                    refined_ky, refined_kx = result.center
+                    if result.center_std:
+                        std_y, std_x = result.center_std
+                        logger.info(
+                            "Local DFT refined: (%.2f +/- %.3f, %.2f +/- %.3f)",
+                            refined_kx,
+                            std_x,
+                            refined_ky,
+                            std_y,
+                        )
+                    else:
+                        logger.info("Local DFT refined: (%.2f, %.2f)", refined_kx, refined_ky)
+                else:
+                    logger.warning("Local DFT refinement failed. Using rounded click position.")
             else:
-                 logger.warning("Peak fitting (Gaussian) backend not available. Using rounded click.")
+                # Default behaviour (direct click or unsupported method) keeps rounded coordinates.
+                logger.debug("No sub-pixel refinement applied for method '%s'.", current_method)
+
 
     @pyqtSlot()
     def _on_clear_substrate_spots_clicked(self):
@@ -1085,4 +1174,3 @@ class MainWindow(QMainWindow):
         """Handle the event when the user tries to close the window."""
         logger.info("Close event triggered. Exiting application.")
         event.accept()
-

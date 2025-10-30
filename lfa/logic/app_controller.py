@@ -27,6 +27,8 @@ from ..core.constants import (
     REFINEMENT_DIRECT_CLICK,
     REFINEMENT_GAUSSIAN_FIT,
     REFINEMENT_MAX_PIXEL,
+    REFINEMENT_PARABOLA_3X3,
+    REFINEMENT_LOCAL_DFT,
     SPOT_SELECTION_ADSORBATE,
     SPOT_SELECTION_SUBSTRATE,
 )
@@ -796,7 +798,13 @@ class AppController(QObject):
 
     def set_spot_refinement_method(self, method: str):
         """Sets the spot refinement method."""
-        if method in [REFINEMENT_DIRECT_CLICK, REFINEMENT_MAX_PIXEL, REFINEMENT_GAUSSIAN_FIT]:
+        if method in [
+            REFINEMENT_DIRECT_CLICK,
+            REFINEMENT_MAX_PIXEL,
+            REFINEMENT_GAUSSIAN_FIT,
+            REFINEMENT_PARABOLA_3X3,
+            REFINEMENT_LOCAL_DFT,
+        ]:
             if self.spot_refinement_method != method:
                 self.spot_refinement_method = method
                 logger.info(f"Spot refinement method set to: {self.spot_refinement_method}")
@@ -806,7 +814,7 @@ class AppController(QObject):
 
     def set_refinement_roi_size(self, size: int):
         """Sets the ROI size for spot refinement."""
-        if isinstance(size, int) and 3 <= size <= 21 and size % 2 != 0:
+        if isinstance(size, int) and 3 <= size <= 31 and size % 2 != 0:
             if self.refinement_roi_size != size:
                 self.refinement_roi_size = size
                 logger.info(f"Refinement ROI size set to: {self.refinement_roi_size}")

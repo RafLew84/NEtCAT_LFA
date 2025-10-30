@@ -272,10 +272,10 @@ class RealSpaceReconstructionDialog(QDialog):
         if fit_2d_gaussian_in_roi_with_all_data:
             fit_res = fit_2d_gaussian_in_roi_with_all_data(self.magnitude_fft_data, center_yx, w // 2)
             if fit_res:
-                _, (refined_ky, refined_kx), _ = fit_res
+                refined_ky, refined_kx = fit_res.center
                 refined_pos = (float(refined_kx), float(refined_ky))
                 self.selected_spots_px.append(refined_pos)
-                logger.info(f"Added refined spot at: {refined_pos}")
+                logger.info("Added refined spot at: %s (σ≈%s)", refined_pos, fit_res.center_std)
                 self._update_mask_from_spots()
                 self._redraw_spot_markers()
             else:

@@ -54,6 +54,8 @@ try:
     from ...analysis.peak_fitting import (
         find_max_pixel_in_roi,
         fit_2d_gaussian_in_roi,
+        refine_peak_parabola_3x3,
+        refine_peak_local_dft,
         _gaussian_2d,
         SCIPY_AVAILABLE,
     )
@@ -72,6 +74,8 @@ try:
         REFINEMENT_DIRECT_CLICK,
         REFINEMENT_GAUSSIAN_FIT,
         REFINEMENT_MAX_PIXEL,
+        REFINEMENT_PARABOLA_3X3,
+        REFINEMENT_LOCAL_DFT,
     )
     from ...core.history import HistoryNode
     from ...logic.history_manager import HistoryManager
@@ -83,9 +87,13 @@ except ImportError: # pragma: no cover
     logging.error("SubstrateSpotSelectionDialog: Could not import peak_fitting or lattice modules.")
     def find_max_pixel_in_roi(data, center, radius): return center
     def fit_2d_gaussian_in_roi(data, center, radius): return None
+    def refine_peak_parabola_3x3(data, center): return None
+    def refine_peak_local_dft(data, center, radius, upsample_factor=8): return None
     def _gaussian_2d(*args, **kwargs): raise ImportError("Gaussian 2D function is not available")
 
 logger = logging.getLogger(__name__)
+
+PARABOLA_PATCH_SIZE = 3
 
 class SubstrateSpotSelectionDialog(QDialog):
     def __init__(self,
@@ -125,6 +133,10 @@ class SubstrateSpotSelectionDialog(QDialog):
 
         self.current_refinement_method = default_refinement_method
         self.refinement_roi_size = default_refinement_roi_size
+        if self.refinement_roi_size % 2 == 0:
+            self.refinement_roi_size += 1
+        self._last_non_parabola_roi_size = self.refinement_roi_size
+        self._suppress_roi_callback = False
 
         self.current_lattice_type: str = initial_lattice_type
         self.current_a_surf: Optional[float] = None
@@ -178,11 +190,15 @@ class SubstrateSpotSelectionDialog(QDialog):
         self._redraw_all_spot_markers()
         self._update_add_spot_button_state()
 
-        if self.current_refinement_method == REFINEMENT_MAX_PIXEL: 
+        if self.current_refinement_method == REFINEMENT_MAX_PIXEL:
             self.rb_refine_max_pixel.setChecked(True)
-        elif self.current_refinement_method == REFINEMENT_GAUSSIAN_FIT: 
+        elif self.current_refinement_method == REFINEMENT_GAUSSIAN_FIT:
             self.rb_refine_gaussian.setChecked(True)
-        else: 
+        elif self.current_refinement_method == REFINEMENT_PARABOLA_3X3:
+            self.rb_refine_parabola.setChecked(True)
+        elif self.current_refinement_method == REFINEMENT_LOCAL_DFT:
+            self.rb_refine_local_dft.setChecked(True)
+        else:
             self.rb_refine_direct.setChecked(True)
         self.refinement_roi_size_spinbox.setValue(self.refinement_roi_size)
         
@@ -263,10 +279,14 @@ class SubstrateSpotSelectionDialog(QDialog):
         self.rb_refine_direct.setChecked(True)
         self.rb_refine_max_pixel = QRadioButton(REFINEMENT_MAX_PIXEL)
         self.rb_refine_gaussian = QRadioButton(REFINEMENT_GAUSSIAN_FIT)
+        self.rb_refine_parabola = QRadioButton(REFINEMENT_PARABOLA_3X3)
+        self.rb_refine_local_dft = QRadioButton(REFINEMENT_LOCAL_DFT)
 
         refinement_layout.addRow(self.rb_refine_direct)
         refinement_layout.addRow(self.rb_refine_max_pixel)
         refinement_layout.addRow(self.rb_refine_gaussian)
+        refinement_layout.addRow(self.rb_refine_parabola)
+        refinement_layout.addRow(self.rb_refine_local_dft)
 
         self.refinement_roi_size_spinbox = QSpinBox()
         self.refinement_roi_size_spinbox.setMinimum(3)
@@ -398,6 +418,8 @@ class SubstrateSpotSelectionDialog(QDialog):
         self.rb_refine_direct.toggled.connect(self._on_refinement_method_changed)
         self.rb_refine_max_pixel.toggled.connect(self._on_refinement_method_changed)
         self.rb_refine_gaussian.toggled.connect(self._on_refinement_method_changed)
+        self.rb_refine_parabola.toggled.connect(self._on_refinement_method_changed)
+        self.rb_refine_local_dft.toggled.connect(self._on_refinement_method_changed)
         self.refinement_roi_size_spinbox.valueChanged.connect(self._on_refinement_roi_size_changed)
 
         self.lattice_type_combo.currentTextChanged.connect(self._on_lattice_type_changed)
@@ -707,12 +729,65 @@ class SubstrateSpotSelectionDialog(QDialog):
             logger.debug(f"ROI changed/moved: Pos ({roi_pos.x():.1f}, {roi_pos.y():.1f}), Size ({roi_size.x():.1f}, {roi_size.y():.1f})")
             
             current_roi_w = int(round(roi_size.x()))
+            if self.current_refinement_method == REFINEMENT_PARABOLA_3X3 and current_roi_w != PARABOLA_PATCH_SIZE:
+                self._apply_refinement_roi_size(
+                    PARABOLA_PATCH_SIZE,
+                    remember_for_freeform=False,
+                )
+                return
             if current_roi_w != self.refinement_roi_size_spinbox.value() and current_roi_w >= self.refinement_roi_size_spinbox.minimum() and current_roi_w <= self.refinement_roi_size_spinbox.maximum() and current_roi_w % 2 != 0 :
                 self.refinement_roi_size_spinbox.blockSignals(True)
                 self.refinement_roi_size_spinbox.setValue(current_roi_w)
                 self.refinement_roi_size_spinbox.blockSignals(False)
+            self.refinement_roi_size = current_roi_w
+            if self.current_refinement_method != REFINEMENT_PARABOLA_3X3:
+                self._last_non_parabola_roi_size = current_roi_w
 
             self._update_roi_previews()
+
+    def _update_selection_roi_geometry(self, size: int) -> None:
+        """Resize the selection ROI while keeping its centre fixed."""
+        if not hasattr(self, "selection_roi"):
+            return
+        current_pos = self.selection_roi.pos()
+        current_size = self.selection_roi.size()
+        center_x = current_pos.x() + current_size.x() / 2
+        center_y = current_pos.y() + current_size.y() / 2
+        self._suppress_roi_callback = True
+        try:
+            self.selection_roi.setPos((center_x - size / 2, center_y - size / 2), update=False)
+            self.selection_roi.setSize((size, size), update=False)
+        finally:
+            self._suppress_roi_callback = False
+
+    def _apply_refinement_roi_size(
+        self,
+        size: int,
+        *,
+        update_spinbox: bool = True,
+        remember_for_freeform: bool = True,
+    ) -> None:
+        """Clamp and apply the requested ROI edge length."""
+        if not hasattr(self, "refinement_roi_size_spinbox"):
+            self.refinement_roi_size = size
+            return
+
+        minimum = self.refinement_roi_size_spinbox.minimum()
+        maximum = self.refinement_roi_size_spinbox.maximum()
+        clamped = max(minimum, min(int(size), maximum))
+        if clamped % 2 == 0:
+            clamped = clamped + 1 if clamped < maximum else clamped - 1
+        self.refinement_roi_size = clamped
+
+        if remember_for_freeform and self.current_refinement_method != REFINEMENT_PARABOLA_3X3:
+            self._last_non_parabola_roi_size = clamped
+
+        if update_spinbox and self.refinement_roi_size_spinbox.value() != clamped:
+            self.refinement_roi_size_spinbox.blockSignals(True)
+            self.refinement_roi_size_spinbox.setValue(clamped)
+            self.refinement_roi_size_spinbox.blockSignals(False)
+
+        self._update_selection_roi_geometry(clamped)
 
     def _clear_last_preview_gauss_fit(self):
         """Clears the last Gaussian fit preview data."""
@@ -726,18 +801,30 @@ class SubstrateSpotSelectionDialog(QDialog):
         if roi_item is None:
             roi_item = self.selection_roi
 
+        if self._suppress_roi_callback:
+            return
+
         if roi_item.isVisible():
             roi_pos = roi_item.pos()
             roi_size = roi_item.size()
             logger.debug(f"ROI region changing: Pos ({roi_pos.x():.1f}, {roi_pos.y():.1f}), Size ({roi_size.x():.1f}, {roi_size.y():.1f})")
             
             current_roi_w = int(round(roi_size.x())) 
+            if self.current_refinement_method == REFINEMENT_PARABOLA_3X3 and current_roi_w != PARABOLA_PATCH_SIZE:
+                self._apply_refinement_roi_size(
+                    PARABOLA_PATCH_SIZE,
+                    remember_for_freeform=False,
+                )
+                return
             if current_roi_w != self.refinement_roi_size_spinbox.value() and \
                self.refinement_roi_size_spinbox.minimum() <= current_roi_w <= self.refinement_roi_size_spinbox.maximum() and \
                current_roi_w % 2 != 0 :
                 self.refinement_roi_size_spinbox.blockSignals(True)
                 self.refinement_roi_size_spinbox.setValue(current_roi_w)
                 self.refinement_roi_size_spinbox.blockSignals(False)
+            self.refinement_roi_size = current_roi_w
+            if self.current_refinement_method != REFINEMENT_PARABOLA_3X3:
+                self._last_non_parabola_roi_size = current_roi_w
             
             self._clear_last_preview_gauss_fit()
             self._update_roi_previews() 
@@ -780,40 +867,46 @@ class SubstrateSpotSelectionDialog(QDialog):
 
             if self.rb_refine_gaussian.isChecked():
                 fitted_gauss_params = None
-                fitted_gauss_2d_for_preview = None
+                fitted_gauss_2d_for_preview = roi_patch
                 if PEAK_FITTING_MODULE_AVAILABLE and SCIPY_AVAILABLE:
-                    patch_h, patch_w = roi_patch.shape
-                    p_y, p_x = np.mgrid[0:patch_h, 0:patch_w]
-                    p_xy_flat = (p_y.flatten(), p_x.flatten())
-                    p_data_flat = roi_patch.flatten()
+                    patch_radius = self.refinement_roi_size // 2
+                    max_h, max_w = self.fft_data.shape  # type: ignore
+                    eff_center_ky = np.clip(int(round(y0_roi + height_roi / 2)), patch_radius, max_h - 1 - patch_radius)
+                    eff_center_kx = np.clip(int(round(x0_roi + width_roi / 2)), patch_radius, max_w - 1 - patch_radius)
                     try:
-                        p0_gauss = [roi_patch.max() - roi_patch.min(), patch_h/2.0, patch_w/2.0, patch_w/4.0, patch_h/4.0, 0.0, roi_patch.min()]
-                        if callable(scipy_curve_fit) and callable(_gaussian_2d): 
-                            popt_gauss, pcov_gauss = scipy_curve_fit(_gaussian_2d, p_xy_flat, p_data_flat, p0=p0_gauss)
-                            self.last_preview_gauss_fit_popt = popt_gauss
-                            abs_fit_ky = y0_roi + popt_gauss[1]
-                            abs_fit_kx = x0_roi + popt_gauss[2]
-                            self.last_preview_gauss_fit_center_abs = (abs_fit_kx, abs_fit_ky)
-                            self.last_preview_gauss_roi_state = roi_state_for_comparison.copy() 
-                            logger.info(f"Preview Gaussian fit successful. Stored center: {self.last_preview_gauss_fit_center_abs}")
+                        fit_preview = fit_2d_gaussian_in_roi(self.fft_data, (eff_center_ky, eff_center_kx), patch_radius)
+                        if fit_preview:
+                            self.last_preview_gauss_fit_popt = fit_preview.popt
+                            self.last_preview_gauss_fit_center_abs = (
+                                float(fit_preview.center[1]),
+                                float(fit_preview.center[0]),
+                            )
+                            self.last_preview_gauss_roi_state = roi_state_for_comparison.copy()
+                            logger.info("Preview Gaussian fit successful. Stored center: %s", self.last_preview_gauss_fit_center_abs)
 
-                            fitted_gauss_flat = _gaussian_2d(p_xy_flat, *popt_gauss)
-                            fitted_gauss_2d_for_preview = fitted_gauss_flat.reshape(patch_h, patch_w)
-                            fitted_gauss_params = popt_gauss 
+                            if fit_preview.popt is not None:
+                                patch_h, patch_w = fit_preview.roi_patch.shape
+                                p_y, p_x = np.mgrid[0:patch_h, 0:patch_w]
+                                fitted_gauss_flat = _gaussian_2d((p_y.flatten(), p_x.flatten()), *fit_preview.popt)
+                                fitted_gauss_2d_for_preview = fitted_gauss_flat.reshape(patch_h, patch_w)
+                                fitted_gauss_params = fit_preview.popt
+                            else:
+                                fitted_gauss_2d_for_preview = fit_preview.roi_patch
                         else:
                             self._clear_last_preview_gauss_fit()
-                    except Exception as e_fit:
-                        logger.warning(f"Gaussian fit for preview failed: {e_fit}")
-                        fitted_gauss_2d_for_preview = roi_patch 
+                    except Exception as e_fit:  # pragma: no cover - defensive
+                        logger.warning("Gaussian fit for preview failed: %s", e_fit)
+                        fitted_gauss_2d_for_preview = roi_patch
 
                 if self.enable_gauss_2d_preview_checkbox.isChecked() and hasattr(self, 'gaussian_preview_2d_image_item'):
                     if fitted_gauss_2d_for_preview is not None:
                         self.gaussian_preview_2d_image_item.setImage(fitted_gauss_2d_for_preview.T)
                         self.gaussian_preview_2d_plot.autoRange()
                     else:
-                        self.gaussian_preview_2d_image_item.setImage(roi_patch.T) 
+                        self.gaussian_preview_2d_image_item.setImage(roi_patch.T)
                         self.gaussian_preview_2d_plot.autoRange()
-                elif hasattr(self, 'gaussian_preview_2d_image_item'): self.gaussian_preview_2d_image_item.clear()
+                elif hasattr(self, 'gaussian_preview_2d_image_item'):
+                    self.gaussian_preview_2d_image_item.clear()
 
             else: 
                 self._clear_last_preview_gauss_fit()
@@ -824,47 +917,97 @@ class SubstrateSpotSelectionDialog(QDialog):
 
     @pyqtSlot()
     def _on_refinement_method_changed(self):
-        if not self.rb_refine_gaussian.isChecked():
-            self._clear_last_preview_gauss_fit() 
-        
+        previous_method = self.current_refinement_method
         is_gaussian_mode = self.rb_refine_gaussian.isChecked()
+        if not is_gaussian_mode:
+            self._clear_last_preview_gauss_fit()
         self.gaussian_preview_2d_widget.setVisible(is_gaussian_mode)
-        
+
         if self.rb_refine_direct.isChecked():
-            self.current_refinement_method = REFINEMENT_DIRECT_CLICK
+            new_method = REFINEMENT_DIRECT_CLICK
+        elif self.rb_refine_max_pixel.isChecked():
+            new_method = REFINEMENT_MAX_PIXEL
+        elif self.rb_refine_gaussian.isChecked():
+            new_method = REFINEMENT_GAUSSIAN_FIT
+        elif self.rb_refine_parabola.isChecked():
+            new_method = REFINEMENT_PARABOLA_3X3
+        elif self.rb_refine_local_dft.isChecked():
+            new_method = REFINEMENT_LOCAL_DFT
+        else:
+            new_method = REFINEMENT_MAX_PIXEL
+
+        self.current_refinement_method = new_method
+
+        if new_method == REFINEMENT_DIRECT_CLICK:
+            if previous_method == REFINEMENT_PARABOLA_3X3:
+                self._apply_refinement_roi_size(
+                    self._last_non_parabola_roi_size,
+                    remember_for_freeform=False,
+                )
             self.refinement_roi_size_spinbox.setEnabled(False)
             self.selection_roi.setVisible(False)
             self.add_spot_button.setEnabled(False)
             self.status_label.setText("Click directly on FFT image to add spot.")
-        else: 
-            self.current_refinement_method = REFINEMENT_MAX_PIXEL if self.rb_refine_max_pixel.isChecked() else REFINEMENT_GAUSSIAN_FIT
-            self.refinement_roi_size_spinbox.setEnabled(True)
-            self.add_spot_button.setEnabled(self.selection_roi.isVisible())
-            self.status_label.setText("Drag ROI to desired spot, then click 'Add/Update Spot'.")
-            if self.current_refinement_method == REFINEMENT_GAUSSIAN_FIT:
-                self.gauss_2d_container.setVisible(True)
+        else:
+            if not self.selection_roi.isVisible():
+                self.selection_roi.setVisible(True)
+            if previous_method != REFINEMENT_PARABOLA_3X3 and new_method == REFINEMENT_PARABOLA_3X3:
+                self._last_non_parabola_roi_size = self.refinement_roi_size
+            if new_method == REFINEMENT_PARABOLA_3X3:
+                self._apply_refinement_roi_size(
+                    PARABOLA_PATCH_SIZE,
+                    remember_for_freeform=False,
+                )
+            elif previous_method == REFINEMENT_PARABOLA_3X3:
+                self._apply_refinement_roi_size(
+                    self._last_non_parabola_roi_size,
+                    remember_for_freeform=False,
+                )
             else:
-                self.gauss_2d_container.setVisible(False)
-        
+                self._apply_refinement_roi_size(
+                    self.refinement_roi_size,
+                    remember_for_freeform=False,
+                )
+            self.add_spot_button.setEnabled(True)
+            self.status_label.setText("Drag ROI to desired spot, then click 'Add/Update Spot'.")
+
+        self.refinement_roi_size_spinbox.setEnabled(
+            self.current_refinement_method not in (REFINEMENT_DIRECT_CLICK, REFINEMENT_PARABOLA_3X3)
+        )
+        self.gauss_2d_container.setVisible(self.current_refinement_method == REFINEMENT_GAUSSIAN_FIT)
+
         self._update_roi_previews()
-        logger.debug(f"Refinement method changed to: {self.current_refinement_method}")
+        logger.debug("Refinement method changed to: %s", self.current_refinement_method)
 
 
     @pyqtSlot(int)
     def _on_refinement_roi_size_changed(self, value: int):
-        self.refinement_roi_size = value
+        if self.current_refinement_method == REFINEMENT_PARABOLA_3X3:
+            if value != PARABOLA_PATCH_SIZE:
+                self.refinement_roi_size_spinbox.blockSignals(True)
+                self.refinement_roi_size_spinbox.setValue(PARABOLA_PATCH_SIZE)
+                self.refinement_roi_size_spinbox.blockSignals(False)
+            self._apply_refinement_roi_size(
+                PARABOLA_PATCH_SIZE,
+                update_spinbox=False,
+                remember_for_freeform=False,
+            )
+            self._clear_last_preview_gauss_fit()
+            if self.selection_roi.isVisible():
+                self._update_roi_previews()
+            logger.debug("Refinement ROI size forced to 3x3 for parabolic mode.")
+            return
+
+        self._apply_refinement_roi_size(
+            value,
+            update_spinbox=False,
+            remember_for_freeform=True,
+        )
         self._clear_last_preview_gauss_fit()
         if self.selection_roi.isVisible():
-            current_pos = self.selection_roi.pos()
-            old_size = self.selection_roi.size()
-            center_x = current_pos.x() + old_size.x() / 2
-            center_y = current_pos.y() + old_size.y() / 2
-            new_pos_x = center_x - value / 2
-            new_pos_y = center_y - value / 2
-            self.selection_roi.setPos((new_pos_x, new_pos_y), update=False)
-            self.selection_roi.setSize((value, value), update=False)
+            self._update_roi_previews()
             self._handle_roi_changed_finished()
-            
+
         logger.debug(f"Refinement ROI size changed to: {self.refinement_roi_size}")
 
     @pyqtSlot()
@@ -928,63 +1071,125 @@ class SubstrateSpotSelectionDialog(QDialog):
 
         max_spots = self.limits_per_lattice.get(self.current_lattice_type, 6)
         if max_spots > 0 and len(self.selected_spots) >= max_spots:
-            QMessageBox.warning(self, "Limit Reached",
-                                f"Maximum number of spots ({max_spots}) for {self.current_lattice_type} lattice already selected.")
+            QMessageBox.warning(
+                self,
+                "Limit Reached",
+                f"Maximum number of spots ({max_spots}) for {self.current_lattice_type} lattice already selected.",
+            )
             return
 
         roi_state = self.selection_roi.getState()
-        x0_roi, y0_roi = int(round(roi_state['pos'].x())), int(round(roi_state['pos'].y()))
-        width_roi, height_roi = int(round(roi_state['size'].x())), int(round(roi_state['size'].y()))
-        
+        x0_roi = int(round(roi_state["pos"].x()))
+        y0_roi = int(round(roi_state["pos"].y()))
+        width_roi = int(round(roi_state["size"].x()))
+        height_roi = int(round(roi_state["size"].y()))
+
         center_kx = x0_roi + width_roi // 2
         center_ky = y0_roi + height_roi // 2
-        
-        refined_kx, refined_ky = float(center_kx), float(center_ky)
+
+        refined_kx = float(center_kx)
+        refined_ky = float(center_ky)
 
         if self.current_refinement_method == REFINEMENT_MAX_PIXEL and PEAK_FITTING_MODULE_AVAILABLE:
-            patch_radius = self.refinement_roi_size // 2 
+            patch_radius = self.refinement_roi_size // 2
             max_h, max_w = self.fft_data.shape
             eff_center_ky = np.clip(center_ky, patch_radius, max_h - 1 - patch_radius)
             eff_center_kx = np.clip(center_kx, patch_radius, max_w - 1 - patch_radius)
 
             fit_ky, fit_kx = find_max_pixel_in_roi(self.fft_data, (eff_center_ky, eff_center_kx), patch_radius)
-            refined_kx, refined_ky = float(fit_kx) + 0.5, float(fit_ky) + 0.5
-            logger.info(f"Spot refined by Max Pixel: ({refined_kx:.2f}, {refined_ky:.2f})")
+            refined_kx = float(fit_kx) + 0.5
+            refined_ky = float(fit_ky) + 0.5
+            logger.info("Spot refined by Max Pixel: (%.2f, %.2f)", refined_kx, refined_ky)
+
         elif self.current_refinement_method == REFINEMENT_GAUSSIAN_FIT and PEAK_FITTING_MODULE_AVAILABLE and SCIPY_AVAILABLE:
-            current_selection_roi_state = self.selection_roi.getState() # type: ignore
+            current_selection_roi_state = self.selection_roi.getState()
             roi_state_matches_preview = False
             if self.last_preview_gauss_roi_state and current_selection_roi_state:
-                preview_pos = self.last_preview_gauss_roi_state.get('pos')
-                current_pos = current_selection_roi_state.get('pos')
-                preview_size = self.last_preview_gauss_roi_state.get('size')
-                current_size = current_selection_roi_state.get('size')
+                preview_pos = self.last_preview_gauss_roi_state.get("pos")
+                current_pos = current_selection_roi_state.get("pos")
+                preview_size = self.last_preview_gauss_roi_state.get("size")
+                current_size = current_selection_roi_state.get("size")
                 if preview_pos and current_pos and preview_size and current_size:
                     if preview_pos == current_pos and preview_size == current_size:
                         roi_state_matches_preview = True
-            
+
             if self.last_preview_gauss_fit_center_abs is not None and roi_state_matches_preview:
                 refined_kx, refined_ky = self.last_preview_gauss_fit_center_abs
-                logger.info(f"Using PREVIEW Gaussian fit result for Add Spot: ({refined_kx:.2f}, {refined_ky:.2f})")
-            else: 
+                logger.info("Using PREVIEW Gaussian fit result for Add Spot: (%.2f, %.2f)", refined_kx, refined_ky)
+            else:
                 logger.info("Performing NEW Gaussian fit for Add Spot (preview data not used or ROI changed).")
                 patch_radius = self.refinement_roi_size // 2
-                max_h, max_w = self.fft_data.shape # type: ignore
+                max_h, max_w = self.fft_data.shape
                 eff_center_ky = np.clip(center_ky, patch_radius, max_h - 1 - patch_radius)
                 eff_center_kx = np.clip(center_kx, patch_radius, max_w - 1 - patch_radius)
-                
+
                 fit_output = fit_2d_gaussian_in_roi(self.fft_data, (eff_center_ky, eff_center_kx), patch_radius)
                 if fit_output:
-                    _popt, (fit_ky_abs, fit_kx_abs), _patch = fit_output
-                    refined_kx, refined_ky = float(fit_kx_abs), float(fit_ky_abs)
-                    logger.info(f"Spot refined by NEW 2D Gaussian Fit: ({refined_kx:.2f}, {refined_ky:.2f})")
+                    refined_kx = float(fit_output.center[1])
+                    refined_ky = float(fit_output.center[0])
+                    if fit_output.center_std:
+                        std_x = fit_output.center_std[1]
+                        std_y = fit_output.center_std[0]
+                        logger.info(
+                            "Spot refined by NEW 2D Gaussian Fit: (%.2f +/- %.3f, %.2f +/- %.3f)",
+                            refined_kx,
+                            std_x,
+                            refined_ky,
+                            std_y,
+                        )
+                    else:
+                        logger.info("Spot refined by NEW 2D Gaussian Fit: (%.2f, %.2f)", refined_kx, refined_ky)
                 else:
                     logger.warning("2D Gaussian fit failed for Add Spot. Using ROI center.")
+
+        elif self.current_refinement_method == REFINEMENT_PARABOLA_3X3 and PEAK_FITTING_MODULE_AVAILABLE:
+            result = refine_peak_parabola_3x3(self.fft_data, (center_ky, center_kx))
+            if result:
+                refined_kx = float(result.center[1])
+                refined_ky = float(result.center[0])
+                if result.center_std:
+                    std_x = result.center_std[1]
+                    std_y = result.center_std[0]
+                    logger.info(
+                        "Spot refined by Parabolic 3x3: (%.2f +/- %.3f, %.2f +/- %.3f)",
+                        refined_kx,
+                        std_x,
+                        refined_ky,
+                        std_y,
+                    )
+                else:
+                    logger.info("Spot refined by Parabolic 3x3: (%.2f, %.2f)", refined_kx, refined_ky)
+            else:
+                logger.warning("Parabolic 3x3 refinement failed for Add Spot. Using ROI center.")
+
+        elif self.current_refinement_method == REFINEMENT_LOCAL_DFT and PEAK_FITTING_MODULE_AVAILABLE:
+            patch_radius = max(1, self.refinement_roi_size // 2)
+            result = refine_peak_local_dft(self.fft_data, (center_ky, center_kx), patch_radius)
+            if result:
+                refined_kx = float(result.center[1])
+                refined_ky = float(result.center[0])
+                if result.center_std:
+                    std_x = result.center_std[1]
+                    std_y = result.center_std[0]
+                    logger.info(
+                        "Spot refined by Local DFT: (%.2f +/- %.3f, %.2f +/- %.3f)",
+                        refined_kx,
+                        std_x,
+                        refined_ky,
+                        std_y,
+                    )
+                else:
+                    logger.info("Spot refined by Local DFT: (%.2f, %.2f)", refined_kx, refined_ky)
+            else:
+                logger.warning("Local DFT refinement failed for Add Spot. Using ROI center.")
 
         new_spot = (refined_kx, refined_ky)
         if new_spot not in self.selected_spots:
             self.selected_spots.append(new_spot)
-            if self.current_lattice_type == LATTICE_TYPE_CUSTOM and \
-               self.substrate_definition_combo.currentText() == PREDEFINED_SUBSTRATE_CUSTOM:
+            if (
+                self.current_lattice_type == LATTICE_TYPE_CUSTOM
+                and self.substrate_definition_combo.currentText() == PREDEFINED_SUBSTRATE_CUSTOM
+            ):
                 self._update_custom_definition_from_inputs()
             self._update_spots_list_widget()
             self._redraw_all_spot_markers()
@@ -994,6 +1199,7 @@ class SubstrateSpotSelectionDialog(QDialog):
         else:
             point_text = format_pair((refined_kx, refined_ky), precision=2)
             self.status_label.setText(f"Spot {point_text} already selected.")
+
 
     @pyqtSlot(str)
     def _on_lattice_type_changed(self, text: Optional[str] = None):

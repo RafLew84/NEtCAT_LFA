@@ -677,19 +677,21 @@ class SuperstructurePeriodicityDialog(QDialog):
         mh,mw=self.fft_data.shape
         eff_cky,eff_ckx=np.clip(cky_roi,pr,mh-1-pr),np.clip(ckx_roi,pr,mw-1-pr)
 
-        fit_res=fit_2d_gaussian_in_roi_with_all_data(self.fft_data, (eff_cky,eff_ckx), pr)
-        if not fit_res: 
+        fit_res = fit_2d_gaussian_in_roi_with_all_data(self.fft_data, (eff_cky, eff_ckx), pr)
+        if not fit_res:
             logger.warning("Gaussian fit failed.")
             return None
-        popt_fit,(fky_abs,fkx_abs),roi_patch_used = fit_res
-        refined_kx_fft,refined_ky_fft=float(fkx_abs),float(fky_abs)
+        refined_kx_fft = float(fit_res.center[1])
+        refined_ky_fft = float(fit_res.center[0])
         
         raw_refined_spot = (refined_kx_fft, refined_ky_fft)
         
         intensity = 0.0
-        amplitude,_,_,sigma_y,sigma_x,_,_ = popt_fit
-        intensity = 2*np.pi*abs(amplitude)*abs(sigma_x)*abs(sigma_y)
-        max_value = np.max(roi_patch_used) if roi_patch_used.size > 0 else 0.0
+        if fit_res.popt is not None:
+            amplitude, _, _, sigma_y, sigma_x, _, _ = fit_res.popt
+            intensity = 2 * np.pi * abs(amplitude) * abs(sigma_x) * abs(sigma_y)
+        roi_patch_used = fit_res.roi_patch
+        max_value = float(np.max(roi_patch_used)) if roi_patch_used.size > 0 else 0.0
         
         if self.apply_substrate_transform_checkbox.isChecked():
             corrected_spot = None
