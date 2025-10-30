@@ -63,6 +63,7 @@ try:
         calculate_real_space_vectors_from_g, 
         convert_g_vector_px_to_nm_inv, 
         select_adsorbate_reciprocal_basis_vectors_px,
+        compute_real_space_metric_uncertainty,
     )
     LATTICE_ANALYSIS_FUNCTIONS_AVAILABLE = True
 except ImportError: 
@@ -541,6 +542,18 @@ class AppController(QObject):
             for kx_abs, ky_abs in self.displayable_fitted_substrate_spots_on_fft
         ]
 
+        fitted_covariances_relative_px: Optional[List[Optional[np.ndarray]]] = None
+        if self.fitted_substrate_spot_covariances:
+            cov_list = [
+                np.array(cov, dtype=float) if cov is not None else None
+                for cov in self.fitted_substrate_spot_covariances
+            ]
+            if len(cov_list) < len(fitted_g_vectors_relative_px):
+                cov_list.extend([None] * (len(fitted_g_vectors_relative_px) - len(cov_list)))
+            elif len(cov_list) > len(fitted_g_vectors_relative_px):
+                cov_list = cov_list[: len(fitted_g_vectors_relative_px)]
+            fitted_covariances_relative_px = cov_list
+
         expected_spot_count = 0
         if self.substrate_lattice_type == LATTICE_TYPE_HEXAGONAL: expected_spot_count = 6
         elif self.substrate_lattice_type == LATTICE_TYPE_SQUARE: expected_spot_count = 4
@@ -564,7 +577,8 @@ class AppController(QObject):
             Lx_nm=Lx_nm,
             Ly_nm=Ly_nm,
             fft_shape_cols_kx=fft_cols_kx,
-            fft_shape_rows_ky=fft_rows_ky
+            fft_shape_rows_ky=fft_rows_ky,
+            selected_g_vector_covariances_px=fitted_covariances_relative_px,
         )
 
         if results:
@@ -595,6 +609,15 @@ class AppController(QObject):
             return
         
         corrected_spots_ideal_px_abs = self.corrected_adsorbate_spot_sets[set_index]
+        corrected_covariances_px = []
+        if set_index < len(self.corrected_adsorbate_covariance_sets):
+            raw_cov_list = self.corrected_adsorbate_covariance_sets[set_index]
+            corrected_covariances_px = [
+                np.array(cov, dtype=float) if cov is not None else None
+                for cov in raw_cov_list
+            ]
+        else:
+            corrected_covariances_px = []
         
         expected_ads_type = self.adsorbate_expected_lattice_types.get(set_index, ADSORBATE_LATTICE_TYPE_UNKNOWN)
         
@@ -628,6 +651,16 @@ class AppController(QObject):
             (spot_abs_kx - center_kx_ideal_px, spot_abs_ky - center_ky_ideal_px)
             for spot_abs_kx, spot_abs_ky in corrected_spots_ideal_px_abs
         ]
+        g_vector_covariances_adsorbate_px: List[Optional[np.ndarray]] = []
+        if corrected_covariances_px:
+            cov_list = corrected_covariances_px
+            if len(cov_list) < len(g_vectors_adsorbate_relative_px):
+                cov_list.extend([None] * (len(g_vectors_adsorbate_relative_px) - len(cov_list)))
+            elif len(cov_list) > len(g_vectors_adsorbate_relative_px):
+                cov_list = cov_list[: len(g_vectors_adsorbate_relative_px)]
+            g_vector_covariances_adsorbate_px = cov_list
+        else:
+            g_vector_covariances_adsorbate_px = [None] * len(g_vectors_adsorbate_relative_px)
 
         basis_g_ads_px = select_adsorbate_reciprocal_basis_vectors_px(
             corrected_g_vectors_relative_px=g_vectors_adsorbate_relative_px,
@@ -662,6 +695,73 @@ class AppController(QObject):
         cos_alpha_ads = np.clip(dot_product_ads / (a1_ads_mag_nm * a2_ads_mag_nm), -1.0, 1.0)
         alpha_ads_deg = np.degrees(np.arccos(cos_alpha_ads))
 
+        def _estimate_covariance_for_basis(
+            basis_vec: Tuple[float, float],
+        ) -> Optional[np.ndarray]:
+            basis_arr = np.array(basis_vec, dtype=float)
+            norm_basis = np.linalg.norm(basis_arr)
+            if norm_basis < 1e-9:
+                return None
+            best_idx = None
+            best_cos = -np.inf
+            for idx, orig_vec in enumerate(g_vectors_adsorbate_relative_px):
+                norm_orig = np.linalg.norm(orig_vec)
+                if norm_orig < 1e-9:
+                    continue
+                cos_val = abs(np.dot(basis_arr, orig_vec) / (norm_basis * norm_orig))
+                if cos_val > best_cos:
+                    best_cos = cos_val
+                    best_idx = idx
+            if best_idx is None:
+                return None
+            base_cov = (
+                g_vector_covariances_adsorbate_px[best_idx]
+                if best_idx < len(g_vector_covariances_adsorbate_px)
+                else None
+            )
+            if base_cov is None:
+                return None
+            norm_orig = np.linalg.norm(g_vectors_adsorbate_relative_px[best_idx])
+            if norm_orig < 1e-9:
+                return None
+            scale = norm_basis / norm_orig
+            return (scale ** 2) * base_cov
+
+        g1_cov_ads_px = _estimate_covariance_for_basis(g1_ads_px)
+        g2_cov_ads_px = _estimate_covariance_for_basis(g2_ads_px)
+        if g2_cov_ads_px is None and g1_cov_ads_px is not None:
+            g1_arr = np.array(g1_ads_px, dtype=float)
+            g2_arr = np.array(g2_ads_px, dtype=float)
+            norm_g1 = np.linalg.norm(g1_arr)
+            norm_g2 = np.linalg.norm(g2_arr)
+            if norm_g1 > 1e-9 and norm_g2 > 1e-9:
+                theta = np.arctan2(g2_arr[1], g2_arr[0]) - np.arctan2(g1_arr[1], g1_arr[0])
+                rotation_matrix = np.array(
+                    [[np.cos(theta), -np.sin(theta)], [np.sin(theta), np.cos(theta)]],
+                    dtype=float,
+                )
+                scale = norm_g2 / norm_g1
+                transform = scale * rotation_matrix
+                g2_cov_ads_px = transform @ g1_cov_ads_px @ transform.T
+
+        scale_matrix = np.array([[1.0 / Lx_nm, 0.0], [0.0, 1.0 / Ly_nm]], dtype=float)
+        g1_cov_ads_nm = scale_matrix @ g1_cov_ads_px @ scale_matrix.T if g1_cov_ads_px is not None else None
+        g2_cov_ads_nm = scale_matrix @ g2_cov_ads_px @ scale_matrix.T if g2_cov_ads_px is not None else None
+
+        metrics_uncertainty = None
+        if g1_cov_ads_nm is not None and g2_cov_ads_nm is not None:
+            combined_covariance = np.zeros((4, 4), dtype=float)
+            combined_covariance[:2, :2] = g1_cov_ads_nm
+            combined_covariance[2:, 2:] = g2_cov_ads_nm
+            try:
+                metrics_uncertainty = compute_real_space_metric_uncertainty(
+                    g1_ads_nm_inv,
+                    g2_ads_nm_inv,
+                    combined_covariance,
+                )
+            except ValueError as exc:  # pragma: no cover - defensive
+                logger.warning("Unable to propagate adsorbate lattice parameter uncertainties: %s", exc)
+
         results = {
             "a1_nm": a1_ads_mag_nm, "a2_nm": a2_ads_mag_nm, "alpha_deg": alpha_ads_deg,
             "a1_vec_nm": a1_ads_vec_nm, "a2_vec_nm": a2_ads_vec_nm,
@@ -671,6 +771,21 @@ class AppController(QObject):
             "g2_vec_nm_inv": g2_ads_nm_inv,
             "source_corrected_spots_ideal_px": corrected_spots_ideal_px_abs
         }
+        if g1_cov_ads_px is not None:
+            results["g1_vec_cov_px"] = g1_cov_ads_px
+        if g2_cov_ads_px is not None:
+            results["g2_vec_cov_px"] = g2_cov_ads_px
+        if g1_cov_ads_nm is not None:
+            results["g1_vec_cov_nm_inv"] = g1_cov_ads_nm
+        if g2_cov_ads_nm is not None:
+            results["g2_vec_cov_nm_inv"] = g2_cov_ads_nm
+        if metrics_uncertainty is not None:
+            results["real_space_metric_covariance"] = metrics_uncertainty.covariance
+            diag_entries = np.clip(np.diag(metrics_uncertainty.covariance), 0.0, None)
+            if diag_entries.size >= 3:
+                results["a1_nm_sigma"] = float(np.sqrt(diag_entries[0]))
+                results["a2_nm_sigma"] = float(np.sqrt(diag_entries[1]))
+                results["alpha_deg_sigma"] = float(np.sqrt(diag_entries[2]))
         logger.info(f"Adsorbate set {set_index} real space params: a1={a1_ads_mag_nm:.3f}nm, a2={a2_ads_mag_nm:.3f}nm, alpha={alpha_ads_deg:.2f}deg")
         self.adsorbate_real_space_results[set_index] = results
         self.adsorbate_real_space_params_updated.emit(set_index, results)

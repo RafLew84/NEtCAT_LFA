@@ -26,6 +26,7 @@ def _make_presenter(qtbot, *, lattice_type=LATTICE_TYPE_HEXAGONAL, custom_a=None
     history_manager = HistoryManager(widget)
     state = SubstrateSpotState(
         selected_spots=[],
+        selected_spot_covariances=[],
         lattice_type=lattice_type,
         selected_definition=None,
         custom_definition=None,
@@ -87,6 +88,7 @@ def test_presenter_calculate_transform_success(qtbot, monkeypatch):
 
     state = SubstrateSpotState(
         selected_spots=[(10.0, 12.0), (20.0, 22.0), (30.0, 32.0)],
+        selected_spot_covariances=[np.eye(2)] * 3,
         lattice_type=LATTICE_TYPE_HEXAGONAL,
         selected_definition="Au(111)",
         custom_definition=None,
@@ -106,7 +108,13 @@ def test_presenter_calculate_transform_success(qtbot, monkeypatch):
     def fake_get_nearest_reciprocal_points(_info):
         return [(0.1, 0.2), (0.0, -0.2), (-0.1, 0.0)]
 
-    def fake_match_and_fit_transform(*, measured_pts_px, ideal_pts_pool_px, num_expected_matches):
+    def fake_match_and_fit_transform(
+        *,
+        measured_pts_px,
+        ideal_pts_pool_px,
+        num_expected_matches,
+        measured_covariances_px=None,
+    ):
         assert num_expected_matches == 3
         assert measured_pts_px.shape[0] == 3
         assert ideal_pts_pool_px.shape[0] == 3
@@ -114,7 +122,8 @@ def test_presenter_calculate_transform_success(qtbot, monkeypatch):
         t = np.array([0.5, -0.25])
         analysis = {"rotation_angle_deg": 1.23, "principal_stretches": (1.0, 1.0), "rmse": 0.01}
         point_pairs = [(0, 0), (1, 1), (2, 2)]
-        return F, t, analysis, point_pairs
+        covariances = measured_covariances_px if measured_covariances_px is not None else [None] * 3
+        return F, t, analysis, point_pairs, covariances
 
     def fake_apply_affine_transform(points, F, t):
         return points @ F.T + t
@@ -141,3 +150,4 @@ def test_presenter_calculate_transform_success(qtbot, monkeypatch):
     assert presenter.state.transform_matrix_F is not None
     assert presenter.state.transform_translation_t is not None
     assert presenter.state.fitted_spots_px == result.fitted_spots_px
+    assert presenter.state.fitted_spot_covariances and len(presenter.state.fitted_spot_covariances) == 3

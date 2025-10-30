@@ -180,10 +180,11 @@ class SubstrateSpotPresenter:
             )
 
         try:
-            F, t, analysis, point_pairs = match_and_fit_transform(
+            F, t, analysis, point_pairs, fitted_covariances = match_and_fit_transform(
                 measured_pts_px=measured_spots_px,
                 ideal_pts_pool_px=ideal_spots_pool_px,
                 num_expected_matches=num_expected,
+                measured_covariances_px=self.state.selected_spot_covariances,
             )
         except ImportError as exc:
             raise TransformComputationError(
@@ -215,6 +216,13 @@ class SubstrateSpotPresenter:
         self.state.transform_translation_t = t
         self.state.transform_analysis = analysis
         self.state.fitted_spots_px = fitted_spots
+        if fitted_covariances is not None:
+            self.state.fitted_spot_covariances = [
+                np.array(cov, dtype=float) if cov is not None else None
+                for cov in fitted_covariances
+            ]
+        else:
+            self.state.fitted_spot_covariances = [None] * len(fitted_spots)
         self.state.ideal_spots_px_for_reference = [tuple(pt) for pt in matched_ideal]
 
         logger.debug("SubstrateSpotPresenter: Transform computed with RMSE=%s", analysis.get("rmse"))

@@ -183,7 +183,7 @@ class TestLatticeCalculations:
         )
 
         assert results is not None
-        mock_select_basis.assert_called_once_with(selected_g_px * 2, lattice_type)
+        mock_select_basis.assert_called_once_with(selected_g_px * 2, lattice_type, return_details=False)
         assert mock_convert_g.call_count == 2
         mock_calc_real_vecs.assert_called_once_with((0.1,0.0), (0.0,0.1))
         
@@ -191,6 +191,36 @@ class TestLatticeCalculations:
         assert np.isclose(results["a2_nm"], 10.0, atol=TOL)
         assert np.isclose(results["alpha_deg"], 90.0, atol=TOL)
         assert np.allclose(results["a1_vec_nm"], (10.0, 0.0), atol=TOL)
+
+    def test_get_real_space_lattice_parameters_with_covariance(self):
+        selected_g_px = [
+            (1.0, 0.0),
+            (0.0, 1.0),
+            (-1.0, 0.0),
+            (0.0, -1.0),
+        ]
+        lattice_type = LATTICE_TYPE_SQUARE
+        Lx = Ly = 10.0
+        fft_shape = (128, 128)
+        sigma_px = 0.01
+        cov_matrix = np.diag([sigma_px ** 2, sigma_px ** 2])
+        cov_list = [cov_matrix for _ in selected_g_px]
+
+        results = get_real_space_lattice_parameters(
+            selected_g_vectors_relative_px=selected_g_px,
+            lattice_type=lattice_type,
+            Lx_nm=Lx,
+            Ly_nm=Ly,
+            fft_shape_cols_kx=fft_shape[1],
+            fft_shape_rows_ky=fft_shape[0],
+            selected_g_vector_covariances_px=cov_list,
+        )
+
+        assert results is not None
+        assert "a1_nm_sigma" in results
+        assert results["a1_nm_sigma"] > 0.0
+        assert "real_space_metric_covariance" in results
+        assert results["real_space_metric_covariance"].shape == (3, 3)
 
     def test_get_real_space_parameters_invalid_input(self):
         assert get_real_space_lattice_parameters([], LATTICE_TYPE_SQUARE, 10, 10, 100, 100) is None

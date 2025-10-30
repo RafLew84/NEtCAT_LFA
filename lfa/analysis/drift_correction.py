@@ -9,7 +9,7 @@ import logging
 import numpy as np
 from scipy.linalg import polar
 from scipy.optimize import linear_sum_assignment
-from typing import List, Tuple, Dict, Optional, Any
+from typing import List, Tuple, Dict, Optional, Any, Sequence
 
 logger = logging.getLogger(__name__)
 
@@ -18,57 +18,94 @@ logger = logging.getLogger(__name__)
 def fit_affine_measured_to_ideal(
     measured_pts: np.ndarray,
     ideal_pts: np.ndarray
-) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+) -> Tuple[Optional[np.ndarray], Optional[np.ndarray], Optional[Dict[str, Any]]]:
     """
-    Solve for transformation (F, t) such that: ideal_pts approx = measured_pts @ F.T + t.
-    This means F transforms vectors from the 'measured' coordinate system
-    to the 'ideal' coordinate system.
+    Solve for transformation (F, t) such that: ideal_pts approx measured_pts @ F.T + t.
 
-    Args:
-        measured_pts (np.ndarray): Nx2 array of measured points (x, y).
-        ideal_pts (np.ndarray): Nx2 array of corresponding ideal points (x, y).
-
-    Returns:
-        Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
-            F (np.ndarray): 2x2 transformation matrix, or None on error.
-            t (np.ndarray): 2x1 translation vector, or None on error.
+    Returns the fitted matrix, translation vector, and diagnostic information that
+    includes residuals and an estimated covariance for the affine parameters.
     """
     measured_pts = np.asarray(measured_pts, dtype=float)
     ideal_pts = np.asarray(ideal_pts, dtype=float)
 
     if measured_pts.shape[0] != ideal_pts.shape[0]:
         logger.error("Mismatch in the number of measured and ideal points.")
-        return None, None
+        return None, None, None
     if measured_pts.shape[1] != 2 or ideal_pts.shape[1] != 2:
         logger.error("Points must be 2D (Nx2 array).")
-        return None, None
+        return None, None, None
     if measured_pts.shape[0] < 3:
         logger.error("At least 3 point pairs are required for a unique affine fit.")
-        # lstsq might still return something for <3 points, but it's not a full affine fit
-        return None, None
+        return None, None, None
 
-    # Augment measured_pts with a column of ones for the translation part
-    A = np.hstack([measured_pts, np.ones((len(ideal_pts), 1))])
+    num_points = measured_pts.shape[0]
+    # Build design matrix for linear least squares.
+    # For each point we create two equations (x' and y').
+    design = np.zeros((num_points * 2, 6), dtype=float)
+    target = np.zeros(num_points * 2, dtype=float)
+    for idx, ((mx, my), (ix, iy)) in enumerate(zip(measured_pts, ideal_pts)):
+        row_x = 2 * idx
+        row_y = row_x + 1
+        # x' = F11 * mx + F12 * my + t1
+        design[row_x, 0] = mx
+        design[row_x, 1] = my
+        design[row_x, 4] = 1.0
+        target[row_x] = ix
+
+        # y' = F21 * mx + F22 * my + t2
+        design[row_y, 2] = mx
+        design[row_y, 3] = my
+        design[row_y, 5] = 1.0
+        target[row_y] = iy
 
     try:
-        M, _, rank, _ = np.linalg.lstsq(A, ideal_pts, rcond=None)
+        params, residuals, rank, _ = np.linalg.lstsq(design, target, rcond=None)
+    except np.linalg.LinAlgError as error:
+        logger.error("Linear algebra error during affine fit: %s", error)
+        return None, None, None
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.exception("Unexpected error in fit_affine_measured_to_ideal: %s", exc)
+        return None, None, None
 
-        if rank < A.shape[1]: # Check if the system was underdetermined
-             logger.warning(f"Rank deficiency in lstsq fit (rank {rank} < {A.shape[1]}). "
-                            "Points might be collinear or too few unique points.")
+    if rank < design.shape[1]:
+        logger.warning(
+            "Rank deficiency in affine fit (rank %s < %s). Points might be collinear or degenerate.",
+            rank,
+            design.shape[1],
+        )
 
-        F_matrix = M[:2, :].T 
-        t_vector = M[2, :]   
+    F_matrix = np.array(
+        [[params[0], params[1]], [params[2], params[3]]],
+        dtype=float,
+    )
+    t_vector = np.array([params[4], params[5]], dtype=float)
 
-        logger.info(f"Affine fit successful. F = \n{F_matrix}\n t = {t_vector}")
-        return F_matrix, t_vector
+    # Compute residual information and parameter covariance if possible.
+    fitted = design @ params
+    residual_vector = target - fitted
+    rss = residuals[0] if residuals.size else float(np.dot(residual_vector, residual_vector))
+    dof = (num_points * 2) - design.shape[1]
+    sigma2 = rss / dof if dof > 0 else None
 
-    except np.linalg.LinAlgError as e:
-        logger.error(f"Linear algebra error during affine fit: {e}")
-        return None, None
-    except Exception as e:
-        logger.exception(f"Unexpected error in fit_affine_measured_to_ideal: {e}")
-        return None, None
+    param_covariance = None
+    try:
+        xtx_inv = np.linalg.inv(design.T @ design)
+        if sigma2 is not None:
+            param_covariance = sigma2 * xtx_inv
+    except np.linalg.LinAlgError:
+        logger.warning("Could not invert (X^T X) for parameter covariance estimation.")
+
+    diagnostics: Dict[str, Any] = {
+        "residuals_xy": residual_vector.reshape(num_points, 2),
+        "rss": rss,
+        "degrees_of_freedom": dof,
+        "sigma2": sigma2,
+        "rank": rank,
+        "parameter_covariance": param_covariance,
+    }
+
+    logger.info("Affine fit successful. F = \n%s\n t = %s", F_matrix, t_vector)
+    return F_matrix, t_vector, diagnostics
 
 def apply_affine_transform(
     points_to_transform: np.ndarray,
@@ -180,100 +217,131 @@ def analyze_affine_transform(F: np.ndarray) -> Optional[Dict[str, Any]]:
 def match_and_fit_transform(
     measured_pts_px: np.ndarray,
     ideal_pts_pool_px: np.ndarray,
-    num_expected_matches: int
-) -> Tuple[Optional[np.ndarray], Optional[np.ndarray], Optional[Dict[str, Any]], Optional[List[Tuple[int, int]]]]:
+    num_expected_matches: int,
+    measured_covariances_px: Optional[Sequence[Optional[np.ndarray]]] = None,
+) -> Tuple[
+    Optional[np.ndarray],
+    Optional[np.ndarray],
+    Optional[Dict[str, Any]],
+    Optional[List[Tuple[int, int]]],
+    Optional[List[Optional[np.ndarray]]],
+]:
     """
     Matches measured points to a pool of ideal points using the Hungarian algorithm,
-    then fits an affine transformation.
-
-    Args:
-        measured_pts_px (np.ndarray): Nx2 array of measured points (pixels).
-        ideal_pts_pool_px (np.ndarray): Mx2 array of ideal points (pixels), M >= N.
-        num_expected_matches (int): The number of points (N) to match.
-
-    Returns:
-        Tuple containing:
-            - F (Optional[np.ndarray]): 2x2 transformation matrix or None.
-            - t (Optional[np.ndarray]): 2x1 translation vector or None.
-            - analysis_results (Optional[Dict[str, Any]]): Dictionary from analyze_affine_transform or None.
-            - point_pairs (Optional[List[Tuple[int, int]]]): List of (measured_idx, ideal_idx) pairs or None.
+    then fits an affine transformation and propagates measurement uncertainties.
     """
     measured_pts_px = np.asarray(measured_pts_px, dtype=float)
     ideal_pts_pool_px = np.asarray(ideal_pts_pool_px, dtype=float)
 
     if measured_pts_px.shape[0] != num_expected_matches:
-        logger.error(f"Number of measured points ({measured_pts_px.shape[0]}) "
-                     f"does not match num_expected_matches ({num_expected_matches}).")
-        return None, None, None, None
+        logger.error(
+            "Number of measured points (%s) does not match expected matches (%s).",
+            measured_pts_px.shape[0],
+            num_expected_matches,
+        )
+        return None, None, None, None, None
 
     if ideal_pts_pool_px.shape[0] < num_expected_matches:
-        logger.error(f"Not enough ideal points in pool ({ideal_pts_pool_px.shape[0]}) "
-                     f"to find {num_expected_matches} matches.")
-        return None, None, None, None
+        logger.error(
+            "Not enough ideal points (%s) to find %s matches.",
+            ideal_pts_pool_px.shape[0],
+            num_expected_matches,
+        )
+        return None, None, None, None, None
+
+    # Normalise covariance inputs (if provided) before any reordering.
+    ordered_input_covariances: Optional[List[Optional[np.ndarray]]] = None
+    if measured_covariances_px is not None:
+        ordered_input_covariances = []
+        for cov in measured_covariances_px:
+            if cov is None:
+                ordered_input_covariances.append(None)
+                continue
+            cov_arr = np.asarray(cov, dtype=float)
+            if cov_arr.shape != (2, 2):
+                logger.warning("Measured covariance has invalid shape %s; ignoring entry.", cov_arr.shape)
+                ordered_input_covariances.append(None)
+            else:
+                ordered_input_covariances.append(cov_arr)
 
     # Select target ideal points from the pool
     if ideal_pts_pool_px.shape[0] == num_expected_matches:
         target_ideal_pts_px = ideal_pts_pool_px
-    else:
-        # If more ideal points than measured, select N closest to the centroid of measured points
-        if ideal_pts_pool_px.shape[0] > num_expected_matches:
-             logger.warning(f"Ideal points pool ({ideal_pts_pool_px.shape[0]}) is larger than "
-                            f"expected matches ({num_expected_matches}). Taking the first {num_expected_matches}.")
-             target_ideal_pts_px = ideal_pts_pool_px[:num_expected_matches]
-        else: # Should have been caught by earlier check
-             target_ideal_pts_px = ideal_pts_pool_px
+    elif ideal_pts_pool_px.shape[0] > num_expected_matches:
+        logger.warning(
+            "Ideal points pool (%s) is larger than expected matches (%s). Using first %s entries.",
+            ideal_pts_pool_px.shape[0],
+            num_expected_matches,
+            num_expected_matches,
+        )
+        target_ideal_pts_px = ideal_pts_pool_px[:num_expected_matches]
+    else:  # pragma: no cover - defensive
+        target_ideal_pts_px = ideal_pts_pool_px
 
-    # Build cost matrix (squared Euclidean distance for efficiency with linear_sum_assignment)
     cost_matrix = np.sum(
         (measured_pts_px[:, np.newaxis, :] - target_ideal_pts_px[np.newaxis, :, :]) ** 2,
-        axis=2
+        axis=2,
     )
 
-    # Apply Hungarian algorithm for optimal assignment
     try:
         measured_indices, ideal_indices = linear_sum_assignment(cost_matrix)
         min_cost = cost_matrix[measured_indices, ideal_indices].sum()
-        logger.info(f"Hungarian assignment successful. Min cost: {min_cost:.2f}")
-    except Exception as e:
-        logger.exception(f"Error during Hungarian assignment: {e}")
-        return None, None, None, None
+        logger.info("Hungarian assignment successful. Min cost: %.2f", min_cost)
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.exception("Error during Hungarian assignment: %s", exc)
+        return None, None, None, None, None
 
-    # Prepare ordered points for affine fit
     final_measured_pts = measured_pts_px[measured_indices]
     final_ideal_pts = target_ideal_pts_px[ideal_indices]
-    
     point_pairs_indices = list(zip(measured_indices, ideal_indices))
-    
-    # Print matched point pairs with coordinates for debugging
-    print("\nMatched point pairs (measured -> ideal):")
-    for i, (m_idx, i_idx) in enumerate(point_pairs_indices):
-        print(f"Pair {i+1}: ({final_measured_pts[m_idx][0]:.2f}, {final_measured_pts[m_idx][1]:.2f}) -> "
-              f"({final_ideal_pts[i_idx][0]:.2f}, {final_ideal_pts[i_idx][1]:.2f})")
 
-    # Fit affine transformation
-    F, t = fit_affine_measured_to_ideal(final_measured_pts, final_ideal_pts)
+    matched_covariances: Optional[List[Optional[np.ndarray]]] = None
+    if ordered_input_covariances is not None:
+        matched_covariances = []
+        for idx in measured_indices:
+            matched_covariances.append(
+                ordered_input_covariances[idx] if idx < len(ordered_input_covariances) else None
+            )
+
+    F, t, fit_diagnostics = fit_affine_measured_to_ideal(final_measured_pts, final_ideal_pts)
     if F is None or t is None:
         logger.error("Affine fitting failed after Hungarian assignment.")
-        return None, None, None, point_pairs_indices
+        return None, None, None, point_pairs_indices, matched_covariances
 
-    # Analyze transformation
     analysis_results = analyze_affine_transform(F)
     if analysis_results is None:
         logger.error("Analysis of the fitted transform failed.")
-        return F, t, None, point_pairs_indices
+        return F, t, None, point_pairs_indices, matched_covariances
 
-    # Calculate RMSE for fit quality assessment
+    if fit_diagnostics is not None:
+        analysis_results["fit_diagnostics"] = fit_diagnostics
+
     try:
         predicted_ideal_from_measured = apply_affine_transform(final_measured_pts, F, t)
         if predicted_ideal_from_measured is not None:
             residuals = final_ideal_pts - predicted_ideal_from_measured
-            rmse = np.sqrt(np.mean(np.sum(residuals**2, axis=1)))
-            analysis_results['rmse'] = rmse
-            logger.info(f"RMSE of fit: {rmse:.4f} pixels")
+            rmse = np.sqrt(np.mean(np.sum(residuals ** 2, axis=1)))
+            analysis_results["rmse"] = rmse
+            logger.info("RMSE of fit: %.4f pixels", rmse)
         else:
-            analysis_results['rmse'] = None
-    except Exception as e:
-        logger.exception(f"Error calculating RMSE: {e}")
-        analysis_results['rmse'] = None
+            analysis_results["rmse"] = None
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.exception("Error calculating RMSE: %s", exc)
+        analysis_results["rmse"] = None
 
-    return F, t, analysis_results, point_pairs_indices
+    transformed_covariances: Optional[List[Optional[np.ndarray]]] = None
+    if matched_covariances is not None:
+        transformed_covariances = []
+        for cov in matched_covariances:
+            if cov is None:
+                transformed_covariances.append(None)
+            else:
+                try:
+                    transformed_covariances.append(F @ cov @ F.T)
+                except Exception as exc:  # pragma: no cover - defensive
+                    logger.warning("Failed to propagate covariance through affine transform: %s", exc)
+                    transformed_covariances.append(None)
+        analysis_results["matched_measured_covariances_px"] = matched_covariances
+        analysis_results["fitted_spot_covariances_px"] = transformed_covariances
+
+    return F, t, analysis_results, point_pairs_indices, transformed_covariances
