@@ -6,7 +6,7 @@ import numpy as np
 
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QDialogButtonBox,
-    QLabel, QListWidget, QAbstractItemView, QWidget, QSplitter, QGroupBox,
+    QLabel, QListWidget, QListWidgetItem, QAbstractItemView, QWidget, QSplitter, QGroupBox,
     QFormLayout, QRadioButton, QSpinBox, QComboBox, QCheckBox, QMessageBox,
     QGridLayout, QDoubleSpinBox, QApplication, QDockWidget
 )
@@ -63,6 +63,7 @@ try:
         KNOWN_LATTICES,
         get_reciprocal_points,
         get_nearest_reciprocal_points,
+        get_real_space_lattice_parameters,
     )
     from ...core.constants import (
         LATTICE_TYPE_CUSTOM,
@@ -90,6 +91,7 @@ except ImportError: # pragma: no cover
     def refine_peak_parabola_3x3(data, center): return None
     def refine_peak_local_dft(data, center, radius, upsample_factor=8): return None
     def _gaussian_2d(*args, **kwargs): raise ImportError("Gaussian 2D function is not available")
+    def get_real_space_lattice_parameters(*args, **kwargs): return None
 
 logger = logging.getLogger(__name__)
 
@@ -348,6 +350,17 @@ class SubstrateSpotSelectionDialog(QDialog):
         transform_layout.addRow(self.rmse_label)
         left_controls_layout.addWidget(transform_group)
 
+        self.real_space_preview_group = QGroupBox("Real Space Preview")
+        real_space_layout = QFormLayout(self.real_space_preview_group)
+        self.rs_a1_label = QLabel("Vector 1 |a1|: - nm")
+        self.rs_a2_label = QLabel("Vector 2 |a2|: - nm")
+        self.rs_alpha_label = QLabel("Angle α (a1,a2): - °")
+        real_space_layout.addRow(self.rs_a1_label)
+        real_space_layout.addRow(self.rs_a2_label)
+        real_space_layout.addRow(self.rs_alpha_label)
+        left_controls_layout.addWidget(self.real_space_preview_group)
+        self.real_space_preview_group.setVisible(False)
+
         left_controls_layout.addStretch(1)
         main_splitter.addWidget(left_controls_widget)
         self.fft_plot_widget = self.scene.widget()
@@ -473,9 +486,18 @@ class SubstrateSpotSelectionDialog(QDialog):
             self.calculate_transform_button.clicked.connect(self._on_calculate_transform_clicked)
     def _update_spots_list_widget(self):
         self.spots_list_widget.clear()
-        for i, (kx, ky) in enumerate(self.selected_spots):
-            point_text = format_pair((kx, ky), precision=2)
-            self.spots_list_widget.addItem(f"S{i+1}: {point_text}")
+        covariances = list(self.selected_spot_covariances or [])
+        if len(covariances) < len(self.selected_spots):
+            covariances.extend([None] * (len(self.selected_spots) - len(covariances)))
+        elif len(covariances) > len(self.selected_spots):
+            covariances = covariances[: len(self.selected_spots)]
+
+        for i, (spot, cov) in enumerate(zip(self.selected_spots, covariances)):
+            text, tooltip = self._format_spot_with_uncertainty(spot, cov)
+            item = QListWidgetItem(f"S{i+1}: {text}")
+            if tooltip:
+                item.setToolTip(tooltip)
+            self.spots_list_widget.addItem(item)
         self._update_add_spot_button_state()
 
     def _populate_substrate_definition_combo(self):
@@ -726,6 +748,121 @@ class SubstrateSpotSelectionDialog(QDialog):
                 self.rmse_label.setText("RMSE (px): -")
                 self._redraw_all_spot_markers()
                 self.scene.show_pair_lines([])
+                self._update_real_space_preview_labels(None)
+
+    def _format_spot_with_uncertainty(
+        self,
+        spot: Optional[Tuple[float, float]],
+        covariance: Optional[np.ndarray],
+    ) -> Tuple[str, str]:
+        if spot is None:
+            return "- -", ""
+        kx, ky = map(float, spot)
+        sigma_x = sigma_y = None
+        if covariance is not None:
+            cov_arr = np.asarray(covariance, dtype=float)
+            if cov_arr.shape == (2, 2):
+                var_y = max(float(cov_arr[0, 0]), 0.0)
+                var_x = max(float(cov_arr[1, 1]), 0.0)
+                sigma_y = math.sqrt(var_y)
+                sigma_x = math.sqrt(var_x)
+
+        def axis_text(value: float, sigma: Optional[float]) -> str:
+            base = format_float(value, 2)
+            if sigma is not None:
+                sigma_text = format_float(sigma, 3)
+                return f"{base} ± {sigma_text}"
+            return base
+
+        text = f"({axis_text(kx, sigma_x)}, {axis_text(ky, sigma_y)})"
+        tooltip_lines = [
+            f"kx = {format_float(kx, 4)}" + (f" ± {format_float(sigma_x, 4)}" if sigma_x is not None else ""),
+            f"ky = {format_float(ky, 4)}" + (f" ± {format_float(sigma_y, 4)}" if sigma_y is not None else ""),
+        ]
+        tooltip = "\n".join(line for line in tooltip_lines if line.strip())
+        return text, tooltip
+
+    def _format_value_with_sigma(self, value: Optional[float], sigma: Optional[float], unit: str, value_precision: int = 3, sigma_precision: int = 3) -> str:
+        numeric_value = float(value) if isinstance(value, (int, float, np.floating)) else None
+        numeric_sigma = float(sigma) if isinstance(sigma, (int, float, np.floating)) else None
+        if numeric_value is None:
+            return f"- {unit}"
+        if numeric_sigma is not None and numeric_sigma >= 0:
+            return f"{numeric_value:.{value_precision}f} ± {numeric_sigma:.{sigma_precision}f} {unit}"
+        return f"{numeric_value:.{value_precision}f} {unit}"
+
+    def _update_real_space_preview_labels(self, params: Optional[Dict[str, Any]]) -> None:
+        if not hasattr(self, "rs_a1_label"):
+            return
+        if params:
+            a1_text = self._format_value_with_sigma(
+                params.get("a1_nm"),
+                params.get("a1_nm_sigma"),
+                "nm",
+            )
+            a2_text = self._format_value_with_sigma(
+                params.get("a2_nm"),
+                params.get("a2_nm_sigma"),
+                "nm",
+            )
+            alpha_text = self._format_value_with_sigma(
+                params.get("alpha_deg"),
+                params.get("alpha_deg_sigma"),
+                "°",
+                value_precision=2,
+                sigma_precision=2,
+            )
+            self.rs_a1_label.setText(f"Vector 1 |a1|: {a1_text}")
+            self.rs_a1_label.setToolTip(a1_text)
+            self.rs_a2_label.setText(f"Vector 2 |a2|: {a2_text}")
+            self.rs_a2_label.setToolTip(a2_text)
+            self.rs_alpha_label.setText(f"Angle α (a1,a2): {alpha_text}")
+            self.rs_alpha_label.setToolTip(alpha_text)
+            self.real_space_preview_group.setVisible(True)
+        else:
+            self.rs_a1_label.setText("Vector 1 |a1|: - nm")
+            self.rs_a1_label.setToolTip("")
+            self.rs_a2_label.setText("Vector 2 |a2|: - nm")
+            self.rs_a2_label.setToolTip("")
+            self.rs_alpha_label.setText("Angle α (a1,a2): - °")
+            self.rs_alpha_label.setToolTip("")
+            self.real_space_preview_group.setVisible(False)
+
+    def _compute_real_space_preview(self) -> Optional[Dict[str, Any]]:
+        if not PEAK_FITTING_MODULE_AVAILABLE:
+            return None
+        if not self.fitted_substrate_spots_px or self.fft_data is None:
+            return None
+        fft_rows_ky, fft_cols_kx = self.fft_data.shape
+        center_kx_px = fft_cols_kx / 2.0
+        center_ky_px = fft_rows_ky / 2.0
+        g_vectors_relative_px = [
+            (kx_abs - center_kx_px, ky_abs - center_ky_px)
+            for kx_abs, ky_abs in self.fitted_substrate_spots_px
+        ]
+        if not g_vectors_relative_px:
+            return None
+        root_node = self.history_manager.get_root_node_for_node(self.current_fft_node_id)
+        if not (root_node and root_node.operation_name == "Original" and root_node.parameters):
+            return None
+        Lx_nm = root_node.parameters.get("size_nm_x")
+        Ly_nm = root_node.parameters.get("size_nm_y")
+        if not (Lx_nm and Ly_nm and Lx_nm > 0 and Ly_nm > 0):
+            return None
+        try:
+            covariances = self.presenter.state.fitted_spot_covariances or None
+            return get_real_space_lattice_parameters(
+                selected_g_vectors_relative_px=g_vectors_relative_px,
+                lattice_type=self.current_lattice_type,
+                Lx_nm=Lx_nm,
+                Ly_nm=Ly_nm,
+                fft_shape_cols_kx=fft_cols_kx,
+                fft_shape_rows_ky=fft_rows_ky,
+                selected_g_vector_covariances_px=covariances,
+            )
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.debug("Failed to compute real space preview: %s", exc)
+            return None
 
     def _handle_fft_image_click(self, event):
         """Handle mouse clicks on the main FFT image."""
@@ -1052,6 +1189,7 @@ class SubstrateSpotSelectionDialog(QDialog):
         logger.info("Calculate Transformation button clicked.")
         self.transform_status_label.setText("Calculating transformation...")
         QApplication.processEvents()
+        self._update_real_space_preview_labels(None)
 
         try:
             result = self.presenter.calculate_transform(
@@ -1063,11 +1201,13 @@ class SubstrateSpotSelectionDialog(QDialog):
             else:
                 QMessageBox.critical(self, "Transform Error", exc.user_message)
             self.transform_status_label.setText(exc.status_message)
+            self._update_real_space_preview_labels(None)
             return
         except Exception as exc:  # pragma: no cover
             logger.exception("Unexpected error during transformation calculation: ")
             QMessageBox.critical(self, "Error", f"An error occurred: {exc}")
             self.transform_status_label.setText("Error.")
+            self._update_real_space_preview_labels(None)
             return
 
         self.substrate_transformation_matrix_F = self.presenter.state.transform_matrix_F
@@ -1096,6 +1236,8 @@ class SubstrateSpotSelectionDialog(QDialog):
         self.rmse_label.setText(f"RMSE (px): {rmse_text}")
         self.transform_status_label.setText("Transformation calculated.")
 
+        preview_results = self._compute_real_space_preview()
+        self._update_real_space_preview_labels(preview_results)
         self._redraw_all_spot_markers() 
 
     @pyqtSlot()

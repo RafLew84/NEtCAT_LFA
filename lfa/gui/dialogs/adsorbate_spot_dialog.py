@@ -8,12 +8,13 @@ This module provides functionality for:
 - Visualizing spots and their corrections in both 2D and 3D views
 """
 import logging
+import math
 from typing import List, Tuple, Optional, Dict, Any
 import numpy as np
 
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QDialogButtonBox,
-    QLabel, QListWidget, QAbstractItemView, QWidget, QGroupBox,
+    QLabel, QListWidget, QListWidgetItem, QAbstractItemView, QWidget, QGroupBox,
     QFormLayout, QRadioButton, QSpinBox, QCheckBox, QMessageBox, QComboBox,
     QGridLayout, QSplitter
 )
@@ -628,10 +629,19 @@ class AdsorbateSpotSelectionDialog(QDialog):
         if not self.state.corrected_spots:
             self.corrected_spots_list_widget.addItem("No corrected spots yet.")
             return
-        
-        for i, (kx, ky) in enumerate(self.state.corrected_spots):
-            pair_text = format_pair((kx, ky), precision=2)
-            self.corrected_spots_list_widget.addItem(f"Corr. A{i+1}: {pair_text} [Ideal Sys]")
+
+        covariances = list(self.state.corrected_spot_covariances or [])
+        if len(covariances) < len(self.state.corrected_spots):
+            covariances.extend([None] * (len(self.state.corrected_spots) - len(covariances)))
+        elif len(covariances) > len(self.state.corrected_spots):
+            covariances = covariances[: len(self.state.corrected_spots)]
+
+        for i, (spot, cov) in enumerate(zip(self.state.corrected_spots, covariances)):
+            text, tooltip = self._format_spot_with_uncertainty(spot, cov, suffix="[Ideal Sys]")
+            item = QListWidgetItem(f"Corr. A{i+1}: {text}")
+            if tooltip:
+                item.setToolTip(tooltip)
+            self.corrected_spots_list_widget.addItem(item)
 
     @pyqtSlot()
     def _on_refinement_method_changed(self):
@@ -845,9 +855,18 @@ class AdsorbateSpotSelectionDialog(QDialog):
 
     def _update_adsorbate_spots_list_widget(self):
         self.spots_list_widget.clear()
-        for i, (kx,ky) in enumerate(self.state.raw_spots): 
-            point_text = format_pair((kx, ky), precision=2)
-            self.spots_list_widget.addItem(f"A{i+1} (S{self.adsorbate_set_index+1}): {point_text}")
+        covariances = list(self.state.raw_spot_covariances or [])
+        if len(covariances) < len(self.state.raw_spots):
+            covariances.extend([None] * (len(self.state.raw_spots) - len(covariances)))
+        elif len(covariances) > len(self.state.raw_spots):
+            covariances = covariances[: len(self.state.raw_spots)]
+
+        for i, (spot, cov) in enumerate(zip(self.state.raw_spots, covariances)):
+            text, tooltip = self._format_spot_with_uncertainty(spot, cov)
+            item = QListWidgetItem(f"A{i+1} (S{self.adsorbate_set_index+1}): {text}")
+            if tooltip:
+                item.setToolTip(tooltip)
+            self.spots_list_widget.addItem(item)
         self._update_add_spot_button_state()
         self._update_correction_button_state()
 
@@ -940,6 +959,43 @@ class AdsorbateSpotSelectionDialog(QDialog):
             and self.state.substrate_translation_t is not None
         ):
             self.sub_transform_info_label_status.setText("Status: Substrate transform not available to apply.")
+
+    def _format_spot_with_uncertainty(
+        self,
+        spot: Optional[Tuple[float, float]],
+        covariance: Optional[np.ndarray],
+        *,
+        suffix: str = "",
+    ) -> Tuple[str, str]:
+        if spot is None:
+            return "- -", ""
+        kx, ky = map(float, spot)
+        sigma_x = sigma_y = None
+        if covariance is not None:
+            cov_arr = np.asarray(covariance, dtype=float)
+            if cov_arr.shape == (2, 2):
+                var_y = max(float(cov_arr[0, 0]), 0.0)
+                var_x = max(float(cov_arr[1, 1]), 0.0)
+                sigma_y = math.sqrt(var_y)
+                sigma_x = math.sqrt(var_x)
+
+        def axis_text(value: float, sigma: Optional[float]) -> str:
+            base = format_float(value, 2)
+            if sigma is not None:
+                sigma_text = format_float(sigma, 3)
+                return f"{base} ± {sigma_text}"
+            return base
+
+        text = f"({axis_text(kx, sigma_x)}, {axis_text(ky, sigma_y)})"
+        if suffix:
+            text = f"{text} {suffix}"
+
+        tooltip_lines = [
+            f"kx = {format_float(kx, 4)}" + (f" ± {format_float(sigma_x, 4)}" if sigma_x is not None else ""),
+            f"ky = {format_float(ky, 4)}" + (f" ± {format_float(sigma_y, 4)}" if sigma_y is not None else ""),
+        ]
+        tooltip = "\n".join(line for line in tooltip_lines if line.strip())
+        return text, tooltip
 
     def _display_substrate_transform_info(self):
         analysis = self.state.substrate_analysis
