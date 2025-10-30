@@ -101,6 +101,7 @@ class SubstrateSpotSelectionDialog(QDialog):
                  history_manager: HistoryManager,
                  current_fft_node_id: str,
                  current_spots: Optional[List[Tuple[float, float]]] = None,
+                 current_spot_covariances: Optional[List[Optional[np.ndarray]]] = None,
                  default_refinement_method: str = REFINEMENT_DIRECT_CLICK,
                  default_refinement_roi_size: int = 5,
                  initial_lattice_type: str = LATTICE_TYPE_HEXAGONAL,
@@ -110,6 +111,7 @@ class SubstrateSpotSelectionDialog(QDialog):
                  initial_transform_F: Optional[np.ndarray] = None, 
                  initial_transform_t: Optional[np.ndarray] = None,
                  initial_fitted_spots: Optional[List[Tuple[float, float]]] = None,
+                 initial_fitted_spot_covariances: Optional[List[Optional[np.ndarray]]] = None,
                  parent=None):
         super().__init__(parent)
         
@@ -130,6 +132,20 @@ class SubstrateSpotSelectionDialog(QDialog):
         self.current_fft_node_id = current_fft_node_id
 
         self.selected_spots: List[Tuple[float, float]] = list(current_spots) if current_spots else []
+        if current_spot_covariances:
+            converted_covs: List[Optional[np.ndarray]] = []
+            for cov in current_spot_covariances:
+                if cov is None:
+                    converted_covs.append(None)
+                else:
+                    converted_covs.append(np.array(cov, dtype=float))
+        else:
+            converted_covs = []
+        if len(converted_covs) < len(self.selected_spots):
+            converted_covs.extend([None] * (len(self.selected_spots) - len(converted_covs)))
+        elif len(converted_covs) > len(self.selected_spots):
+            converted_covs = converted_covs[: len(self.selected_spots)]
+        self.selected_spot_covariances: List[Optional[np.ndarray]] = converted_covs
 
         self.current_refinement_method = default_refinement_method
         self.refinement_roi_size = default_refinement_roi_size
@@ -156,16 +172,30 @@ class SubstrateSpotSelectionDialog(QDialog):
 
         self.last_preview_gauss_fit_popt: Optional[np.ndarray] = None
         self.last_preview_gauss_fit_center_abs: Optional[Tuple[float, float]] = None
+        self.last_preview_gauss_center_std: Optional[Tuple[float, float]] = None
         self.last_preview_gauss_roi_state: Optional[Dict] = None
 
         self.substrate_transformation_matrix_F: Optional[np.ndarray] = initial_transform_F
         self.substrate_translation_vector_t: Optional[np.ndarray] = initial_transform_t
         self.substrate_transform_analysis: Optional[Dict[str, Any]] = None
         self.fitted_substrate_spots_px: List[Tuple[float, float]] = list(initial_fitted_spots) if initial_fitted_spots else []
+        if initial_fitted_spot_covariances:
+            fitted_covs = [
+                np.array(cov, dtype=float) if cov is not None else None
+                for cov in initial_fitted_spot_covariances
+            ]
+        else:
+            fitted_covs = []
+        if len(fitted_covs) < len(self.fitted_substrate_spots_px):
+            fitted_covs.extend([None] * (len(self.fitted_substrate_spots_px) - len(fitted_covs)))
+        elif len(fitted_covs) > len(self.fitted_substrate_spots_px):
+            fitted_covs = fitted_covs[: len(self.fitted_substrate_spots_px)]
+        self.fitted_substrate_spot_covariances: List[Optional[np.ndarray]] = fitted_covs
         self.calculated_ideal_substrate_spots_px: List[Tuple[float, float]] = []
 
         presenter_state = SubstrateSpotState(
             selected_spots=self.selected_spots,
+            selected_spot_covariances=self.selected_spot_covariances,
             lattice_type=self.current_lattice_type,
             selected_definition=self._initial_selected_substrate_name,
             custom_definition=self.current_custom_definition,
@@ -174,6 +204,7 @@ class SubstrateSpotSelectionDialog(QDialog):
             transform_translation_t=self.substrate_translation_vector_t,
             transform_analysis=self.substrate_transform_analysis,
             fitted_spots_px=self.fitted_substrate_spots_px,
+            fitted_spot_covariances=self.fitted_substrate_spot_covariances,
             ideal_spots_px_for_reference=self.calculated_ideal_substrate_spots_px,
         )
         self.presenter = SubstrateSpotPresenter(
@@ -505,6 +536,8 @@ class SubstrateSpotSelectionDialog(QDialog):
             row = self.spots_list_widget.row(current_item)
             if 0 <= row < len(self.selected_spots):
                 del self.selected_spots[row]
+                if 0 <= row < len(self.selected_spot_covariances):
+                    del self.selected_spot_covariances[row]
                 if self.current_lattice_type == LATTICE_TYPE_CUSTOM and \
                    self.substrate_definition_combo.currentText() == PREDEFINED_SUBSTRATE_CUSTOM:
                     self._update_custom_definition_from_inputs()
@@ -516,6 +549,7 @@ class SubstrateSpotSelectionDialog(QDialog):
     @pyqtSlot()
     def _clear_all_spots_in_dialog(self):
         self.selected_spots.clear()
+        self.selected_spot_covariances.clear()
         if self.current_lattice_type == LATTICE_TYPE_CUSTOM and \
            self.substrate_definition_combo.currentText() == PREDEFINED_SUBSTRATE_CUSTOM:
             self._update_custom_definition_from_inputs()
@@ -793,6 +827,7 @@ class SubstrateSpotSelectionDialog(QDialog):
         """Clears the last Gaussian fit preview data."""
         self.last_preview_gauss_fit_popt = None
         self.last_preview_gauss_fit_center_abs = None
+        self.last_preview_gauss_center_std = None
         self.last_preview_gauss_roi_state = None
 
     @pyqtSlot(object) 
@@ -877,6 +912,7 @@ class SubstrateSpotSelectionDialog(QDialog):
                         fit_preview = fit_2d_gaussian_in_roi(self.fft_data, (eff_center_ky, eff_center_kx), patch_radius)
                         if fit_preview:
                             self.last_preview_gauss_fit_popt = fit_preview.popt
+                            self.last_preview_gauss_center_std = fit_preview.center_std
                             self.last_preview_gauss_fit_center_abs = (
                                 float(fit_preview.center[1]),
                                 float(fit_preview.center[0]),
@@ -1089,6 +1125,9 @@ class SubstrateSpotSelectionDialog(QDialog):
 
         refined_kx = float(center_kx)
         refined_ky = float(center_ky)
+        std_x: Optional[float] = None
+        std_y: Optional[float] = None
+        covariance_matrix: Optional[np.ndarray] = None
 
         if self.current_refinement_method == REFINEMENT_MAX_PIXEL and PEAK_FITTING_MODULE_AVAILABLE:
             patch_radius = self.refinement_roi_size // 2
@@ -1115,6 +1154,8 @@ class SubstrateSpotSelectionDialog(QDialog):
 
             if self.last_preview_gauss_fit_center_abs is not None and roi_state_matches_preview:
                 refined_kx, refined_ky = self.last_preview_gauss_fit_center_abs
+                if self.last_preview_gauss_center_std:
+                    std_y, std_x = self.last_preview_gauss_center_std
                 logger.info("Using PREVIEW Gaussian fit result for Add Spot: (%.2f, %.2f)", refined_kx, refined_ky)
             else:
                 logger.info("Performing NEW Gaussian fit for Add Spot (preview data not used or ROI changed).")
@@ -1128,8 +1169,7 @@ class SubstrateSpotSelectionDialog(QDialog):
                     refined_kx = float(fit_output.center[1])
                     refined_ky = float(fit_output.center[0])
                     if fit_output.center_std:
-                        std_x = fit_output.center_std[1]
-                        std_y = fit_output.center_std[0]
+                        std_y, std_x = fit_output.center_std
                         logger.info(
                             "Spot refined by NEW 2D Gaussian Fit: (%.2f +/- %.3f, %.2f +/- %.3f)",
                             refined_kx,
@@ -1148,8 +1188,7 @@ class SubstrateSpotSelectionDialog(QDialog):
                 refined_kx = float(result.center[1])
                 refined_ky = float(result.center[0])
                 if result.center_std:
-                    std_x = result.center_std[1]
-                    std_y = result.center_std[0]
+                    std_y, std_x = result.center_std
                     logger.info(
                         "Spot refined by Parabolic 3x3: (%.2f +/- %.3f, %.2f +/- %.3f)",
                         refined_kx,
@@ -1169,8 +1208,7 @@ class SubstrateSpotSelectionDialog(QDialog):
                 refined_kx = float(result.center[1])
                 refined_ky = float(result.center[0])
                 if result.center_std:
-                    std_x = result.center_std[1]
-                    std_y = result.center_std[0]
+                    std_y, std_x = result.center_std
                     logger.info(
                         "Spot refined by Local DFT: (%.2f +/- %.3f, %.2f +/- %.3f)",
                         refined_kx,
@@ -1183,9 +1221,16 @@ class SubstrateSpotSelectionDialog(QDialog):
             else:
                 logger.warning("Local DFT refinement failed for Add Spot. Using ROI center.")
 
+        if std_x is not None and std_y is not None:
+            covariance_matrix = np.array(
+                [[float(std_y) ** 2, 0.0], [0.0, float(std_x) ** 2]],
+                dtype=float,
+            )
+
         new_spot = (refined_kx, refined_ky)
         if new_spot not in self.selected_spots:
             self.selected_spots.append(new_spot)
+            self.selected_spot_covariances.append(covariance_matrix)
             if (
                 self.current_lattice_type == LATTICE_TYPE_CUSTOM
                 and self.substrate_definition_combo.currentText() == PREDEFINED_SUBSTRATE_CUSTOM
@@ -1197,6 +1242,10 @@ class SubstrateSpotSelectionDialog(QDialog):
             point_text = format_pair((refined_kx, refined_ky), precision=2)
             self.status_label.setText(f"Spot {len(self.selected_spots)} added: {point_text}.")
         else:
+            if new_spot in self.selected_spots:
+                idx = self.selected_spots.index(new_spot)
+                if 0 <= idx < len(self.selected_spot_covariances):
+                    self.selected_spot_covariances[idx] = covariance_matrix
             point_text = format_pair((refined_kx, refined_ky), precision=2)
             self.status_label.setText(f"Spot {point_text} already selected.")
 
@@ -1357,6 +1406,8 @@ class SubstrateSpotSelectionDialog(QDialog):
         self.presenter.state.transform_analysis = self.substrate_transform_analysis
         self.presenter.state.fitted_spots_px = self.fitted_substrate_spots_px
         self.presenter.state.ideal_spots_px_for_reference = self.calculated_ideal_substrate_spots_px
+        self.presenter.state.selected_spot_covariances = self.selected_spot_covariances
+        self.presenter.state.fitted_spot_covariances = self.fitted_substrate_spot_covariances
         return self.presenter.build_results_dict()
 
     def accept(self):

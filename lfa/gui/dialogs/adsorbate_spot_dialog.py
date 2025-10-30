@@ -111,6 +111,7 @@ class AdsorbateSpotSelectionDialog(QDialog):
                  history_manager: HistoryManager,
                  current_fft_node_id: str,
                  current_adsorbate_spots: Optional[List[Tuple[float, float]]] = None,
+                 current_adsorbate_spot_covariances: Optional[List[Optional[np.ndarray]]] = None,
                  adsorbate_set_index: int = 0,
                  default_refinement_method: str = REFINEMENT_DIRECT_CLICK,
                  default_refinement_roi_size: int = 5,
@@ -157,10 +158,25 @@ class AdsorbateSpotSelectionDialog(QDialog):
         self.current_fft_node_id = current_fft_node_id
         self.adsorbate_set_index = adsorbate_set_index
 
+        initial_raw_spots = list(current_adsorbate_spots) if current_adsorbate_spots else []
+        if current_adsorbate_spot_covariances:
+            converted_raw_covs: List[Optional[np.ndarray]] = [
+                np.array(cov, dtype=float) if cov is not None else None
+                for cov in current_adsorbate_spot_covariances
+            ]
+        else:
+            converted_raw_covs = []
+        if len(converted_raw_covs) < len(initial_raw_spots):
+            converted_raw_covs.extend([None] * (len(initial_raw_spots) - len(converted_raw_covs)))
+        elif len(converted_raw_covs) > len(initial_raw_spots):
+            converted_raw_covs = converted_raw_covs[: len(initial_raw_spots)]
+
         presenter_state = AdsorbateSpotState(
             set_index=adsorbate_set_index,
-            raw_spots=list(current_adsorbate_spots) if current_adsorbate_spots else [],
+            raw_spots=initial_raw_spots,
+            raw_spot_covariances=converted_raw_covs,
             corrected_spots=[],
+            corrected_spot_covariances=[],
             expected_type=initial_expected_type,
             substrate_matrix_F=substrate_F_m2i,
             substrate_translation_t=substrate_t_m2i,
@@ -193,6 +209,7 @@ class AdsorbateSpotSelectionDialog(QDialog):
 
         self.last_preview_gauss_fit_popt: Optional[np.ndarray] = None
         self.last_preview_gauss_fit_center_abs: Optional[Tuple[float, float]] = None
+        self.last_preview_gauss_center_std: Optional[Tuple[float, float]] = None
         self.last_preview_gauss_roi_state: Optional[Dict] = None
 
         self._init_ui()
@@ -483,6 +500,7 @@ class AdsorbateSpotSelectionDialog(QDialog):
     def _clear_last_preview_gauss_fit(self):
         self.last_preview_gauss_fit_popt = None
         self.last_preview_gauss_fit_center_abs = None
+        self.last_preview_gauss_center_std = None
         self.last_preview_gauss_roi_state = None
         logger.debug("AdsorbateDialog: Cleared last preview Gaussian fit results.")
 
@@ -564,6 +582,13 @@ class AdsorbateSpotSelectionDialog(QDialog):
                                 float(fit_preview.center[1]),
                                 float(fit_preview.center[0]),
                             )
+                            if getattr(fit_preview, "center_std", None):
+                                self.last_preview_gauss_center_std = (
+                                    float(fit_preview.center_std[0]),
+                                    float(fit_preview.center_std[1]),
+                                )
+                            else:
+                                self.last_preview_gauss_center_std = None
                             self.last_preview_gauss_roi_state = self.selection_roi.getState().copy()
                             logger.info("Adsorbate Preview GaussFit OK. Center: %s", self.last_preview_gauss_fit_center_abs)
                             if fit_preview.popt is not None:
@@ -713,6 +738,9 @@ class AdsorbateSpotSelectionDialog(QDialog):
         w,h=int(round(roi_state['size'].x())),int(round(roi_state['size'].y()))
         ckx,cky=x0+w//2,y0+h//2
         ref_kx,ref_ky = float(ckx),float(cky)
+        std_x: Optional[float] = None
+        std_y: Optional[float] = None
+        covariance_matrix: Optional[np.ndarray] = None
 
         if self.current_refinement_method == REFINEMENT_MAX_PIXEL and PEAK_FITTING_MODULE_AVAILABLE:
             pr = self.refinement_roi_size//2
@@ -731,6 +759,8 @@ class AdsorbateSpotSelectionDialog(QDialog):
 
             if self.last_preview_gauss_fit_center_abs and roi_state_match:
                 ref_kx,ref_ky = self.last_preview_gauss_fit_center_abs
+                if self.last_preview_gauss_center_std:
+                    std_y, std_x = self.last_preview_gauss_center_std
                 logger.info(f"Using PREVIEW GaussFit for Adsorbate: ({ref_kx:.2f},{ref_ky:.2f})")
             else:
                 pr=self.refinement_roi_size//2
@@ -795,8 +825,14 @@ class AdsorbateSpotSelectionDialog(QDialog):
             else:
                 logger.warning("Local DFT refinement failed. Using ROI center.")
 
+        if std_x is not None and std_y is not None:
+            covariance_matrix = np.array(
+                [[float(std_y) ** 2, 0.0], [0.0, float(std_x) ** 2]],
+                dtype=float,
+            )
+
         new_spot = (ref_kx, ref_ky)
-        if self.presenter.add_raw_spot(new_spot):
+        if self.presenter.add_raw_spot(new_spot, covariance=covariance_matrix):
             self._update_adsorbate_spots_list_widget()
             self._redraw_all_markers_in_dialog()
             self.status_label.setText(f"Adsorbate spot {len(self.state.raw_spots)} added.")

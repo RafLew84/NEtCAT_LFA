@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import List, Optional
 
 from PyQt6.QtWidgets import QDialog, QMessageBox
 
@@ -111,6 +111,7 @@ class DialogCoordinator:
             history_manager=self._history,
             current_fft_node_id=node_id,
             current_spots=controller.user_selected_substrate_spots,
+            current_spot_covariances=controller.user_selected_substrate_covariances,
             initial_lattice_type=controller.substrate_lattice_type or LATTICE_TYPE_HEXAGONAL,
             initial_selected_substrate_name=controller.substrate_definition_name,
             initial_custom_a_surf=controller.substrate_a_surf
@@ -127,6 +128,7 @@ class DialogCoordinator:
             initial_transform_F=controller.substrate_F_m2i,
             initial_transform_t=controller.substrate_t_m2i,
             initial_fitted_spots=controller.displayable_fitted_substrate_spots_on_fft,
+            initial_fitted_spot_covariances=controller.fitted_substrate_spot_covariances,
             parent=self._window,
         )
         dialog.source_image_id = source_image_id
@@ -174,9 +176,14 @@ class DialogCoordinator:
             current_set_idx = max(min(current_set_idx, len(controller.adsorbate_spot_sets) - 1), 0)
             current_adsorbate_spots_for_set = list(controller.adsorbate_spot_sets[current_set_idx])
 
+        current_adsorbate_covariances: List[Optional[object]] = []
+        if hasattr(controller, "adsorbate_spot_covariance_sets") and 0 <= current_set_idx < len(controller.adsorbate_spot_covariance_sets):
+            current_adsorbate_covariances = list(controller.adsorbate_spot_covariance_sets[current_set_idx])
+
         dialog = self._adsorbate_dialog_class(
             fft_image_data=fft_image_data_copy,
             current_adsorbate_spots=current_adsorbate_spots_for_set,
+            current_adsorbate_spot_covariances=current_adsorbate_covariances,
             adsorbate_set_index=current_set_idx,
             initial_expected_type=initial_expected_type,
             history_manager=self._history,
@@ -199,6 +206,8 @@ class DialogCoordinator:
             results = dialog.get_dialog_results()
             raw_spots = results.get("raw_adsorbate_spots", [])
             corrected_spots = results.get("corrected_adsorbate_spots_in_ideal_system", [])
+            raw_covariances = results.get("raw_adsorbate_spot_covariances", [])
+            corrected_covariances = results.get("corrected_adsorbate_spot_covariances", [])
             set_idx_from_dialog = results.get("adsorbate_set_index", current_set_idx)
             logger.info(
                 "Adsorbate spots dialog (set %s) accepted. Raw: %s, Corrected: %s",
@@ -214,6 +223,8 @@ class DialogCoordinator:
                 set_index=set_idx_from_dialog,
                 raw_spots=raw_spots,
                 corrected_spots_ideal_system=corrected_spots,
+                raw_covariances=raw_covariances,
+                corrected_covariances=corrected_covariances,
             )
             self._window.statusBar().showMessage(f"Adsorbate spots (Set {set_idx_from_dialog + 1}) updated.", 3000)
         else:

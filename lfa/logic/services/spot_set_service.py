@@ -21,11 +21,31 @@ class SpotSetService:
         self._default_adsorbate_type = default_adsorbate_type
         self._logger = logging.getLogger(__name__)
 
+    @staticmethod
+    def _normalise_covariances(
+        source_list: Optional[List[Optional[np.ndarray]]],
+        expected_len: int,
+    ) -> List[Optional[np.ndarray]]:
+        covariances: List[Optional[np.ndarray]] = []
+        if source_list:
+            for cov in source_list:
+                if cov is None:
+                    covariances.append(None)
+                else:
+                    covariances.append(np.array(cov, dtype=float))
+        if len(covariances) < expected_len:
+            covariances.extend([None] * (expected_len - len(covariances)))
+        elif len(covariances) > expected_len:
+            covariances = covariances[:expected_len]
+        return covariances
+
     # ------------------------------------------------------------------ Adsorbate set management (ported from SpotManager)
     def add_new_adsorbate_set(self) -> None:
         ctrl = self._controller
         ctrl.adsorbate_spot_sets.append([])
         ctrl.corrected_adsorbate_spot_sets.append([])
+        ctrl.adsorbate_spot_covariance_sets.append([])
+        ctrl.corrected_adsorbate_covariance_sets.append([])
         ctrl.current_adsorbate_set_index = len(ctrl.adsorbate_spot_sets) - 1
         new_set_index = ctrl.current_adsorbate_set_index
         ctrl.adsorbate_spot_pairs.setdefault(new_set_index, [])
@@ -58,6 +78,8 @@ class SpotSetService:
         if ctrl.adsorbate_spot_sets != [[]] or ctrl.current_adsorbate_set_index != 0:
             ctrl.adsorbate_spot_sets = [[]]
             ctrl.corrected_adsorbate_spot_sets = [[]]
+            ctrl.adsorbate_spot_covariance_sets = [[]]
+            ctrl.corrected_adsorbate_covariance_sets = [[]]
             ctrl.current_adsorbate_set_index = 0
             ctrl.adsorbate_spot_pairs = {0: []}
             ctrl.adsorbate_expected_lattice_types = {0: self._default_adsorbate_type}
@@ -65,12 +87,14 @@ class SpotSetService:
             changed = True
 
         ctrl.user_selected_substrate_spots.clear()
+        ctrl.user_selected_substrate_covariances.clear()
         ctrl.substrate_real_space_results = None
         ctrl.adsorbate_real_space_results.clear()
         ctrl.substrate_F_m2i = None
         ctrl.substrate_t_m2i = None
         ctrl.substrate_transform_analysis_m2i = None
         ctrl.displayable_fitted_substrate_spots_on_fft.clear()
+        ctrl.fitted_substrate_spot_covariances.clear()
         ctrl.substrate_spot_pairs.clear()
         ctrl.substrate_visual_offset_nm = (0.0, 0.0)
         ctrl.superstructure_periodicity_results = None
@@ -107,6 +131,10 @@ class SpotSetService:
                 removed_point = current_set.pop()
                 if idx < len(ctrl.corrected_adsorbate_spot_sets) and ctrl.corrected_adsorbate_spot_sets[idx]:
                     ctrl.corrected_adsorbate_spot_sets[idx].pop()
+                if idx < len(ctrl.adsorbate_spot_covariance_sets) and ctrl.adsorbate_spot_covariance_sets[idx]:
+                    ctrl.adsorbate_spot_covariance_sets[idx].pop()
+                if idx < len(ctrl.corrected_adsorbate_covariance_sets) and ctrl.corrected_adsorbate_covariance_sets[idx]:
+                    ctrl.corrected_adsorbate_covariance_sets[idx].pop()
                 if idx in ctrl.adsorbate_spot_pairs and ctrl.adsorbate_spot_pairs[idx]:
                     ctrl.adsorbate_spot_pairs[idx].pop()
                 self._logger.info("Removed last adsorbate spot %s from set %s.", removed_point, idx)
@@ -123,6 +151,10 @@ class SpotSetService:
                 ctrl.adsorbate_spot_sets[idx].clear()
                 if 0 <= idx < len(ctrl.corrected_adsorbate_spot_sets):
                     ctrl.corrected_adsorbate_spot_sets[idx].clear()
+                if 0 <= idx < len(ctrl.adsorbate_spot_covariance_sets):
+                    ctrl.adsorbate_spot_covariance_sets[idx].clear()
+                if 0 <= idx < len(ctrl.corrected_adsorbate_covariance_sets):
+                    ctrl.corrected_adsorbate_covariance_sets[idx].clear()
                 ctrl.adsorbate_spot_pairs[idx] = []
                 self._logger.info("Cleared all spots from adsorbate set %s.", idx)
                 ctrl.spot_lists_updated.emit()
@@ -159,6 +191,8 @@ class SpotSetService:
         if ctrl.adsorbate_spot_sets != [[]] or ctrl.current_adsorbate_set_index != 0:
             ctrl.adsorbate_spot_sets = [[]]
             ctrl.corrected_adsorbate_spot_sets = [[]]
+            ctrl.adsorbate_spot_covariance_sets = [[]]
+            ctrl.corrected_adsorbate_covariance_sets = [[]]
             ctrl.current_adsorbate_set_index = 0
             ctrl.adsorbate_expected_lattice_types = {0: self._default_adsorbate_type}
             ctrl.adsorbate_visual_offsets_nm = {0: (0.0, 0.0)}
@@ -175,6 +209,8 @@ class SpotSetService:
         set_index: int,
         raw_spots: List[Tuple[float, float]],
         corrected_spots_ideal_system: List[Tuple[float, float]],
+        raw_covariances: Optional[List[Optional[np.ndarray]]] = None,
+        corrected_covariances: Optional[List[Optional[np.ndarray]]] = None,
     ) -> None:
         ctrl = self._controller
         if not (0 <= set_index < len(ctrl.adsorbate_spot_sets)):
@@ -183,11 +219,21 @@ class SpotSetService:
 
         while len(ctrl.corrected_adsorbate_spot_sets) <= set_index:
             ctrl.corrected_adsorbate_spot_sets.append([])
+        while len(ctrl.adsorbate_spot_covariance_sets) <= set_index:
+            ctrl.adsorbate_spot_covariance_sets.append([])
+        while len(ctrl.corrected_adsorbate_covariance_sets) <= set_index:
+            ctrl.corrected_adsorbate_covariance_sets.append([])
 
         ctrl.adsorbate_spot_pairs.setdefault(set_index, [])
 
         raw_changed = ctrl.adsorbate_spot_sets[set_index] != raw_spots
         corrected_changed = ctrl.corrected_adsorbate_spot_sets[set_index] != corrected_spots_ideal_system
+
+        normalised_raw_covs = self._normalise_covariances(raw_covariances, len(raw_spots))
+        normalised_corrected_covs = self._normalise_covariances(
+            corrected_covariances,
+            len(corrected_spots_ideal_system),
+        )
 
         if raw_changed:
             ctrl.adsorbate_spot_sets[set_index] = list(raw_spots)
@@ -204,6 +250,9 @@ class SpotSetService:
                 set_index,
                 len(corrected_spots_ideal_system),
             )
+
+        ctrl.adsorbate_spot_covariance_sets[set_index] = normalised_raw_covs
+        ctrl.corrected_adsorbate_covariance_sets[set_index] = normalised_corrected_covs
 
         pair_count = min(len(ctrl.adsorbate_spot_sets[set_index]), len(ctrl.corrected_adsorbate_spot_sets[set_index]))
         if pair_count > 0:

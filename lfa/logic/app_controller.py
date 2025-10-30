@@ -118,6 +118,8 @@ class AppController(QObject):
         self.substrate_spots: List[Tuple[float, float]] = []
         self.adsorbate_spot_sets: List[List[Tuple[float, float]]] = [[]] 
         self.corrected_adsorbate_spot_sets: List[List[Tuple[float, float]]] = [[]]
+        self.adsorbate_spot_covariance_sets: List[List[Optional[np.ndarray]]] = [[]]
+        self.corrected_adsorbate_covariance_sets: List[List[Optional[np.ndarray]]] = [[]]
         self.current_adsorbate_set_index: int = 0
 
         self.spot_selection_mode: str = "Substrate"  
@@ -135,6 +137,7 @@ class AppController(QObject):
         self.current_substrate_name: str = PREDEFINED_SUBSTRATE_NONE
 
         self.user_selected_substrate_spots: List[Tuple[float, float]] = [] 
+        self.user_selected_substrate_covariances: List[Optional[np.ndarray]] = []
 
         self.substrate_lattice_type: Optional[str] = None
         self.substrate_a_surf: Optional[float] = None
@@ -145,6 +148,7 @@ class AppController(QObject):
         self.substrate_transform_analysis_m2i: Optional[Dict[str, Any]] = None
         
         self.displayable_fitted_substrate_spots_on_fft: List[Tuple[float, float]] = []
+        self.fitted_substrate_spot_covariances: List[Optional[np.ndarray]] = []
         self.substrate_spot_pairs: List[Tuple[Tuple[float, float], Tuple[float, float]]] = []
 
         self.show_fitted_substrate_spots: bool = True
@@ -373,6 +377,23 @@ class AppController(QObject):
         """
         Updates the substrate state based on the results from SubstrateSpotSelectionDialog.
         """
+        def _normalise_covariances(
+            source_list: Optional[List[Optional[np.ndarray]]],
+            expected_len: int,
+        ) -> List[Optional[np.ndarray]]:
+            covariances: List[Optional[np.ndarray]] = []
+            if source_list:
+                for cov in source_list:
+                    if cov is None:
+                        covariances.append(None)
+                    else:
+                        covariances.append(np.array(cov, dtype=float))
+            if len(covariances) < expected_len:
+                covariances.extend([None] * (expected_len - len(covariances)))
+            elif len(covariances) > expected_len:
+                covariances = covariances[:expected_len]
+            return covariances
+
         new_user_spots = results.get("spots", [])
         new_lattice_type = results.get("lattice_type")
         new_a_surf = results.get("a_surf")
@@ -383,6 +404,8 @@ class AppController(QObject):
         new_analysis_m2i = results.get("transform_analysis_m2i")
         new_displayable_fitted_spots = results.get("displayable_fitted_spots", [])
         new_custom_definition = results.get("custom_definition")
+        new_spot_covariances = results.get("spot_covariances", [])
+        new_fitted_covariances = results.get("fitted_spot_covariances", [])
 
         if new_lattice_type == LATTICE_TYPE_CUSTOM and isinstance(new_custom_definition, dict):
             new_a_length = new_custom_definition.get("a_length_nm")
@@ -402,6 +425,10 @@ class AppController(QObject):
                              self.displayable_fitted_substrate_spots_on_fft != new_displayable_fitted_spots)
 
         self.user_selected_substrate_spots = list(new_user_spots)
+        self.user_selected_substrate_covariances = _normalise_covariances(
+            new_spot_covariances,
+            len(self.user_selected_substrate_spots),
+        )
         self.substrate_lattice_type = new_lattice_type
         self.substrate_a_surf = new_a_surf
         self.substrate_definition_name = new_def_name
@@ -410,6 +437,10 @@ class AppController(QObject):
         self.substrate_t_m2i = new_t_m2i
         self.substrate_transform_analysis_m2i = new_analysis_m2i
         self.displayable_fitted_substrate_spots_on_fft = list(new_displayable_fitted_spots)
+        self.fitted_substrate_spot_covariances = _normalise_covariances(
+            new_fitted_covariances,
+            len(self.displayable_fitted_substrate_spots_on_fft),
+        )
         if new_displayable_fitted_spots and new_user_spots:
             pair_count = min(len(new_user_spots), len(new_displayable_fitted_spots))
             self.substrate_spot_pairs = [
@@ -866,10 +897,14 @@ class AppController(QObject):
         """Clears all adsorbate sets and resets to one empty set."""
         self.spot_service.clear_all_adsorbate_sets()
 
-    def update_adsorbate_set_results(self, 
-                                     set_index: int, 
-                                     raw_spots: List[Tuple[float, float]], 
-                                     corrected_spots_ideal_system: List[Tuple[float, float]]):
+    def update_adsorbate_set_results(
+        self,
+        set_index: int,
+        raw_spots: List[Tuple[float, float]],
+        corrected_spots_ideal_system: List[Tuple[float, float]],
+        raw_covariances: Optional[List[Optional[np.ndarray]]] = None,
+        corrected_covariances: Optional[List[Optional[np.ndarray]]] = None,
+    ):
         """
         Updates the raw and corrected spots for a given adsorbate set.
         """
@@ -877,6 +912,8 @@ class AppController(QObject):
             set_index=set_index,
             raw_spots=raw_spots,
             corrected_spots_ideal_system=corrected_spots_ideal_system,
+            raw_covariances=raw_covariances,
+            corrected_covariances=corrected_covariances,
         )
 
     def update_superstructure_periodicity_results(self, results: Optional[Dict[str, Any]]):

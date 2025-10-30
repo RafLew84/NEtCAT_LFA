@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class SubstrateSpotState:
     selected_spots: List[Tuple[float, float]]
+    selected_spot_covariances: List[Optional[np.ndarray]]
     lattice_type: str
     selected_definition: Optional[str]
     custom_definition: Optional[Dict[str, Any]]
@@ -32,6 +33,7 @@ class SubstrateSpotState:
     transform_translation_t: Optional[np.ndarray]
     transform_analysis: Optional[Dict[str, Any]]
     fitted_spots_px: List[Tuple[float, float]]
+    fitted_spot_covariances: List[Optional[np.ndarray]] = field(default_factory=list)
     ideal_spots_px_for_reference: List[Tuple[float, float]] = field(default_factory=list)
 
 
@@ -230,15 +232,37 @@ class SubstrateSpotPresenter:
     # ------------------------------------------------------------------ Result helpers
     def build_results_dict(self) -> Dict[str, Any]:
         state = self.state
+        selected_spots = list(state.selected_spots)
+        selected_covariances = list(state.selected_spot_covariances)
+        if len(selected_covariances) < len(selected_spots):
+            selected_covariances.extend([None] * (len(selected_spots) - len(selected_covariances)))
+        elif len(selected_covariances) > len(selected_spots):
+            selected_covariances = selected_covariances[: len(selected_spots)]
+
+        fitted_spots = list(state.fitted_spots_px)
+        fitted_covariances = list(state.fitted_spot_covariances)
+        if len(fitted_covariances) < len(fitted_spots):
+            fitted_covariances.extend([None] * (len(fitted_spots) - len(fitted_covariances)))
+        elif len(fitted_covariances) > len(fitted_spots):
+            fitted_covariances = fitted_covariances[: len(fitted_spots)]
+
         return {
-            "spots": list(state.selected_spots),
+            "spots": selected_spots,
             "lattice_type": state.lattice_type,
             "a_surf": state.custom_a_surf,
             "substrate_definition": state.selected_definition,
             "custom_definition": dict(state.custom_definition) if state.custom_definition else None,
+            "spot_covariances": [
+                np.array(cov, dtype=float) if cov is not None else None
+                for cov in selected_covariances
+            ],
             "transformation_F_m2i": state.transform_matrix_F,
             "translation_t_m2i": state.transform_translation_t,
             "transform_analysis_m2i": state.transform_analysis,
-            "displayable_fitted_spots": list(state.fitted_spots_px),
+            "displayable_fitted_spots": fitted_spots,
+            "fitted_spot_covariances": [
+                np.array(cov, dtype=float) if cov is not None else None
+                for cov in fitted_covariances
+            ],
             "ideal_substrate_spots_px_for_reference": list(state.ideal_spots_px_for_reference),
         }

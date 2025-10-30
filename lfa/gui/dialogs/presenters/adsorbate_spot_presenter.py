@@ -63,7 +63,9 @@ class AdsorbateSpotState:
 
     set_index: int
     raw_spots: List[Tuple[float, float]] = field(default_factory=list)
+    raw_spot_covariances: List[Optional[np.ndarray]] = field(default_factory=list)
     corrected_spots: List[Tuple[float, float]] = field(default_factory=list)
+    corrected_spot_covariances: List[Optional[np.ndarray]] = field(default_factory=list)
     expected_type: str = ADSORBATE_LATTICE_TYPE_UNKNOWN
     substrate_matrix_F: Optional[np.ndarray] = None
     substrate_translation_t: Optional[np.ndarray] = None
@@ -97,12 +99,22 @@ class AdsorbateSpotPresenter:
         self.state = state
 
     # ------------------------------------------------------------------ State mutation helpers
-    def add_raw_spot(self, spot: Tuple[float, float]) -> bool:
+    def add_raw_spot(
+        self,
+        spot: Tuple[float, float],
+        covariance: Optional[np.ndarray] = None,
+    ) -> bool:
         """Append a raw spot if not already present."""
         spot = _coerce_pair(spot)
         if spot in self.state.raw_spots:
+            index = self.state.raw_spots.index(spot)
+            if covariance is not None and 0 <= index < len(self.state.raw_spot_covariances):
+                self.state.raw_spot_covariances[index] = np.array(covariance, dtype=float)
             return False
         self.state.raw_spots.append(spot)
+        cov_value = np.array(covariance, dtype=float) if covariance is not None else None
+        self.state.raw_spot_covariances.append(cov_value)
+        self.state.corrected_spot_covariances.append(None)
         logger.debug("AdsorbatePresenter: added raw spot %s", spot)
         return True
 
@@ -110,9 +122,13 @@ class AdsorbateSpotPresenter:
         if 0 <= index < len(self.state.raw_spots):
             removed = self.state.raw_spots.pop(index)
             logger.debug("AdsorbatePresenter: removed raw spot %s at index %s", removed, index)
+            if 0 <= index < len(self.state.raw_spot_covariances):
+                self.state.raw_spot_covariances.pop(index)
             if self.state.corrected_spots:
                 try:
                     self.state.corrected_spots.pop(index)
+                    if 0 <= index < len(self.state.corrected_spot_covariances):
+                        self.state.corrected_spot_covariances.pop(index)
                 except IndexError:
                     # corrected_spots may not be in sync (e.g., only computed subset).
                     pass
@@ -123,6 +139,8 @@ class AdsorbateSpotPresenter:
         logger.debug("AdsorbatePresenter: clearing raw & corrected spots.")
         self.state.raw_spots.clear()
         self.state.corrected_spots.clear()
+        self.state.raw_spot_covariances.clear()
+        self.state.corrected_spot_covariances.clear()
 
     def set_expected_type(self, lattice_type: str) -> None:
         if lattice_type not in self.VALID_EXPECTED_TYPES:
@@ -178,16 +196,37 @@ class AdsorbateSpotPresenter:
 
         corrected = [tuple(map(float, pt)) for pt in corrected_np]
         self.state.corrected_spots = corrected
+        self.state.corrected_spot_covariances = [None] * len(corrected)
         logger.info("AdsorbatePresenter: corrected %s spots.", len(corrected))
         return corrected
 
     # ------------------------------------------------------------------ Result helpers
     def build_results_dict(self) -> Dict[str, Any]:
+        raw_spots = [tuple(map(float, pt)) for pt in self.state.raw_spots]
+        raw_covariances = list(self.state.raw_spot_covariances)
+        if len(raw_covariances) < len(raw_spots):
+            raw_covariances.extend([None] * (len(raw_spots) - len(raw_covariances)))
+        elif len(raw_covariances) > len(raw_spots):
+            raw_covariances = raw_covariances[: len(raw_spots)]
+
+        corrected_spots = [tuple(map(float, pt)) for pt in self.state.corrected_spots]
+        corrected_covariances = list(self.state.corrected_spot_covariances)
+        if len(corrected_covariances) < len(corrected_spots):
+            corrected_covariances.extend([None] * (len(corrected_spots) - len(corrected_covariances)))
+        elif len(corrected_covariances) > len(corrected_spots):
+            corrected_covariances = corrected_covariances[: len(corrected_spots)]
+
         return {
             "adsorbate_set_index": self.state.set_index,
-            "raw_adsorbate_spots": [tuple(map(float, pt)) for pt in self.state.raw_spots],
-            "corrected_adsorbate_spots_in_ideal_system": [
-                tuple(map(float, pt)) for pt in self.state.corrected_spots
-            ],
+            "raw_adsorbate_spots": raw_spots,
+            "corrected_adsorbate_spots_in_ideal_system": corrected_spots,
             "expected_type": self.state.expected_type,
+            "raw_adsorbate_spot_covariances": [
+                np.array(cov, dtype=float) if cov is not None else None
+                for cov in raw_covariances
+            ],
+            "corrected_adsorbate_spot_covariances": [
+                np.array(cov, dtype=float) if cov is not None else None
+                for cov in corrected_covariances
+            ],
         }
