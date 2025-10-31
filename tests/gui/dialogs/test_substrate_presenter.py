@@ -151,3 +151,20 @@ def test_presenter_calculate_transform_success(qtbot, monkeypatch):
     assert presenter.state.transform_translation_t is not None
     assert presenter.state.fitted_spots_px == result.fitted_spots_px
     assert presenter.state.fitted_spot_covariances and len(presenter.state.fitted_spot_covariances) == 3
+
+
+def test_presenter_build_results_dict_includes_covariances(qtbot):
+    presenter = _make_presenter(qtbot, custom_a=0.288)
+    cov = np.array([[0.1, 0.0], [0.0, 0.2]], dtype=float)
+    presenter.state.selected_spots = [(1.0, 2.0), (3.0, 4.0)]
+    presenter.state.selected_spot_covariances = [cov, None]
+    presenter.state.fitted_spots_px = [(5.0, 6.0)]
+    presenter.state.fitted_spot_covariances = [cov]
+
+    payload = presenter.build_results_dict()
+
+    assert len(payload["spot_covariances"]) == 2
+    assert np.allclose(payload["spot_covariances"][0], cov)
+    assert payload["spot_covariances"][1] is None
+    assert len(payload["fitted_spot_covariances"]) == 1
+    assert np.allclose(payload["fitted_spot_covariances"][0], cov)
