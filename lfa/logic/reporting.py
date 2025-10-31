@@ -17,6 +17,8 @@ _DEFAULT_FLOAT_PRECISION = 4
 def build_real_space_summary(
     substrate: Optional[RealSpaceResult],
     adsorbate: Optional[AdsorbateResults],
+    *,
+    transform_analysis: Optional[Dict[str, Any]] = None,
 ) -> str:
     """
     Build a human-readable summary of real-space lattice parameters.
@@ -26,6 +28,10 @@ def build_real_space_summary(
     """
 
     lines: List[str] = []
+
+    if transform_analysis:
+        lines.append("Substrate Transform (FFT → ideal):")
+        lines.extend(_summary_lines_for_transform(transform_analysis, indent="  "))
 
     if substrate:
         lines.append("Substrate Lattice:")
@@ -50,6 +56,8 @@ def build_real_space_summary(
 def build_real_space_json(
     substrate: Optional[RealSpaceResult],
     adsorbate: Optional[AdsorbateResults],
+    *,
+    transform_analysis: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
     Build a JSON-serialisable payload describing real-space results.
@@ -59,6 +67,7 @@ def build_real_space_json(
     """
     payload: Dict[str, Any] = {
         "substrate": _json_payload_for_result(substrate) if substrate else None,
+        "substrate_transform": _json_payload_for_transform(transform_analysis) if transform_analysis else None,
         "adsorbate": {},
     }
 
@@ -74,6 +83,8 @@ def build_real_space_json(
 def build_real_space_records(
     substrate: Optional[RealSpaceResult],
     adsorbate: Optional[AdsorbateResults],
+    *,
+    transform_analysis: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
     """
     Convert real-space results into flat records suitable for CSV export.
@@ -84,7 +95,7 @@ def build_real_space_records(
     records: List[Dict[str, Any]] = []
 
     if substrate:
-        records.append(_record_for_result(substrate, label="substrate"))
+        records.append(_record_for_result(substrate, label="substrate", transform=transform_analysis))
 
     if adsorbate:
         for index in sorted(adsorbate):
@@ -128,6 +139,33 @@ def _summary_lines_for_result(result: RealSpaceResult, *, indent: str) -> List[s
     if g2_line:
         lines.append(f"{indent}g2 (nm^-1) = {g2_line}")
 
+    sigma_pair = _safe_vector(result.get("pixel_calibration_sigma_nm"))
+    if sigma_pair:
+        lines.append(f"{indent}Pixel calibration sigma = {_format_sigma_pair_text(sigma_pair)}")
+
+    return lines
+
+
+def _summary_lines_for_transform(transform: Dict[str, Any], *, indent: str) -> List[str]:
+    lines: List[str] = []
+
+    rotation_line = _format_value_with_sigma(
+        transform.get("rotation_angle_deg"),
+        transform.get("rotation_angle_deg_sigma"),
+        "deg",
+    )
+    lines.append(f"{indent}rotation = {rotation_line}")
+
+    stretch_line = _format_pair_with_sigma(
+        transform.get("principal_stretches"),
+        transform.get("principal_stretches_sigma"),
+    )
+    lines.append(f"{indent}stretches = {stretch_line}")
+
+    rmse_value = _safe_float(transform.get("rmse"))
+    if rmse_value is not None:
+        lines.append(f"{indent}RMSE = {rmse_value:.{_DEFAULT_FLOAT_PRECISION}f} px")
+
     return lines
 
 
@@ -158,11 +196,49 @@ def _json_payload_for_result(result: Optional[RealSpaceResult]) -> Optional[Dict
     return payload
 
 
+def _json_payload_for_transform(transform: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    if not transform:
+        return None
+
+    payload: Dict[str, Any] = {}
+
+    rotation = _safe_float(transform.get("rotation_angle_deg"))
+    if rotation is not None:
+        payload["rotation_angle_deg"] = rotation
+
+    rotation_sigma = _safe_float(transform.get("rotation_angle_deg_sigma"))
+    if rotation_sigma is not None:
+        payload["rotation_angle_deg_sigma"] = rotation_sigma
+
+    rotation_cov = _safe_matrix(transform.get("rotation_angle_deg_covariance"))
+    if rotation_cov is not None:
+        payload["rotation_angle_deg_covariance"] = rotation_cov
+
+    stretches = _safe_vector(transform.get("principal_stretches"))
+    if stretches is not None:
+        payload["principal_stretches"] = list(stretches)
+
+    stretch_sigma = _safe_vector(transform.get("principal_stretches_sigma"))
+    if stretch_sigma is not None:
+        payload["principal_stretches_sigma"] = list(stretch_sigma)
+
+    stretch_cov = _safe_matrix(transform.get("principal_stretches_covariance"))
+    if stretch_cov is not None:
+        payload["principal_stretches_covariance"] = stretch_cov
+
+    rmse = _safe_float(transform.get("rmse"))
+    if rmse is not None:
+        payload["rmse_px"] = rmse
+
+    return payload if payload else None
+
+
 def _record_for_result(
     result: RealSpaceResult,
     *,
     label: str,
     set_index: Optional[int] = None,
+    transform: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     record: Dict[str, Any] = {"label": label}
     if set_index is not None:
@@ -209,6 +285,7 @@ def _record_for_result(
         record["pixel_sigma_nm_x"] = sigma_pair[0]
         record["pixel_sigma_nm_y"] = sigma_pair[1]
 
+    _add_transform_to_record(record, transform)
     return record
 
 
@@ -229,6 +306,36 @@ def _format_value_with_sigma(
         return f"{numeric_value:.{precision}f} +/- {numeric_sigma:.{precision}f} {unit}".strip()
 
     return f"{numeric_value:.{precision}f} {unit}".strip()
+
+
+def _format_pair_with_sigma(
+    values: Any,
+    sigmas: Any,
+    *,
+    precision: int = _DEFAULT_FLOAT_PRECISION,
+) -> str:
+    pair = _safe_vector(values)
+    if not pair or len(pair) < 2:
+        return "-"
+
+    sigma_pair = _safe_vector(sigmas)
+    components: List[str] = []
+    for idx in range(2):
+        value = pair[idx]
+        if not math.isfinite(value):
+            return "-"
+        sigma_value = None
+        if sigma_pair and idx < len(sigma_pair):
+            sigma_value = sigma_pair[idx]
+            if sigma_value is not None and (not math.isfinite(sigma_value) or sigma_value < 0):
+                sigma_value = None
+        value_text = f"{value:.{precision}f}"
+        if sigma_value is not None:
+            sigma_text = f"{sigma_value:.{precision}f}"
+            components.append(f"{value_text} +/- {sigma_text}")
+            continue
+        components.append(value_text)
+    return f"({', '.join(components)})"
 
 
 def _format_sigma_pair_text(pair: Tuple[float, ...]) -> str:
@@ -310,6 +417,45 @@ def _add_matrix_to_record(
     for i in range(rows):
         for j in range(cols):
             record[f"{base_key}_{i}{j}"] = float(arr[i, j])
+
+
+def _add_transform_to_record(record: Dict[str, Any], transform: Optional[Dict[str, Any]]) -> None:
+    if not transform:
+        return
+
+    rotation = _safe_float(transform.get("rotation_angle_deg"))
+    if rotation is not None:
+        record["transform_rotation_deg"] = rotation
+
+    rotation_sigma = _safe_float(transform.get("rotation_angle_deg_sigma"))
+    if rotation_sigma is not None:
+        record["transform_rotation_deg_sigma"] = rotation_sigma
+
+    _add_matrix_to_record(
+        record,
+        transform.get("rotation_angle_deg_covariance"),
+        base_key="transform_rotation_deg_cov",
+    )
+
+    stretches = _safe_vector(transform.get("principal_stretches"))
+    if stretches:
+        for idx, value in enumerate(stretches):
+            record[f"transform_principal_stretch_{idx}"] = value
+
+    stretch_sigmas = _safe_vector(transform.get("principal_stretches_sigma"))
+    if stretch_sigmas:
+        for idx, sigma_value in enumerate(stretch_sigmas):
+            record[f"transform_principal_stretch_sigma_{idx}"] = sigma_value
+
+    _add_matrix_to_record(
+        record,
+        transform.get("principal_stretches_covariance"),
+        base_key="transform_principal_stretch_cov",
+    )
+
+    rmse_value = _safe_float(transform.get("rmse"))
+    if rmse_value is not None:
+        record["transform_rmse_px"] = rmse_value
 
 
 def _component_sigmas(covariance: Any, count: int) -> List[Optional[float]]:

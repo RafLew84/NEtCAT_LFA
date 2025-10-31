@@ -208,6 +208,17 @@ def test_session_round_trip_preserves_covariances(qtbot):
         [(1.1, 2.1), (3.1, 4.1)],
         [(5.1, 6.1)],
     ]
+    controller.substrate_transform_analysis_m2i = {
+        "rotation_angle_deg": 1.5,
+        "rotation_angle_deg_sigma": 0.05,
+        "rotation_angle_deg_covariance": np.array([[0.0025]], dtype=float),
+        "principal_stretches": np.array([1.0, 1.1], dtype=float),
+        "principal_stretches_sigma": (0.02, 0.03),
+        "principal_stretches_covariance": np.array(
+            [[0.0004, 0.0001], [0.0001, 0.0009]],
+            dtype=float,
+        ),
+    }
     controller.adsorbate_spot_covariance_sets = [
         [ads_cov00, None],
         [ads_cov10],
@@ -235,6 +246,23 @@ def test_session_round_trip_preserves_covariances(qtbot):
     assert len(restored_controller.fitted_substrate_spot_covariances) == 2
     np.testing.assert_allclose(restored_controller.fitted_substrate_spot_covariances[0], fitted_cov0)
     np.testing.assert_allclose(restored_controller.fitted_substrate_spot_covariances[1], fitted_cov1)
+    restored_analysis = restored_controller.substrate_transform_analysis_m2i
+    assert restored_analysis is not None
+    assert restored_analysis["rotation_angle_deg"] == pytest.approx(1.5)
+    assert restored_analysis["rotation_angle_deg_sigma"] == pytest.approx(0.05)
+    np.testing.assert_allclose(
+        np.array(restored_analysis["rotation_angle_deg_covariance"], dtype=float),
+        np.array([[0.0025]], dtype=float),
+    )
+    np.testing.assert_allclose(
+        np.array(restored_analysis["principal_stretches"], dtype=float),
+        np.array([1.0, 1.1], dtype=float),
+    )
+    assert tuple(restored_analysis["principal_stretches_sigma"]) == pytest.approx((0.02, 0.03))
+    np.testing.assert_allclose(
+        np.array(restored_analysis["principal_stretches_covariance"], dtype=float),
+        np.array([[0.0004, 0.0001], [0.0001, 0.0009]], dtype=float),
+    )
 
     assert len(restored_controller.adsorbate_spot_covariance_sets) == 2
     first_set = restored_controller.adsorbate_spot_covariance_sets[0]

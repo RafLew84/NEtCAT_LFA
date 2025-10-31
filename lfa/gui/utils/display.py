@@ -10,7 +10,9 @@ import numpy as np
 __all__ = [
     "format_float",
     "format_pair",
+    "format_pair_with_sigma",
     "format_ratio",
+    "format_value_with_sigma",
     "sanitize_numeric_array",
 ]
 
@@ -74,6 +76,83 @@ def format_pair(
 def format_ratio(value: Optional[float], precision: int = 3) -> str:
     """Format ratio-style values with a fixed precision."""
     return format_float(value, precision)
+
+
+def format_value_with_sigma(
+    value: Optional[float],
+    sigma: Optional[float],
+    unit: Optional[str],
+    *,
+    value_precision: int = 3,
+    sigma_precision: int = 3,
+    fallback: str = "-",
+) -> str:
+    """
+    Format a scalar value with optional uncertainty and unit.
+
+    Returns ``fallback`` (optionally followed by the unit) when the value is missing
+    or non-finite. The sigma is included only when it is finite and non-negative.
+    """
+    value_text = format_float(value, value_precision, fallback)
+    if value_text == fallback:
+        return f"{fallback} {unit}".strip() if unit else fallback
+
+    sigma_value: Optional[float]
+    if sigma is None:
+        sigma_value = None
+    else:
+        try:
+            sigma_value = float(sigma)
+        except (TypeError, ValueError):
+            sigma_value = None
+        else:
+            if not _is_finite_number(sigma_value) or sigma_value < 0:
+                sigma_value = None
+
+    if sigma_value is not None:
+        sigma_text = format_float(sigma_value, sigma_precision, fallback)
+        if sigma_text != fallback:
+            value_text = f"{value_text} +/- {sigma_text}"
+
+    if unit:
+        value_text = f"{value_text} {unit}"
+    return value_text
+
+
+def format_pair_with_sigma(
+    values: Optional[Iterable],
+    sigmas: Optional[Iterable],
+    *,
+    precision: int = 3,
+    sigma_precision: int = 3,
+    fallback: str = "-",
+) -> str:
+    """
+    Format a pair of values with optional component uncertainties.
+
+    The resulting string looks like ``(v1 +/- s1, v2 +/- s2)``. When any value is
+    missing or non-finite the fallback is returned.
+    """
+    pair = _coerce_pair(values)
+    if pair is None:
+        return fallback
+
+    sigma_pair = _coerce_pair(sigmas) if sigmas is not None else (None, None)
+    components = []
+    for idx, val in enumerate(pair):
+        sigma_val = sigma_pair[idx] if sigma_pair and idx < len(sigma_pair) else None
+        formatted = format_value_with_sigma(
+            val,
+            sigma_val,
+            unit=None,
+            value_precision=precision,
+            sigma_precision=sigma_precision,
+            fallback=fallback,
+        )
+        if formatted == fallback:
+            return fallback
+        components.append(formatted)
+    return f"({', '.join(components)})"
 
 
 def sanitize_numeric_array(values: Optional[Iterable], allow_empty: bool = False):

@@ -12,7 +12,12 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, pyqtSlot, QPointF
 
-from ..utils.display import format_float, format_pair
+from ..utils.display import (
+    format_float,
+    format_pair,
+    format_pair_with_sigma,
+    format_value_with_sigma,
+)
 from .scenes import SubstrateSpotScene, MarkerSpec
 from .presenters.substrate_spot_presenter import (
     SubstrateSpotPresenter,
@@ -1237,11 +1242,21 @@ class SubstrateSpotSelectionDialog(QDialog):
         self.scene.show_pair_lines(pairs)
 
         analysis = result.analysis
-        rotation_text = format_float(analysis.get("rotation_angle_deg"), precision=2)
-        rotation_display = rotation_text if rotation_text == "-" else f"{rotation_text} deg"
+        rotation_display = format_value_with_sigma(
+            analysis.get("rotation_angle_deg"),
+            analysis.get("rotation_angle_deg_sigma"),
+            "deg",
+            value_precision=2,
+            sigma_precision=2,
+        )
         self.rotation_angle_label.setText(f"Rotation: {rotation_display}")
 
-        stretch_display = format_pair(analysis.get("principal_stretches"), precision=3)
+        stretch_display = format_pair_with_sigma(
+            analysis.get("principal_stretches"),
+            analysis.get("principal_stretches_sigma"),
+            precision=3,
+            sigma_precision=3,
+        )
         self.scale_factor_label.setText(f"Stretches: {stretch_display}")
 
         rmse_text = format_float(analysis.get("rmse"), precision=3)

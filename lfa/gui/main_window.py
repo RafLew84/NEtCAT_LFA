@@ -48,7 +48,12 @@ from ..core.constants import (
     REFINEMENT_PARABOLA_3X3,
     REFINEMENT_LOCAL_DFT,
 )
-from .utils.display import format_float, format_pair
+from .utils.display import (
+    format_float,
+    format_pair,
+    format_pair_with_sigma,
+    format_value_with_sigma,
+)
 
 try:
     from lfa.gui.dialogs.preprocessing_dialogs import (GaussianBlurDialog, PlaneLevelingDialog, 
@@ -587,10 +592,20 @@ class MainWindow(QMainWindow):
         if hasattr(self, 'fft_analysis_panel_widget') and self.fft_analysis_panel_widget:
             analysis = self.app_controller.substrate_transform_analysis_m2i
             if analysis:
-                rotation_text = format_float(analysis.get("rotation_angle_deg"), precision=2)
-                rotation_display = rotation_text if rotation_text == "-" else f"{rotation_text} deg"
+                rotation_display = format_value_with_sigma(
+                    analysis.get("rotation_angle_deg"),
+                    analysis.get("rotation_angle_deg_sigma"),
+                    "deg",
+                    value_precision=2,
+                    sigma_precision=2,
+                )
 
-                stretch_display = format_pair(analysis.get("principal_stretches"), precision=3)
+                stretch_display = format_pair_with_sigma(
+                    analysis.get("principal_stretches"),
+                    analysis.get("principal_stretches_sigma"),
+                    precision=3,
+                    sigma_precision=3,
+                )
 
                 rmse_text = format_float(analysis.get("rmse"), precision=3)
 

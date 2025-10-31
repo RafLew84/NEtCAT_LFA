@@ -76,7 +76,12 @@ from ...core.constants import (
     REFINEMENT_PARABOLA_3X3,
     REFINEMENT_LOCAL_DFT,
 )
-from ..utils.display import format_float, format_pair
+from ..utils.display import (
+    format_float,
+    format_pair,
+    format_pair_with_sigma,
+    format_value_with_sigma,
+)
 from .scenes import AdsorbateSpotScene, MarkerSpec
 from .presenters import (
     AdsorbateSpotPresenter,
@@ -980,19 +985,21 @@ class AdsorbateSpotSelectionDialog(QDialog):
                 sigma_x = math.sqrt(var_x)
 
         def axis_text(value: float, sigma: Optional[float]) -> str:
-            base = format_float(value, 2)
-            if sigma is not None:
-                sigma_text = format_float(sigma, 3)
-                return f"{base} ± {sigma_text}"
-            return base
+            return format_value_with_sigma(
+                value,
+                sigma,
+                unit=None,
+                value_precision=2,
+                sigma_precision=3,
+            )
 
         text = f"({axis_text(kx, sigma_x)}, {axis_text(ky, sigma_y)})"
         if suffix:
             text = f"{text} {suffix}"
 
         tooltip_lines = [
-            f"kx = {format_float(kx, 4)}" + (f" ± {format_float(sigma_x, 4)}" if sigma_x is not None else ""),
-            f"ky = {format_float(ky, 4)}" + (f" ± {format_float(sigma_y, 4)}" if sigma_y is not None else ""),
+            f"kx = {format_value_with_sigma(kx, sigma_x, unit=None, value_precision=4, sigma_precision=4)}",
+            f"ky = {format_value_with_sigma(ky, sigma_y, unit=None, value_precision=4, sigma_precision=4)}",
         ]
         tooltip = "\n".join(line for line in tooltip_lines if line.strip())
         return text, tooltip
@@ -1000,11 +1007,19 @@ class AdsorbateSpotSelectionDialog(QDialog):
     def _display_substrate_transform_info(self):
         analysis = self.state.substrate_analysis
         if analysis:
-            rotation_text = format_float(analysis.get("rotation_angle_deg"), precision=2)
-            rotation_display = rotation_text if rotation_text == "-" else f"{rotation_text} deg"
+            rotation_display = format_value_with_sigma(
+                analysis.get("rotation_angle_deg"),
+                analysis.get("rotation_angle_deg_sigma"),
+                "deg",
+                value_precision=2,
+                sigma_precision=2,
+            )
 
-            stretch_display = format_pair(
-                analysis.get("principal_stretches"), precision=3
+            stretch_display = format_pair_with_sigma(
+                analysis.get("principal_stretches"),
+                analysis.get("principal_stretches_sigma"),
+                precision=3,
+                sigma_precision=3,
             )
 
             rmse_text = format_float(

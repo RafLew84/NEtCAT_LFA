@@ -10,7 +10,13 @@ from PyQt6.QtWidgets import (
     QGridLayout, QSplitter, QLineEdit
 )
 
-from ..utils.display import format_float, format_pair, format_ratio
+from ..utils.display import (
+    format_float,
+    format_pair,
+    format_pair_with_sigma,
+    format_ratio,
+    format_value_with_sigma,
+)
 from PyQt6.QtCore import Qt, pyqtSlot, QTimer 
 
 from ...analysis.drift_correction import apply_affine_transform
@@ -546,14 +552,20 @@ class SuperstructurePeriodicityDialog(QDialog):
         if self.sub_transform_analysis:
             self.dist_sub_transform_info_label_status.setText("Status: Available")
             
-            rot_angle = self.sub_transform_analysis.get('rotation_angle_deg')
-            rot_text = format_float(rot_angle, precision=2)
-            rot_display = rot_text if rot_text == '-' else f"{rot_text} deg"
+            rot_display = format_value_with_sigma(
+                self.sub_transform_analysis.get('rotation_angle_deg'),
+                self.sub_transform_analysis.get('rotation_angle_deg_sigma'),
+                'deg',
+                value_precision=2,
+                sigma_precision=2,
+            )
             self.dist_sub_transform_info_label_rot.setText(rot_display)
 
-            stretch_pair = format_pair(
+            stretch_pair = format_pair_with_sigma(
                 self.sub_transform_analysis.get('principal_stretches'),
+                self.sub_transform_analysis.get('principal_stretches_sigma'),
                 precision=3,
+                sigma_precision=3,
             )
             self.dist_sub_transform_info_label_scale.setText(stretch_pair)
 

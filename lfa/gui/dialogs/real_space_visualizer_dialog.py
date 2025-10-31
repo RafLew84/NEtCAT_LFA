@@ -45,7 +45,12 @@ from ..visualizers.real_space_view import (
     RealSpaceVisualizerWidgets,
     build_real_space_visualizer_ui,
 )
-from ..utils.display import format_float, format_pair
+from ..utils.display import (
+    format_float,
+    format_pair,
+    format_pair_with_sigma,
+    format_value_with_sigma,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -415,12 +420,22 @@ class RealSpaceFFTVisualizerDialog(QDialog):
 
         if self.app_controller.substrate_transform_analysis_m2i:
             analysis = self.app_controller.substrate_transform_analysis_m2i
-            rotation_text = format_float(analysis.get("rotation_angle_deg"), 2, "N/A")
-            stretches = analysis.get("principal_stretches", [np.nan, np.nan])
-            scale_text = format_pair(tuple(stretches), 3)
+            rotation_display = format_value_with_sigma(
+                analysis.get("rotation_angle_deg"),
+                analysis.get("rotation_angle_deg_sigma"),
+                "deg",
+                value_precision=2,
+                sigma_precision=2,
+            )
+            scale_text = format_pair_with_sigma(
+                analysis.get("principal_stretches"),
+                analysis.get("principal_stretches_sigma"),
+                precision=3,
+                sigma_precision=3,
+            )
             rmse_text = format_float(analysis.get("rmse"), 3)
 
-            self.info_sub_rot_label.setText(f"{rotation_text}deg" if rotation_text != "N/A" else "N/A")
+            self.info_sub_rot_label.setText(rotation_display if rotation_display != "-" else "-")
             self.info_sub_scale_label.setText(scale_text if scale_text != "-" else "-")
             self.info_sub_rmse_label.setText(f"{rmse_text} px" if rmse_text != "-" else "-")
         else:

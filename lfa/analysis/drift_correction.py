@@ -11,6 +11,8 @@ from scipy.linalg import polar
 from scipy.optimize import linear_sum_assignment
 from typing import List, Tuple, Dict, Optional, Any, Sequence
 
+from .uncertainty import propagate_linear
+
 logger = logging.getLogger(__name__)
 
 # --- Core Affine Transformation Utilities ---
@@ -315,6 +317,48 @@ def match_and_fit_transform(
 
     if fit_diagnostics is not None:
         analysis_results["fit_diagnostics"] = fit_diagnostics
+
+        param_covariance = fit_diagnostics.get("parameter_covariance")
+        if param_covariance is not None:
+            try:
+                param_covariance = np.asarray(param_covariance, dtype=float)
+                if param_covariance.shape[0] >= 4 and param_covariance.shape[1] >= 4:
+                    F_covariance = param_covariance[:4, :4]
+                    F_vector = np.array([F[0, 0], F[0, 1], F[1, 0], F[1, 1]], dtype=float)
+
+                    def _vec_to_matrix(vec: np.ndarray) -> np.ndarray:
+                        return np.array([[vec[0], vec[1]], [vec[2], vec[3]]], dtype=float)
+
+                    def _rotation_from_vec(vec: np.ndarray) -> np.ndarray:
+                        F_mat = _vec_to_matrix(vec)
+                        R, _ = polar(F_mat)
+                        angle_deg = np.degrees(np.arctan2(R[1, 0], R[0, 0]))
+                        return np.array([angle_deg], dtype=float)
+
+                    rotation_propagation = propagate_linear(_rotation_from_vec, F_vector, F_covariance)
+                    rotation_variance = float(rotation_propagation.covariance[0, 0])
+                    if rotation_variance >= 0.0:
+                        analysis_results["rotation_angle_deg_sigma"] = float(np.sqrt(rotation_variance))
+                        analysis_results["rotation_angle_deg_covariance"] = rotation_propagation.covariance
+
+                    def _stretches_from_vec(vec: np.ndarray) -> np.ndarray:
+                        F_mat = _vec_to_matrix(vec)
+                        _, U = polar(F_mat)
+                        eigenvalues = np.linalg.eigvals(U)
+                        eigenvalues = np.real_if_close(eigenvalues)
+                        return np.array(eigenvalues, dtype=float)
+
+                    stretches_propagation = propagate_linear(_stretches_from_vec, F_vector, F_covariance)
+                    stretches_covariance = np.asarray(stretches_propagation.covariance, dtype=float)
+                    if stretches_covariance.shape == (2, 2):
+                        diag_entries = np.clip(np.diag(stretches_covariance), 0.0, None)
+                        analysis_results["principal_stretches_sigma"] = (
+                            float(np.sqrt(diag_entries[0])),
+                            float(np.sqrt(diag_entries[1])),
+                        )
+                        analysis_results["principal_stretches_covariance"] = stretches_covariance
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.debug("Failed to propagate affine transform uncertainties: %s", exc)
 
     try:
         predicted_ideal_from_measured = apply_affine_transform(final_measured_pts, F, t)

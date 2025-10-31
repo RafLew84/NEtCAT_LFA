@@ -1085,6 +1085,7 @@ class AppController(QObject):
         return build_real_space_summary(
             self.substrate_real_space_results,
             self.adsorbate_real_space_results,
+            transform_analysis=self.substrate_transform_analysis_m2i,
         )
 
     def get_real_space_report_json(self) -> Dict[str, Any]:
@@ -1092,6 +1093,7 @@ class AppController(QObject):
         return build_real_space_json(
             self.substrate_real_space_results,
             self.adsorbate_real_space_results,
+            transform_analysis=self.substrate_transform_analysis_m2i,
         )
 
     def get_real_space_report_records(self) -> List[Dict[str, Any]]:
@@ -1099,6 +1101,7 @@ class AppController(QObject):
         return build_real_space_records(
             self.substrate_real_space_results,
             self.adsorbate_real_space_results,
+            transform_analysis=self.substrate_transform_analysis_m2i,
         )
 
     def copy_real_space_summary_to_clipboard(self) -> bool:
@@ -1108,8 +1111,10 @@ class AppController(QObject):
         Returns:
             bool: True when data was copied, False if no results or clipboard unavailable.
         """
-        has_any_results = bool(self.substrate_real_space_results) or any(
-            bool(result) for result in self.adsorbate_real_space_results.values()
+        has_any_results = (
+            bool(self.substrate_real_space_results)
+            or any(bool(result) for result in self.adsorbate_real_space_results.values())
+            or bool(self.substrate_transform_analysis_m2i)
         )
         if not has_any_results:
             logger.info("AppController: No real-space data available to copy to clipboard.")
