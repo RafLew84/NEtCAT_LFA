@@ -31,7 +31,11 @@ try:
     from ...logic.history_manager import HistoryManager
     from ...core.history import HistoryNode
     from ...analysis.drift_correction import apply_affine_transform
-    from ...analysis.lattice import LATTICE_TYPE_HEXAGONAL, LATTICE_TYPE_SQUARE
+    from ...analysis.lattice import (
+        LATTICE_TYPE_HEXAGONAL,
+        LATTICE_TYPE_SQUARE,
+        calculate_real_space_vectors_from_g,
+    )
 except ImportError as e:
     AppController = None
     HistoryManager = None
@@ -744,6 +748,82 @@ class RealSpaceFFTVisualizerDialog(QDialog):
                            pen=pg.mkPen(color=pen_color, style=Qt.PenStyle.DotLine, width=1))
 
 
+    def _estimate_sub_ads_angle_sigma_deg(
+        self,
+        substrate_params: Dict[str, Any],
+        adsorbate_params: Dict[str, Any],
+        *,
+        samples: int = 512,
+    ) -> Optional[float]:
+        """
+        Estimate the uncertainty (standard deviation in degrees) of the angle between
+        substrate and adsorbate a1 vectors using Monte Carlo sampling of their reciprocal
+        vector covariances.
+        """
+        try:
+            g1_s = np.asarray(substrate_params.get("g1_vec_nm_inv"), dtype=float)
+            g2_s = np.asarray(substrate_params.get("g2_vec_nm_inv"), dtype=float)
+            g1_a = np.asarray(adsorbate_params.get("g1_vec_nm_inv"), dtype=float)
+            g2_a = np.asarray(adsorbate_params.get("g2_vec_nm_inv"), dtype=float)
+        except (TypeError, ValueError):
+            return None
+
+        if g1_s.size != 2 or g2_s.size != 2 or g1_a.size != 2 or g2_a.size != 2:
+            return None
+
+        cov_g1_s = substrate_params.get("g1_vec_cov_nm_inv")
+        cov_g2_s = substrate_params.get("g2_vec_cov_nm_inv")
+        cov_g1_a = adsorbate_params.get("g1_vec_cov_nm_inv")
+        cov_g2_a = adsorbate_params.get("g2_vec_cov_nm_inv")
+
+        if cov_g1_s is None and cov_g2_s is None and cov_g1_a is None and cov_g2_a is None:
+            return 0.0
+
+        rng = np.random.default_rng()
+
+        def _sample(mean_vec: np.ndarray, covariance: Optional[Any]) -> np.ndarray:
+            if covariance is None:
+                return np.repeat(mean_vec[None, :], samples, axis=0)
+            cov_arr = np.asarray(covariance, dtype=float)
+            if cov_arr.shape != (2, 2):
+                return np.repeat(mean_vec[None, :], samples, axis=0)
+            cov_arr = (cov_arr + cov_arr.T) / 2.0
+            try:
+                return rng.multivariate_normal(mean_vec, cov_arr, size=samples)
+            except (ValueError, np.linalg.LinAlgError):  # pragma: no cover - defensive
+                return np.repeat(mean_vec[None, :], samples, axis=0)
+
+        g1_s_samples = _sample(g1_s, cov_g1_s)
+        g2_s_samples = _sample(g2_s, cov_g2_s)
+        g1_a_samples = _sample(g1_a, cov_g1_a)
+        g2_a_samples = _sample(g2_a, cov_g2_a)
+
+        angle_samples: List[float] = []
+        for g1_s_sample, g2_s_sample, g1_a_sample, g2_a_sample in zip(
+            g1_s_samples, g2_s_samples, g1_a_samples, g2_a_samples
+        ):
+            try:
+                a1_s_vec, _ = calculate_real_space_vectors_from_g(tuple(g1_s_sample), tuple(g2_s_sample))
+                a1_a_vec, _ = calculate_real_space_vectors_from_g(tuple(g1_a_sample), tuple(g2_a_sample))
+            except Exception:  # pragma: no cover - defensive
+                continue
+
+            a1_s_vec = np.asarray(a1_s_vec, dtype=float)
+            a1_a_vec = np.asarray(a1_a_vec, dtype=float)
+
+            norm_s = np.linalg.norm(a1_s_vec)
+            norm_a = np.linalg.norm(a1_a_vec)
+            if norm_s < 1e-9 or norm_a < 1e-9:
+                continue
+
+            cos_theta = np.clip(np.dot(a1_s_vec, a1_a_vec) / (norm_s * norm_a), -1.0, 1.0)
+            angle_rad = float(np.arccos(cos_theta))
+            angle_samples.append(np.degrees(angle_rad))
+
+        if len(angle_samples) < 2:
+            return 0.0 if angle_samples else None
+        return float(np.std(angle_samples, ddof=1))
+
     def _update_real_space_param_labels(self):
         """Update real space parameter labels with current values."""
         logger.debug("Visualizer: Updating real space parameter labels...")
@@ -757,26 +837,65 @@ class RealSpaceFFTVisualizerDialog(QDialog):
                 return None
             return f"({sx}, {sy}) nm"
 
+        def set_label_with_sigma(
+            label: QLabel,
+            value: Optional[float],
+            sigma: Optional[float],
+            unit: str,
+            *,
+            value_precision: int,
+            sigma_precision: int,
+        ) -> None:
+            text = format_value_with_sigma(
+                value,
+                sigma,
+                unit,
+                value_precision=value_precision,
+                sigma_precision=sigma_precision,
+            )
+            label.setText(text)
+            label.setToolTip(text if text and not text.startswith("-") else "")
+
         calibration_text = "- nm"
         controller = self.app_controller
 
         if controller and controller.substrate_real_space_results:
             params = controller.substrate_real_space_results
-            a1_text = format_float(params.get("a1_nm"), 3)
-            a2_text = format_float(params.get("a2_nm"), 3)
-            alpha_text = format_float(params.get("alpha_deg"), 2)
-
-            self.sub_real_a1_label.setText(f"{a1_text} nm" if a1_text != "-" else "- nm")
-            self.sub_real_a2_label.setText(f"{a2_text} nm" if a2_text != "-" else "- nm")
-            self.sub_real_alpha_label.setText(f"{alpha_text} deg" if alpha_text != "-" else "- deg")
+            set_label_with_sigma(
+                self.sub_real_a1_label,
+                params.get("a1_nm"),
+                params.get("a1_nm_sigma"),
+                "nm",
+                value_precision=3,
+                sigma_precision=3,
+            )
+            set_label_with_sigma(
+                self.sub_real_a2_label,
+                params.get("a2_nm"),
+                params.get("a2_nm_sigma"),
+                "nm",
+                value_precision=3,
+                sigma_precision=3,
+            )
+            set_label_with_sigma(
+                self.sub_real_alpha_label,
+                params.get("alpha_deg"),
+                params.get("alpha_deg_sigma"),
+                "deg",
+                value_precision=2,
+                sigma_precision=2,
+            )
 
             formatted_sigma = resolve_sigma_text(params.get("pixel_calibration_sigma_nm"))
             if formatted_sigma:
                 calibration_text = formatted_sigma
         else:
             self.sub_real_a1_label.setText("- nm")
+            self.sub_real_a1_label.setToolTip("")
             self.sub_real_a2_label.setText("- nm")
+            self.sub_real_a2_label.setToolTip("")
             self.sub_real_alpha_label.setText("- deg")
+            self.sub_real_alpha_label.setToolTip("")
 
         current_ads_set_idx_vis = self.ads_set_combo_vis.currentData()
 
@@ -786,21 +905,41 @@ class RealSpaceFFTVisualizerDialog(QDialog):
             and current_ads_set_idx_vis in controller.adsorbate_real_space_results
         ):
             params = controller.adsorbate_real_space_results[current_ads_set_idx_vis]
-            a1_text = format_float(params.get("a1_nm"), 3)
-            a2_text = format_float(params.get("a2_nm"), 3)
-            alpha_text = format_float(params.get("alpha_deg"), 2)
-
-            self.ads_real_a1_label.setText(f"{a1_text} nm" if a1_text != "-" else "- nm")
-            self.ads_real_a2_label.setText(f"{a2_text} nm" if a2_text != "-" else "- nm")
-            self.ads_real_alpha_label.setText(f"{alpha_text} deg" if alpha_text != "-" else "- deg")
+            set_label_with_sigma(
+                self.ads_real_a1_label,
+                params.get("a1_nm"),
+                params.get("a1_nm_sigma"),
+                "nm",
+                value_precision=3,
+                sigma_precision=3,
+            )
+            set_label_with_sigma(
+                self.ads_real_a2_label,
+                params.get("a2_nm"),
+                params.get("a2_nm_sigma"),
+                "nm",
+                value_precision=3,
+                sigma_precision=3,
+            )
+            set_label_with_sigma(
+                self.ads_real_alpha_label,
+                params.get("alpha_deg"),
+                params.get("alpha_deg_sigma"),
+                "deg",
+                value_precision=2,
+                sigma_precision=2,
+            )
 
             formatted_sigma = resolve_sigma_text(params.get("pixel_calibration_sigma_nm"))
             if formatted_sigma and calibration_text == "- nm":
                 calibration_text = formatted_sigma
         else:
             self.ads_real_a1_label.setText("- nm")
+            self.ads_real_a1_label.setToolTip("")
             self.ads_real_a2_label.setText("- nm")
+            self.ads_real_a2_label.setToolTip("")
             self.ads_real_alpha_label.setText("- deg")
+            self.ads_real_alpha_label.setToolTip("")
 
         self.calibration_sigma_label.setText(calibration_text)
         self.angle_sub_ads_label.setText("- deg")
@@ -847,10 +986,20 @@ class RealSpaceFFTVisualizerDialog(QDialog):
                 dot_product = np.dot(a1_s_vec, a1_a_vec)
                 cos_theta = np.clip(dot_product / (norm_s * norm_a), -1.0, 1.0)
                 angle_for_display_deg = np.degrees(np.arccos(cos_theta))
-                angle_text = format_float(angle_for_display_deg, precision=3)
-                angle_display = f"{angle_text} deg" if angle_text != "-" else "-"
+                angle_sigma_deg = self._estimate_sub_ads_angle_sigma_deg(sub_params, ads_params)
+                angle_display = format_value_with_sigma(
+                    angle_for_display_deg,
+                    angle_sigma_deg,
+                    "deg",
+                    value_precision=3,
+                    sigma_precision=3,
+                )
                 self.angle_sub_ads_label.setText(angle_display)
-                logger.info(f"Displayed angle between default a1 vectors: {angle_for_display_deg:.3f}deg")
+                logger.info(
+                    "Displayed angle between default a1 vectors: %.3f deg (σ≈%s)",
+                    angle_for_display_deg,
+                    format_float(angle_sigma_deg, 3) if angle_sigma_deg is not None else "n/a",
+                )
             else:
                 self.angle_sub_ads_label.setText("N/A (Zero vector)")
 

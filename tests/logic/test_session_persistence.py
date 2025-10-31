@@ -1,10 +1,13 @@
 import pickle
 from pathlib import Path
+import sys
 
 import numpy as np
 import pytest
 pytest.importorskip("PyQt6", reason="PyQt6 is required for session persistence tests")
 pytest.importorskip("pytestqt", reason="pytest-qt is required for qtbot fixture")
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from PyQt6.QtWidgets import QListWidget, QMessageBox, QFileDialog
 
@@ -58,6 +61,41 @@ def _create_controller_with_images(qtbot) -> tuple[AppController, OriginalImageR
     history_manager.add_node(root2)
 
     return controller, rec1, rec2
+
+
+def test_app_controller_populates_metric_sigmas_from_covariance(qtbot):
+    controller, *_ = _create_controller_with_images(qtbot)
+    covariance = np.diag([0.01**2, 0.02**2, 0.5**2]).astype(float)
+    result = {
+        "real_space_metric_covariance": covariance,
+        "a1_nm_sigma": None,
+        "a2_nm_sigma": None,
+        "alpha_deg_sigma": None,
+    }
+
+    controller._ensure_metric_sigma_fields(result)  # type: ignore[attr-defined]
+
+    assert result["a1_nm_sigma"] == pytest.approx(0.01)
+    assert result["a2_nm_sigma"] == pytest.approx(0.02)
+    assert result["alpha_deg_sigma"] == pytest.approx(0.5)
+
+
+def test_app_controller_derives_metric_sigma_from_g_covariances(qtbot):
+    controller, *_ = _create_controller_with_images(qtbot)
+    result = {
+        "real_space_metric_covariance": None,
+        "g1_vec_nm_inv": (1.0, 0.0),
+        "g2_vec_nm_inv": (0.0, 1.0),
+        "g1_vec_cov_nm_inv": np.diag([0.015**2, 0.02**2]),
+        "g2_vec_cov_nm_inv": np.diag([0.02**2, 0.03**2]),
+    }
+
+    controller._ensure_metric_sigma_fields(result)  # type: ignore[attr-defined]
+
+    assert result["real_space_metric_covariance"] is not None
+    assert result["a1_nm_sigma"] is not None
+    assert result["a2_nm_sigma"] is not None
+    assert result["alpha_deg_sigma"] is not None
 
 
 def test_save_session_includes_original_images(tmp_path, qtbot, monkeypatch):

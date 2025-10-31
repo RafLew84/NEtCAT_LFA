@@ -1232,6 +1232,11 @@ class SubstrateSpotSelectionDialog(QDialog):
         self.substrate_transform_analysis = self.presenter.state.transform_analysis
         self.fitted_substrate_spots_px = list(self.presenter.state.fitted_spots_px)
         self.presenter.state.fitted_spots_px = self.fitted_substrate_spots_px
+        self.fitted_substrate_spot_covariances = [
+            np.array(cov, dtype=float) if cov is not None else None
+            for cov in (self.presenter.state.fitted_spot_covariances or [])
+        ]
+        self.presenter.state.fitted_spot_covariances = self.fitted_substrate_spot_covariances
         self.calculated_ideal_substrate_spots_px = list(self.presenter.state.ideal_spots_px_for_reference)
         self.presenter.state.ideal_spots_px_for_reference = self.calculated_ideal_substrate_spots_px
 

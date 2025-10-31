@@ -492,6 +492,76 @@ class AppController(QObject):
         if transform_changed or spots_changed or def_changed:
             self.substrate_transform_results_updated.emit()
 
+    def _ensure_metric_sigma_fields(self, result: Dict[str, Any]) -> None:
+        """
+        Populate scalar sigma fields (a1/a2/alpha) when missing.
+
+        When the metric covariance is absent but g-vector covariances are supplied, the method
+        derives the covariance (and sigmas) by invoking ``compute_real_space_metric_uncertainty``.
+        """
+        if not isinstance(result, dict):
+            return
+
+        covariance = result.get("real_space_metric_covariance")
+        if covariance is None:
+            g1_cov = result.get("g1_vec_cov_nm_inv")
+            g2_cov = result.get("g2_vec_cov_nm_inv")
+            g1_vec = result.get("g1_vec_nm_inv")
+            g2_vec = result.get("g2_vec_nm_inv")
+
+            try:
+                g1_cov_arr = np.asarray(g1_cov, dtype=float) if g1_cov is not None else None
+                g2_cov_arr = np.asarray(g2_cov, dtype=float) if g2_cov is not None else None
+                g1_vec_arr = np.asarray(g1_vec, dtype=float)
+                g2_vec_arr = np.asarray(g2_vec, dtype=float)
+            except (TypeError, ValueError):
+                g1_cov_arr = g2_cov_arr = None
+            else:
+                if (
+                    g1_cov_arr is not None
+                    and g2_cov_arr is not None
+                    and g1_cov_arr.shape == (2, 2)
+                    and g2_cov_arr.shape == (2, 2)
+                    and g1_vec_arr.shape == (2,)
+                    and g2_vec_arr.shape == (2,)
+                ):
+                    combined_cov = np.zeros((4, 4), dtype=float)
+                    combined_cov[:2, :2] = g1_cov_arr
+                    combined_cov[2:, 2:] = g2_cov_arr
+                    try:
+                        propagation = compute_real_space_metric_uncertainty(
+                            (float(g1_vec_arr[0]), float(g1_vec_arr[1])),
+                            (float(g2_vec_arr[0]), float(g2_vec_arr[1])),
+                            combined_cov,
+                        )
+                    except ValueError:
+                        propagation = None
+                    if propagation is not None:
+                        covariance = propagation.covariance
+                        result["real_space_metric_covariance"] = covariance
+
+        if covariance is None:
+            return
+
+        try:
+            cov_arr = np.asarray(covariance, dtype=float)
+        except (TypeError, ValueError):
+            return
+
+        if cov_arr.ndim != 2 or cov_arr.shape[0] < 3 or cov_arr.shape[1] < 3:
+            return
+
+        diag_values = np.clip(np.diag(cov_arr)[:3], 0.0, None)
+        keys = ("a1_nm_sigma", "a2_nm_sigma", "alpha_deg_sigma")
+        for idx, key in enumerate(keys):
+            if result.get(key) is not None:
+                continue
+            variance = diag_values[idx]
+            result[key] = float(np.sqrt(variance)) if variance >= 0.0 else None
+        for key in keys:
+            if result.get(key) is None:
+                result[key] = 0.0
+
     def calculate_and_store_substrate_real_params(self):
         """
         Calculates real-space lattice parameters for the substrate based on
@@ -592,6 +662,7 @@ class AppController(QObject):
         )
 
         if results:
+            self._ensure_metric_sigma_fields(results)
             self.substrate_real_space_results = results
             logger.info(f"Successfully calculated substrate real space parameters (from fitted spots): {results}")
             self.substrate_real_space_params_updated.emit(results)
@@ -815,6 +886,7 @@ class AppController(QObject):
                 results["a2_nm_sigma"] = float(np.sqrt(diag_entries[1]))
                 results["alpha_deg_sigma"] = float(np.sqrt(diag_entries[2]))
         results["pixel_calibration_sigma_nm"] = (float(sigma_Lx_nm), float(sigma_Ly_nm))
+        self._ensure_metric_sigma_fields(results)
         logger.info(f"Adsorbate set {set_index} real space params: a1={a1_ads_mag_nm:.3f}nm, a2={a2_ads_mag_nm:.3f}nm, alpha={alpha_ads_deg:.2f}deg")
         self.adsorbate_real_space_results[set_index] = results
         self.adsorbate_real_space_params_updated.emit(set_index, results)

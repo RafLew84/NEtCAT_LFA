@@ -196,7 +196,37 @@ class AdsorbateSpotPresenter:
 
         corrected = [tuple(map(float, pt)) for pt in corrected_np]
         self.state.corrected_spots = corrected
-        self.state.corrected_spot_covariances = [None] * len(corrected)
+
+        corrected_covariances: List[Optional[np.ndarray]] = []
+        raw_covariances = list(self.state.raw_spot_covariances)
+        if raw_covariances and self.state.substrate_matrix_F is not None:
+            F = np.asarray(self.state.substrate_matrix_F, dtype=float)
+            for cov in raw_covariances:
+                if cov is None:
+                    corrected_covariances.append(None)
+                    continue
+                try:
+                    cov_arr = np.asarray(cov, dtype=float)
+                except (TypeError, ValueError):
+                    corrected_covariances.append(None)
+                    continue
+                if cov_arr.shape != (2, 2):
+                    corrected_covariances.append(None)
+                    continue
+                try:
+                    corrected_covariances.append(F @ cov_arr @ F.T)
+                except Exception as exc:  # pragma: no cover - defensive
+                    logger.warning("Failed to propagate adsorbate covariance: %s", exc)
+                    corrected_covariances.append(None)
+        else:
+            corrected_covariances = [None] * len(raw_covariances)
+
+        if len(corrected_covariances) < len(corrected):
+            corrected_covariances.extend([None] * (len(corrected) - len(corrected_covariances)))
+        elif len(corrected_covariances) > len(corrected):
+            corrected_covariances = corrected_covariances[: len(corrected)]
+
+        self.state.corrected_spot_covariances = corrected_covariances
         logger.info("AdsorbatePresenter: corrected %s spots.", len(corrected))
         return corrected
 
