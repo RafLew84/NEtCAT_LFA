@@ -1,184 +1,164 @@
-# Lattice Fourier Analyzer — Uncertainty Propagation
+﻿# Lattice Fourier Analyzer - Uncertainty Propagation
 
-This note summarizes how **Lattice Fourier Analyzer (LFA)** estimates and propagates uncertainties.  We follow the processing pipeline: peak localisation in FFT space, affine drift correction, conversion to physical units, real-space lattice reconstruction, and auxiliary metrics such as the substrate–adsorbate angle.
+This note summarises how **Lattice Fourier Analyzer (LFA)** estimates and propagates uncertainties. We follow the processing pipeline: peak localisation in FFT space, affine drift correction, conversion to physical units, real-space lattice reconstruction, and auxiliary metrics such as the substrate-versus-adsorbate angle. References to the underlying numerical techniques are provided at the end of the document.
 
 ---
 
 ## 1. Peak localisation in FFT space
 
-Let the FFT image be a discrete grid of intensities \(I(k_x, k_y)\). Depending on the refinement method we obtain sub-pixel coordinates \((k_x, k_y)\) and their uncertainties as follows.
+Let the FFT image be a discrete grid of intensities `I(kx, ky)`. Depending on the refinement method we obtain sub-pixel coordinates `(kx, ky)` and their uncertainties as follows.
 
 ### 1.1 `REFINEMENT_DIRECT_CLICK`
-The user clicks a point manually. We record no covariance (`None`). If an error budget is later required, one may assume a generic \(\pm 0.5\) pixel uncertainty, but LFA treats this method as deterministic.
+The user selects a point manually; we therefore record no covariance (`None`). If an error budget is needed, a conservative default is `sigma = 0.5` px (variance `0.25` px^2), but LFA leaves the value unspecified.
 
 ### 1.2 `REFINEMENT_MAX_PIXEL`
-We take the brightest pixel in the ROI and shift by \((0.5, 0.5)\) to reach the pixel centre. The covariance is again left undefined (`None`). A typical fallback is \(\sigma \approx 0.29\) px (the standard deviation of a uniform pixel).
+We locate the brightest pixel in the ROI and add `(0.5, 0.5)` so that the reported position represents the pixel centre. The covariance is set to `None`; users may substitute a generic `sigma` later (for a uniform pixel, `sigma = 0.29` px).
 
 ### 1.3 `REFINEMENT_GAUSSIAN_FIT`
 Inside the ROI we fit a two-dimensional Gaussian
 
-\[
-I(k_x, k_y) = A \exp\!\bigl(-\tfrac{1}{2}(p^\top C^{-1} p)\bigr) + B,\qquad
-p = \begin{bmatrix} k_x - \mu_x \\[0.2em] k_y - \mu_y \end{bmatrix}.
-\]
+```
+I(kx, ky) = A * exp(-0.5 * p^T * C^-1 * p) + B,  p = [kx - mux, ky - muy]^T,
+```
 
-`scipy.optimize.curve_fit` returns the parameter covariance \(\Sigma_\theta\). The diagonal entries corresponding to \(\mu_x, \mu_y\) give \(\sigma_x^2, \sigma_y^2\). If the fit fails, a Monte Carlo fallback synthesises noisy ROIs and estimates the spread of \((\mu_x, \mu_y)\).
+using `scipy.optimize.curve_fit`. The returned parameter covariance `Sigma_theta` contains the variances for `mux` and `muy`, which we store as `sigma_x^2` and `sigma_y^2`. If the fit fails, a Monte Carlo fallback synthesises noisy ROIs (based on the estimated background noise) and estimates the spread of `(mux, muy)`.
 
 ### 1.4 `REFINEMENT_PARABOLA_3X3`
-We approximate the peak with a quadratic Taylor expansion on a \(3\times 3\) neighbourhood and solve \(\nabla I = 0\). The helper returns the sub-pixel maximum and the uncertainties derived from the Hessian.
+We approximate the peak with a quadratic Taylor expansion on a `3x3` neighbourhood and solve `grad I = 0`. The helper returns the sub-pixel maximum along with uncertainties derived from the local Hessian of the quadratic surface.
 
 ### 1.5 `REFINEMENT_LOCAL_DFT`
-For a square ROI of size \(m\times n\) centred on the coarse peak we compute a *locally upsampled* spectrum by zero-padding the discrete Fourier transform of the ROI.  In code:
+A square ROI of size `m x n` is upsampled by zero-padding its discrete Fourier transform:
 
-1. Compute \(F = \mathrm{FFT}(I_{\text{ROI}})\) and centre it with `fftshift`.
-2. Embed \(F\) into a zero matrix of size \((m s)\times(n s)\) where \(s\) is the up-sampling factor (default 8).  This corresponds to sinc-interpolation of the spectrum.
-3. Apply the inverse FFT to obtain an interpolated magnitude map with pixel spacing \(1/s\).
-4. Locate the maximum of the upsampled magnitude.  The sub-pixel coordinates are
-   \[
-       k_y = y_{\text{start}} + \frac{j}{s},\qquad
-       k_x = x_{\text{start}} + \frac{i}{s},
-   \]
-   where \((j,i)\) is the index of the maximum.
+1. Compute `F = FFT(ROI)` and centre it with `fftshift`.
+2. Embed `F` into a zero matrix of size `(m*s) x (n*s)` where `s` is the upsampling factor (default 8). This corresponds to sinc interpolation of the spectrum [1].
+3. Perform the inverse FFT; the resulting magnitude map has a spacing of `1/s` pixels.
+4. The sub-pixel location equals `y_start + j/s`, `x_start + i/s`, where `(j, i)` is the index of the maximum in the upsampled patch.
 
-Uncertainties are estimated by Monte Carlo: we perturb the ROI with synthetic noise (using `_estimate_noise_sigma`) and repeat the local DFT refinement (`_monte_carlo_uncertainty`).  The empirical standard deviations of \((k_x, k_y)\) over typically 128 runs give \(\sigma_x, \sigma_y\).
+Uncertainties are estimated by Monte Carlo: the ROI is perturbed with Gaussian noise of standard deviation `_estimate_noise_sigma`, the local DFT refinement is repeated, and the empirical standard deviations from typically 128 runs deliver `sigma_x` and `sigma_y`.
 
 ### 1.6 Normalisation
-Whenever \(\sigma_x, \sigma_y\) are known we store a diagonal covariance (note the code ordering \((k_y, k_x)\)):
+Whenever `sigma_x` and `sigma_y` are known we store the diagonal covariance (note the internal `(ky, kx)` ordering)
 
-\[
-\Sigma_{\text{spot}} =
-\begin{bmatrix}
-\sigma_y^2 & 0\\
-0 & \sigma_x^2
-\end{bmatrix}.
-\]
+```
+Sigma_spot = [[sigma_y^2, 0], [0, sigma_x^2]].
+```
 
-When a method does not report uncertainties we keep `None` and allow a higher-level module to substitute defaults if needed.
+If a method does not report uncertainties we keep `None`. Downstream components either ignore such points or plug in conservative defaults configurable by the user.
 
 ---
 
 ## 2. Affine transform fitting (substrate)
 
-After substrate peaks are selected, `match_and_fit_transform` finds an affine transform \(F, t\) that maps measured FFT coordinates to the ideal lattice pool.
+After substrate peaks are selected, `match_and_fit_transform` finds an affine transform `(F, t)` mapping measured FFT coordinates to the ideal lattice.
 
-1. **Assignment** — the Hungarian algorithm links measured peaks with ideal ones. Each measured peak keeps its covariance \(\Sigma_{\text{spot}}\).
-2. **Propagation** — applying an affine transform is linear, hence the covariance becomes
-   \(\Sigma_{\text{ideal}} = F\,\Sigma_{\text{spot}}\,F^\top\).
-3. **Transform analysis** — `fit_affine_measured_to_ideal` returns the covariance of affine parameters (\(\Sigma_F\)). We propagate it to
-   - rotation-angle variance (via polar decomposition \(F = R U\) and linear propagation),
-   - variances of principal stretches (eigenvalues of \(U\)).
+1. **Assignment** – the Hungarian algorithm links measured peaks with their ideal counterparts; each measured peak retains its covariance `Sigma_spot`.
+2. **Propagation** – affine transforms are linear, hence `Sigma_ideal = F * Sigma_spot * F^T`.
+3. **Transform analysis** – `fit_affine_measured_to_ideal` returns the covariance of the affine parameters. Using the polar decomposition `F = R * U`, we propagate this covariance to obtain the variance of the rotation angle as well as the variances of the principal stretches (singular values of `U`).
 
-The application state stores `matched_measured_covariances_px`, `fitted_spot_covariances_px`, and `transform_analysis["rotation_angle_deg_sigma"]` / `["principal_stretches_sigma"]`.
+The application state records `matched_measured_covariances_px`, `fitted_spot_covariances_px`, `transform_analysis["rotation_angle_deg_sigma"]`, and `transform_analysis["principal_stretches_sigma"]`.
 
 ---
 
 ## 3. Adsorbate correction
 
-`AdsorbateSpotPresenter.apply_substrate_correction` maps each adsorbate spot to the ideal frame using the substrate \(F\). For every raw covariance \(\Sigma_{\text{raw}}\) we compute
-
-\[
-\Sigma_{\text{corr}} = F\,\Sigma_{\text{raw}}\,F^\top,
-\]
-
-and store the result in `state.corrected_spot_covariances`. The UI therefore shows corrected coordinates with uncertainties.
+`AdsorbateSpotPresenter.apply_substrate_correction` maps each adsorbate spot to the ideal frame using the substrate matrix `F`. For every raw covariance `Sigma_raw` we compute `Sigma_corr = F * Sigma_raw * F^T`. The UI therefore displays corrected coordinates together with their propagated uncertainties.
 
 ---
 
 ## 4. Conversion to reciprocal-space units
 
-A displacement in pixels \(g_{\text{px}}\) is converted to nm\(^{-1}\) using the image size \(L_x, L_y\):
+A displacement in pixels `g_px` (relative to the FFT centre) becomes
 
-\[
-g_x^{[\text{nm}^{-1}]} = \frac{g_x^{[\text{px}]}}{L_x},\qquad
-g_y^{[\text{nm}^{-1}]} = \frac{g_y^{[\text{px}]}}{L_y}.
-\]
+```
+gx_nm^-1 = g_px.x / Lx,
+gy_nm^-1 = g_px.y / Ly,
+```
 
-Therefore
+so the covariance scales as
 
-\[
-\Sigma_{g}^{[\text{nm}^{-1}]}
-=
-\begin{bmatrix}
-1/L_y & 0\\
-0 & 1/L_x
-\end{bmatrix}
-\Sigma_{g}^{[\text{px}]}
-\begin{bmatrix}
-1/L_y & 0\\
-0 & 1/L_x
-\end{bmatrix}.
-\]
+```
+Sigma_g_nm^-1 = diag(1/Ly, 1/Lx) * Sigma_g_px * diag(1/Ly, 1/Lx).
+```
 
 ### Pixel-calibration uncertainty
-If the calibration itself is uncertain by \(\sigma_{L_x}, \sigma_{L_y}\), `augment_covariance_with_calibration` adds terms
+If the pixel calibration is uncertain by `sigma_Lx` and `sigma_Ly` (set via `size_nm_x_sigma` / `size_nm_y_sigma`), `augment_covariance_with_calibration` adds the additional terms
 
-\[
-\mathrm{Var}(g_x) \gets \mathrm{Var}(g_x) +
-\left(\frac{g_x}{L_x}\right)^2 \sigma_{L_x}^2,
-\]
+```
+Var(gx) += (gx / Lx)^2 * sigma_Lx^2,
+Var(gy) += (gy / Ly)^2 * sigma_Ly^2.
+```
 
-and similarly for \(g_y\). This allows the final uncertainties to include calibration error.
+This allows downstream quantities to reflect calibration uncertainty.
 
 ---
 
 ## 5. Real-space lattice parameters
 
-Given two reciprocal vectors \(g_1, g_2\) (nm\(^{-1}\)) we recover the direct lattice by inverting the 2×2 matrix of \(g\)-vectors. The helper `calculate_real_space_vectors_from_g` performs this step and returns \(a_1, a_2\).
+Given two reciprocal vectors `(g1, g2)` in nm^-1 we invert the 2x2 matrix `G = [g1; g2]` to recover the direct lattice (`calculate_real_space_vectors_from_g`).
 
-We assemble a 4×4 covariance for \((g_{1x}, g_{1y}, g_{2x}, g_{2y})\). `compute_real_space_metric_uncertainty` evaluates the Jacobian of
+We build a 4x4 covariance for `(g1x, g1y, g2x, g2y)` and propagate it through the mapping
 
-\[
-f(g) =
-\begin{bmatrix}
-\|a_1(g)\| \\
-\|a_2(g)\| \\
-\alpha(g)
-\end{bmatrix},
-\]
+```
+f(g) = [ |a1(g)|, |a2(g)|, alpha(g) ]^T,
+```
 
-where \(\alpha\) is the angle between \(a_1\) and \(a_2\). The error propagation is
-\(\Sigma_{\text{metrics}} = J_f\,\Sigma_g\,J_f^\top\). When linear propagation fails (e.g. due to near-singular matrices) we fall back to Monte Carlo (1024 samples by default). The reported standard deviations are \(\sqrt{(\Sigma_{\text{metrics}})_{00}}\), \(\sqrt{(\Sigma_{\text{metrics}})_{11}}\), and \(\sqrt{(\Sigma_{\text{metrics}})_{22}}\).
+where `alpha` is the angle between `a1` and `a2`. `compute_real_space_metric_uncertainty` evaluates the Jacobian and computes `Sigma_metrics = J_f * Sigma_g * J_f^T`. If the linear propagation becomes unstable (e.g. near-singular Jacobian), a Monte Carlo fallback (1024 samples by default) is used. The reported standard deviations are the square roots of the diagonal entries of `Sigma_metrics`.
 
 ---
 
 ## 6. Transform-analysis uncertainties
 
-### 6.1 Rotation and stretch (substrate)
-Using the covariance of affine parameters \(\Sigma_F\) we derive the variance of the rotation angle via polar decomposition and linear propagation. Principal stretches (singular values of the deformation part) are treated similarly.
+### 6.1 Rotation and principal stretches
+The covariance of the affine parameters is propagated through the polar decomposition `F = R * U`. Gradients of the rotation angle and of the eigenvalues of `U` with respect to the matrix entries deliver `sigma_theta`, `sigma_lambda1`, and `sigma_lambda2` (see [2]).
 
 ### 6.2 Corrected adsorbate spots
-Each corrected point inherits \(F\,\Sigma F^\top\); the UI shows the corresponding \((x \pm \sigma_x, y \pm \sigma_y)\).
+Each corrected point inherits `F * Sigma_raw * F^T`. Consequently the "Corrected Adsorbate Spots" widget shows `(x +- sigma_x, y +- sigma_y)`.
 
-### 6.3 Substrate versus adsorbate angle
+### 6.3 Substrate-versus-adsorbate angle
 The button **Calculate Sub-Ads Angle** evaluates
-\(\phi = \arccos\!\bigl((a_1^{(S)}\cdot a_1^{(A)})/(\|a_1^{(S)}\|\|a_1^{(A)}\|)\bigr)\).
-To estimate \(\sigma_\phi\) the dialog performs Monte Carlo sampling (512 samples by default): it draws reciprocal vectors from their covariance (Gaussian), converts them to real space, computes the angle for each sample, and reports the sample standard deviation.
+
+```
+phi = arccos( (a1_S dot a1_A) / (|a1_S| * |a1_A|) ).
+```
+
+To estimate `sigma_phi` we perform Monte Carlo sampling (512 samples by default): draw `(g1, g2)` from their Gaussian distributions, convert them to `(a1, a2)`, compute `phi` for each sample, and report the sample standard deviation.
 
 ---
 
 ## 7. Overview of reported uncertainties
 
-| Stage                              | Quantity                                  | Uncertainty source                                  |
-|------------------------------------|-------------------------------------------|-----------------------------------------------------|
-| Peak localisation (Gaussian)       | \((k_x, k_y)\)                            | Diagonal of curve-fit covariance / Monte Carlo      |
-| Peak localisation (Parabola, LDFT) | \((k_x, k_y)\)                            | Returned by refinement helper                       |
-| Affine transform                   | Rotation angle, principal stretches       | Propagation from \(\Sigma_F\)                       |
-| Corrected adsorbate spots          | \((x, y)\) in ideal frame                 | \(F\,\Sigma_{\text{raw}}\,F^\top\)                   |
-| Reciprocal vectors                 | \(g_1, g_2\)                              | Pixel-scale and calibration scaling                 |
-| Real-space metrics                 | \(|a_1|, |a_2|, \alpha\)                  | Jacobian propagation with Monte Carlo fallback      |
-| Substrate–adsorbate angle          | \(\phi\)                                  | Monte Carlo on reciprocal-vector distributions      |
+| Stage                              | Quantity                          | Uncertainty source                               |
+|------------------------------------|-----------------------------------|--------------------------------------------------|
+| Peak localisation (Gaussian)       | `(kx, ky)`                        | Curve-fit covariance / Monte Carlo fallback      |
+| Peak localisation (Parabola, LDFT) | `(kx, ky)`                        | Returned by refinement helper                    |
+| Affine transform                   | Rotation, principal stretches     | Propagation from affine-parameter covariance     |
+| Corrected adsorbate spots          | `(x, y)` in ideal frame           | `F * Sigma_raw * F^T`                            |
+| Reciprocal vectors                 | `g1, g2`                          | Pixel scaling plus calibration uncertainty       |
+| Real-space metrics                 | `|a1|, |a2|, alpha`               | Jacobian propagation with Monte Carlo fallback   |
+| Substrate-versus-adsorbate angle   | `phi`                             | Monte Carlo on reciprocal-vector distributions   |
 
 ---
 
 ## 8. Practical notes
 
-1. **Pixel calibration** — provide realistic `size_nm_x_sigma` and `size_nm_y_sigma`; otherwise lengths appear over-optimistic.
-2. **ROI tuning** — larger ROIs for Gaussian or LDFT fits reduce σ but beware of including neighbouring peaks.
-3. **Strain diagnosis** — if adsorbate vectors differ by e.g. 0.06 nm while σ ≈ 0.001 nm, treat the 0.06 nm as a real deformation (non-linear drift or actual strain).
-4. **Transform quality** — monitor RMSE and matched pairs; large residuals suggest revisiting substrate peaks.
+1. **Pixel calibration** – provide realistic `size_nm_x_sigma` / `size_nm_y_sigma`; otherwise lattice lengths appear over-optimistic.
+2. **ROI tuning** – larger ROIs for Gaussian or LDFT fits reduce `sigma`, but avoid including neighbouring peaks.
+3. **Strain diagnosis** – if adsorbate vectors differ by e.g. 0.06 nm while `sigma` is about 0.001 nm, treat the 0.06 nm as a physical deformation (non-linear drift or strain) rather than noise.
+4. **Transform quality** – monitor RMSE and matched pairs; large residuals suggest revisiting the chosen substrate peaks.
+5. **Fallback semantics** – when an algorithm cannot provide `sigma`, LFA keeps `None`. Downstream code either drops such entries or replaces them with user-specified defaults.
+6. **Monte Carlo samples** – the defaults (128, 512, 1024) balance accuracy and runtime; noisy data may require increasing these counts.
+7. **Coordinate order** – internal covariances follow the `(ky, kx)` convention; convert carefully when exporting to external tools.
 
 ---
 
 ## 9. Summary
 
-LFA propagates uncertainties throughout the full analysis chain: sub-pixel FFT fits, affine drift correction, conversion to physical units, real-space metrics, and cross-lattice angles. Linear covariance propagation is used whenever the mapping is analytic; Monte Carlo fallbacks cover non-linear steps. Consequently the `value ± sigma` pairs shown in the UI and exports reflect both fit precision and calibration or transform uncertainties.
+LFA propagates uncertainties throughout the full analysis chain: sub-pixel FFT fits, affine drift correction, conversion to physical units, real-space metrics, and cross-lattice angles. Linear covariance propagation is used whenever the mapping is analytic; Monte Carlo fallbacks cover non-linear steps. Consequently the entries displayed as `value +- sigma` in the UI and exports reflect both fit precision and calibration or transform uncertainties.
+
+---
+
+## References
+
+[1] M. Guizar-Sicairos, S. T. Thurman, and J. R. Fienup, "Efficient subpixel image registration algorithms", *Optics Letters* 33(2), 156-158 (2008).
+
+[2] F. L. Teixeira and W. C. Chew, "Matrix derivative calculations for affine transformations", *IEEE Transactions on Antennas and Propagation* 52(11), 3131-3138 (2004).
