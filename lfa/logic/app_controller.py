@@ -3,18 +3,17 @@
 Central controller for the LFA application.
 Manages application state and coordinates operations between UI and backend modules.
 """
+import csv
+import json
 import logging
 import os
 from dataclasses import dataclass
-import numpy as np
-
 from typing import Optional, List, Tuple, Dict, Any, TYPE_CHECKING
 
-from PyQt6.QtCore import QObject, pyqtSignal
+import numpy as np
+from PyQt6.QtCore import QObject, Qt, pyqtSignal
+from PyQt6.QtWidgets import QApplication, QFileDialog, QMessageBox
 
-from ..core.data_models import STMImage, OriginalImageRecord 
-from ..io.factory import load_stm_file  
-from ..core.history import HistoryNode  
 from ..core.constants import (
     ADSORBATE_LATTICE_TYPE_HEXAGONAL,
     ADSORBATE_LATTICE_TYPE_SQUARE,
@@ -26,18 +25,22 @@ from ..core.constants import (
     PREDEFINED_SUBSTRATE_NONE,
     REFINEMENT_DIRECT_CLICK,
     REFINEMENT_GAUSSIAN_FIT,
+    REFINEMENT_LOCAL_DFT,
     REFINEMENT_MAX_PIXEL,
     REFINEMENT_PARABOLA_3X3,
-    REFINEMENT_LOCAL_DFT,
     SPOT_SELECTION_ADSORBATE,
     SPOT_SELECTION_SUBSTRATE,
 )
-
-from PyQt6.QtWidgets import QFileDialog, QMessageBox
-from PyQt6.QtCore import Qt
-
+from ..core.data_models import OriginalImageRecord, STMImage
+from ..core.history import HistoryNode
+from ..io.factory import load_stm_file
+from .reporting import (
+    build_real_space_json,
+    build_real_space_records,
+    build_real_space_summary,
+)
 from .session_serializer import SessionSerializer
-from .services import HistoryOrchestrator, SessionService, SpotSetService, AnalysisExecutor
+from .services import AnalysisExecutor, HistoryOrchestrator, SessionService, SpotSetService
 
 if TYPE_CHECKING:  # pragma: no cover
     from .session_state import ControllerState
@@ -1036,6 +1039,78 @@ class AppController(QObject):
         self.superstructure_periodicity_results = results
         logger.info(f"AppController: Updated superstructure periodicity results: {results}")
         self.superstructure_periodicity_results_updated.emit(self.superstructure_periodicity_results)
+
+    # ------------------------------------------------------------------ Real-space reporting/export helpers
+    def get_real_space_summary_text(self) -> str:
+        """Return a human-readable summary of available real-space parameters."""
+        return build_real_space_summary(
+            self.substrate_real_space_results,
+            self.adsorbate_real_space_results,
+        )
+
+    def get_real_space_report_json(self) -> Dict[str, Any]:
+        """Return a JSON-serialisable structure describing real-space results."""
+        return build_real_space_json(
+            self.substrate_real_space_results,
+            self.adsorbate_real_space_results,
+        )
+
+    def get_real_space_report_records(self) -> List[Dict[str, Any]]:
+        """Return flattened records suitable for CSV export."""
+        return build_real_space_records(
+            self.substrate_real_space_results,
+            self.adsorbate_real_space_results,
+        )
+
+    def copy_real_space_summary_to_clipboard(self) -> bool:
+        """
+        Copy the current real-space summary to the system clipboard.
+
+        Returns:
+            bool: True when data was copied, False if no results or clipboard unavailable.
+        """
+        has_any_results = bool(self.substrate_real_space_results) or any(
+            bool(result) for result in self.adsorbate_real_space_results.values()
+        )
+        if not has_any_results:
+            logger.info("AppController: No real-space data available to copy to clipboard.")
+            return False
+
+        app = QApplication.instance()
+        if app is None:
+            logger.warning("AppController: Cannot access clipboard (no QApplication instance).")
+            return False
+
+        summary = self.get_real_space_summary_text()
+        app.clipboard().setText(summary)
+        logger.debug("AppController: Real-space summary copied to clipboard.")
+        return True
+
+    def export_real_space_report_to_json(self, file_path: str) -> None:
+        """Write the real-space results (including uncertainties) to a JSON file."""
+        data = self.get_real_space_report_json()
+        has_any_results = bool(data.get("substrate")) or any(
+            bool(entry) for entry in (data.get("adsorbate") or {}).values()
+        )
+        if not has_any_results:
+            raise ValueError("No real-space results are available to export.")
+
+        with open(file_path, "w", encoding="utf-8") as handle:
+            json.dump(data, handle, indent=2)
+        logger.info("AppController: Real-space report exported to JSON at %s", file_path)
+
+    def export_real_space_report_to_csv(self, file_path: str) -> None:
+        """Write the real-space results (including uncertainties) to a CSV file."""
+        records = self.get_real_space_report_records()
+        if not records:
+            raise ValueError("No real-space results are available to export.")
+
+        fieldnames: List[str] = sorted({key for record in records for key in record.keys()})
+        with open(file_path, "w", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(handle, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(records)
+        logger.info("AppController: Real-space report exported to CSV at %s", file_path)
 
     def _on_history_active_node_changed(self, event: "ActiveNodeChangedEvent") -> None:
         node = getattr(event, "node", None)

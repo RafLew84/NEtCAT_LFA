@@ -5,6 +5,8 @@ import math
 from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, List, Optional, Tuple, TypeVar, TYPE_CHECKING
 
+import numpy as np
+
 from ..core.data_models import OriginalImageRecord
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -58,6 +60,97 @@ def _pairs_to_payload(pairs: Iterable[Pair]) -> List[Dict[str, Point]]:
     for raw, transformed in pairs:
         payload.append({"raw": raw, "transformed": transformed})
     return payload
+
+
+def _covariance_to_payload_matrix(cov: Any) -> Optional[List[List[float]]]:
+    if cov is None:
+        return None
+    try:
+        arr = np.asarray(cov, dtype=float)
+    except Exception:  # pragma: no cover - defensive
+        return None
+    if arr.shape != (2, 2):
+        return None
+    return [
+        [float(arr[0, 0]), float(arr[0, 1])],
+        [float(arr[1, 0]), float(arr[1, 1])],
+    ]
+
+
+def _normalise_covariance_payload(value: Any) -> Optional[List[List[float]]]:
+    if value is None:
+        return None
+    try:
+        rows = list(value)
+    except TypeError:  # pragma: no cover - defensive
+        return None
+    if len(rows) != 2:
+        return None
+    matrix: List[List[float]] = []
+    for row in rows:
+        try:
+            cols = list(row)
+        except TypeError:  # pragma: no cover - defensive
+            return None
+        if len(cols) != 2:
+            return None
+        try:
+            matrix.append([float(cols[0]), float(cols[1])])
+        except (TypeError, ValueError):  # pragma: no cover - defensive
+            return None
+    return matrix
+
+
+def _covariance_from_payload_matrix(matrix: Any) -> Optional[np.ndarray]:
+    if matrix is None:
+        return None
+    try:
+        arr = np.array(matrix, dtype=float)
+    except Exception:  # pragma: no cover - defensive
+        return None
+    if arr.shape != (2, 2):
+        return None
+    return arr
+
+
+def _covariance_sequence_to_payload(sequence: Optional[Iterable[Any]]) -> List[Optional[List[List[float]]]]:
+    result: List[Optional[List[List[float]]]] = []
+    if not sequence:
+        return result
+    for cov in sequence:
+        result.append(_covariance_to_payload_matrix(cov))
+    return result
+
+
+def _covariance_sequence_from_payload(sequence: Optional[Iterable[Any]]) -> List[Optional[List[List[float]]]]:
+    result: List[Optional[List[List[float]]]] = []
+    if not sequence:
+        return result
+    for cov in sequence:
+        result.append(_normalise_covariance_payload(cov))
+    return result
+
+
+def _nested_covariance_sequence_to_payload(
+    sequences: Optional[Iterable[Iterable[Any]]]
+) -> List[List[Optional[List[List[float]]]]]:
+    result: List[List[Optional[List[List[float]]]]] = []
+    if not sequences:
+        return result
+    for sequence in sequences:
+        result.append(_covariance_sequence_to_payload(sequence))
+    return result
+
+
+def _nested_covariance_sequence_from_payload(
+    sequences: Optional[Iterable[Iterable[Any]]]
+) -> List[List[Optional[List[List[float]]]]]:
+    result: List[List[Optional[List[List[float]]]]] = []
+    if not sequences:
+        return result
+    for sequence in sequences:
+        result.append(_covariance_sequence_from_payload(sequence))
+    return result
 
 
 T = TypeVar("T", bound="LayerOffsetNm")
@@ -128,6 +221,7 @@ class ControllerState:
     spot_refinement_method: str = "Direct Click"
     refinement_roi_size: int = 5
     user_selected_substrate_spots: List[Tuple[float, float]] = field(default_factory=list)
+    user_selected_substrate_covariances: List[Optional[List[List[float]]]] = field(default_factory=list)
     substrate_lattice_type: Optional[str] = None
     substrate_a_surf: Optional[float] = None
     substrate_definition_name: str = ""
@@ -135,6 +229,7 @@ class ControllerState:
     substrate_t_m2i: Optional[Any] = None
     substrate_transform_analysis_m2i: Optional[Dict[str, Any]] = None
     displayable_fitted_substrate_spots_on_fft: List[Tuple[float, float]] = field(default_factory=list)
+    fitted_substrate_spot_covariances: List[Optional[List[List[float]]]] = field(default_factory=list)
     substrate_spot_pairs: List[Pair] = field(default_factory=list)
     show_substrate_raw_spots: bool = True
     show_substrate_transformed_spots: bool = True
@@ -145,6 +240,8 @@ class ControllerState:
     substrate_real_space_results: Optional[Dict[str, Any]] = None
     adsorbate_spot_sets: List[Any] = field(default_factory=lambda: [[]])
     corrected_adsorbate_spot_sets: List[Any] = field(default_factory=lambda: [[]])
+    adsorbate_spot_covariance_sets: List[List[Optional[List[List[float]]]]] = field(default_factory=lambda: [[]])
+    corrected_adsorbate_covariance_sets: List[List[Optional[List[List[float]]]]] = field(default_factory=lambda: [[]])
     current_adsorbate_set_index: int = 0
 
     adsorbate_real_space_results: Dict[int, Any] = field(default_factory=dict)
@@ -177,6 +274,15 @@ class ControllerState:
                     continue
                 ads_offsets[idx] = LayerOffsetNm.from_any(value)
 
+        user_covariances_raw = getattr(controller, "user_selected_substrate_covariances", []) or []
+        fitted_covariances_raw = getattr(controller, "fitted_substrate_spot_covariances", []) or []
+        adsorbate_cov_sets_raw = getattr(controller, "adsorbate_spot_covariance_sets", [[]]) or [[]]
+        corrected_adsorbate_cov_sets_raw = getattr(
+            controller,
+            "corrected_adsorbate_covariance_sets",
+            [[]],
+        ) or [[]]
+
         return cls(
             original_file_path=getattr(controller, "original_file_path", None),
             spot_selection_mode=getattr(controller, "spot_selection_mode", "Substrate"),
@@ -185,6 +291,7 @@ class ControllerState:
             user_selected_substrate_spots=[
                 tuple(spot) for spot in getattr(controller, "user_selected_substrate_spots", [])
             ],
+            user_selected_substrate_covariances=_covariance_sequence_to_payload(user_covariances_raw),
             substrate_lattice_type=getattr(controller, "substrate_lattice_type", None),
             substrate_a_surf=getattr(controller, "substrate_a_surf", None),
             substrate_definition_name=getattr(controller, "substrate_definition_name", ""),
@@ -194,6 +301,7 @@ class ControllerState:
             displayable_fitted_substrate_spots_on_fft=list(
                 getattr(controller, "displayable_fitted_substrate_spots_on_fft", [])
             ),
+            fitted_substrate_spot_covariances=_covariance_sequence_to_payload(fitted_covariances_raw),
             substrate_spot_pairs=substrate_pairs,
             show_substrate_raw_spots=bool(getattr(controller, "show_substrate_raw_spots", True)),
             show_substrate_transformed_spots=bool(getattr(controller, "show_substrate_transformed_spots", True)),
@@ -204,6 +312,10 @@ class ControllerState:
             substrate_real_space_results=getattr(controller, "substrate_real_space_results", None),
             adsorbate_spot_sets=list(getattr(controller, "adsorbate_spot_sets", [[]])),
             corrected_adsorbate_spot_sets=list(getattr(controller, "corrected_adsorbate_spot_sets", [[]])),
+            adsorbate_spot_covariance_sets=_nested_covariance_sequence_to_payload(adsorbate_cov_sets_raw),
+            corrected_adsorbate_covariance_sets=_nested_covariance_sequence_to_payload(
+                corrected_adsorbate_cov_sets_raw
+            ),
             current_adsorbate_set_index=int(getattr(controller, "current_adsorbate_set_index", 0)),
             adsorbate_real_space_results=dict(getattr(controller, "adsorbate_real_space_results", {})),
             adsorbate_expected_lattice_types=dict(
@@ -223,6 +335,15 @@ class ControllerState:
         controller.spot_refinement_method = self.spot_refinement_method
         controller.refinement_roi_size = self.refinement_roi_size
         controller.user_selected_substrate_spots = list(self.user_selected_substrate_spots)
+        user_covariances = [
+            _covariance_from_payload_matrix(cov) for cov in self.user_selected_substrate_covariances
+        ]
+        expected_user_len = len(controller.user_selected_substrate_spots)
+        if len(user_covariances) < expected_user_len:
+            user_covariances.extend([None] * (expected_user_len - len(user_covariances)))
+        elif len(user_covariances) > expected_user_len:
+            user_covariances = user_covariances[:expected_user_len]
+        controller.user_selected_substrate_covariances = user_covariances
         controller.substrate_lattice_type = self.substrate_lattice_type
         controller.substrate_a_surf = self.substrate_a_surf
         controller.substrate_definition_name = self.substrate_definition_name
@@ -232,6 +353,15 @@ class ControllerState:
         controller.displayable_fitted_substrate_spots_on_fft = list(
             self.displayable_fitted_substrate_spots_on_fft
         )
+        fitted_covariances = [
+            _covariance_from_payload_matrix(cov) for cov in self.fitted_substrate_spot_covariances
+        ]
+        expected_fitted_len = len(controller.displayable_fitted_substrate_spots_on_fft)
+        if len(fitted_covariances) < expected_fitted_len:
+            fitted_covariances.extend([None] * (expected_fitted_len - len(fitted_covariances)))
+        elif len(fitted_covariances) > expected_fitted_len:
+            fitted_covariances = fitted_covariances[:expected_fitted_len]
+        controller.fitted_substrate_spot_covariances = fitted_covariances
         controller.substrate_spot_pairs = [
             (tuple(raw) if raw is not None else None, tuple(transformed) if transformed is not None else None)
             for raw, transformed in self.substrate_spot_pairs
@@ -245,6 +375,39 @@ class ControllerState:
         controller.substrate_real_space_results = self.substrate_real_space_results
         controller.adsorbate_spot_sets = list(self.adsorbate_spot_sets)
         controller.corrected_adsorbate_spot_sets = list(self.corrected_adsorbate_spot_sets)
+
+        def _convert_cov_sets(
+            spot_sets: List[List[Any]],
+            payload_cov_sets: List[List[Optional[List[List[float]]]]],
+        ) -> List[List[Optional[np.ndarray]]]:
+            converted: List[List[Optional[np.ndarray]]] = []
+            if not spot_sets and not payload_cov_sets:
+                return [[]]
+            max_len = len(spot_sets)
+            for idx in range(max_len):
+                spots = spot_sets[idx]
+                payload_covs = payload_cov_sets[idx] if idx < len(payload_cov_sets) else []
+                cov_list: List[Optional[np.ndarray]] = []
+                for spot_idx in range(len(spots)):
+                    payload_cov = payload_covs[spot_idx] if spot_idx < len(payload_covs) else None
+                    cov_list.append(_covariance_from_payload_matrix(payload_cov))
+                converted.append(cov_list)
+            if len(payload_cov_sets) > max_len:
+                for idx in range(max_len, len(payload_cov_sets)):
+                    extra_payload = payload_cov_sets[idx]
+                    converted.append([_covariance_from_payload_matrix(cov) for cov in extra_payload])
+            if not converted:
+                converted = [[]]
+            return converted
+
+        controller.adsorbate_spot_covariance_sets = _convert_cov_sets(
+            controller.adsorbate_spot_sets,
+            self.adsorbate_spot_covariance_sets,
+        )
+        controller.corrected_adsorbate_covariance_sets = _convert_cov_sets(
+            controller.corrected_adsorbate_spot_sets,
+            self.corrected_adsorbate_covariance_sets,
+        )
         controller.current_adsorbate_set_index = self.current_adsorbate_set_index
         controller.adsorbate_real_space_results = dict(self.adsorbate_real_space_results)
         controller.adsorbate_expected_lattice_types = dict(self.adsorbate_expected_lattice_types)
@@ -274,6 +437,18 @@ class ControllerState:
 
         substrate_pairs = payload.get("substrate_spot_pairs") or []
         adsorbate_pairs = payload.get("adsorbate_spot_pairs") or {}
+        user_covariances = _covariance_sequence_from_payload(payload.get("user_selected_substrate_covariances"))
+        fitted_covariances = _covariance_sequence_from_payload(payload.get("fitted_substrate_spot_covariances"))
+        adsorbate_covariance_sets = _nested_covariance_sequence_from_payload(
+            payload.get("adsorbate_spot_covariance_sets")
+        )
+        corrected_adsorbate_covariance_sets = _nested_covariance_sequence_from_payload(
+            payload.get("corrected_adsorbate_covariance_sets")
+        )
+        if not adsorbate_covariance_sets:
+            adsorbate_covariance_sets = [[]]
+        if not corrected_adsorbate_covariance_sets:
+            corrected_adsorbate_covariance_sets = [[]]
 
         ads_offsets_raw = payload.get("adsorbate_visual_offsets_nm", {}) or {}
         ads_offsets: Dict[int, LayerOffsetNm] = {}
@@ -293,6 +468,7 @@ class ControllerState:
             user_selected_substrate_spots=[
                 tuple(spot) for spot in payload.get("user_selected_substrate_spots", [])
             ],
+            user_selected_substrate_covariances=user_covariances,
             substrate_lattice_type=payload.get("substrate_lattice_type"),
             substrate_a_surf=payload.get("substrate_a_surf"),
             substrate_definition_name=payload.get("substrate_definition_name", ""),
@@ -302,6 +478,7 @@ class ControllerState:
             displayable_fitted_substrate_spots_on_fft=list(
                 payload.get("displayable_fitted_substrate_spots_on_fft", [])
             ),
+            fitted_substrate_spot_covariances=fitted_covariances,
             substrate_spot_pairs=_coerce_pairs(substrate_pairs),
             show_substrate_raw_spots=bool(payload.get("show_substrate_raw_spots", True)),
             show_substrate_transformed_spots=bool(payload.get("show_substrate_transformed_spots", True)),
@@ -312,6 +489,8 @@ class ControllerState:
             substrate_real_space_results=payload.get("substrate_real_space_results"),
             adsorbate_spot_sets=list(payload.get("adsorbate_spot_sets", [[]])),
             corrected_adsorbate_spot_sets=list(payload.get("corrected_adsorbate_spot_sets", [[]])),
+            adsorbate_spot_covariance_sets=adsorbate_covariance_sets,
+            corrected_adsorbate_covariance_sets=corrected_adsorbate_covariance_sets,
             current_adsorbate_set_index=int(payload.get("current_adsorbate_set_index", 0)),
             adsorbate_real_space_results=dict(payload.get("adsorbate_real_space_results", {})),
             adsorbate_expected_lattice_types=dict(
@@ -332,6 +511,9 @@ class ControllerState:
             "spot_refinement_method": self.spot_refinement_method,
             "refinement_roi_size": self.refinement_roi_size,
             "user_selected_substrate_spots": self.user_selected_substrate_spots,
+            "user_selected_substrate_covariances": _covariance_sequence_to_payload(
+                self.user_selected_substrate_covariances
+            ),
             "substrate_lattice_type": self.substrate_lattice_type,
             "substrate_a_surf": self.substrate_a_surf,
             "substrate_definition_name": self.substrate_definition_name,
@@ -339,6 +521,9 @@ class ControllerState:
             "substrate_t_m2i": self.substrate_t_m2i,
             "substrate_transform_analysis_m2i": self.substrate_transform_analysis_m2i,
             "displayable_fitted_substrate_spots_on_fft": self.displayable_fitted_substrate_spots_on_fft,
+            "fitted_substrate_spot_covariances": _covariance_sequence_to_payload(
+                self.fitted_substrate_spot_covariances
+            ),
             "substrate_spot_pairs": _pairs_to_payload(self.substrate_spot_pairs),
             "show_substrate_raw_spots": self.show_substrate_raw_spots,
             "show_substrate_transformed_spots": self.show_substrate_transformed_spots,
@@ -349,6 +534,12 @@ class ControllerState:
             "substrate_real_space_results": self.substrate_real_space_results,
             "adsorbate_spot_sets": self.adsorbate_spot_sets,
             "corrected_adsorbate_spot_sets": self.corrected_adsorbate_spot_sets,
+            "adsorbate_spot_covariance_sets": _nested_covariance_sequence_to_payload(
+                self.adsorbate_spot_covariance_sets
+            ),
+            "corrected_adsorbate_covariance_sets": _nested_covariance_sequence_to_payload(
+                self.corrected_adsorbate_covariance_sets
+            ),
             "current_adsorbate_set_index": self.current_adsorbate_set_index,
             "adsorbate_real_space_results": self.adsorbate_real_space_results,
             "adsorbate_expected_lattice_types": self.adsorbate_expected_lattice_types,

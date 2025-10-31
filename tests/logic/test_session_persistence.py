@@ -185,6 +185,73 @@ def test_session_round_trip_preserves_offsets(qtbot):
     assert restored_controller.adsorbate_spot_pairs[1][0][1] == pytest.approx((5.1, 6.1))
 
 
+def test_session_round_trip_preserves_covariances(qtbot):
+    controller, _, _ = _create_controller_with_images(qtbot)
+
+    user_cov0 = np.array([[0.1, 0.01], [0.01, 0.2]], dtype=float)
+    fitted_cov0 = np.array([[0.05, 0.0], [0.0, 0.07]], dtype=float)
+    fitted_cov1 = np.array([[0.08, 0.01], [0.01, 0.09]], dtype=float)
+    ads_cov00 = np.array([[0.02, 0.0], [0.0, 0.03]], dtype=float)
+    ads_cov10 = np.array([[0.04, 0.0], [0.0, 0.05]], dtype=float)
+    corr_cov00 = np.array([[0.06, 0.0], [0.0, 0.07]], dtype=float)
+    corr_cov01 = np.array([[0.08, 0.01], [0.01, 0.09]], dtype=float)
+
+    controller.user_selected_substrate_spots = [(10.0, 20.0), (30.0, 40.0)]
+    controller.user_selected_substrate_covariances = [user_cov0, None]
+    controller.displayable_fitted_substrate_spots_on_fft = [(11.0, 21.0), (31.0, 41.0)]
+    controller.fitted_substrate_spot_covariances = [fitted_cov0, fitted_cov1]
+    controller.adsorbate_spot_sets = [
+        [(1.0, 2.0), (3.0, 4.0)],
+        [(5.0, 6.0)],
+    ]
+    controller.corrected_adsorbate_spot_sets = [
+        [(1.1, 2.1), (3.1, 4.1)],
+        [(5.1, 6.1)],
+    ]
+    controller.adsorbate_spot_covariance_sets = [
+        [ads_cov00, None],
+        [ads_cov10],
+    ]
+    controller.corrected_adsorbate_covariance_sets = [
+        [corr_cov00, corr_cov01],
+        [None],
+    ]
+
+    serializer = SessionSerializer(controller.history_manager)
+    session_state = serializer.build_session_state(controller)
+
+    list_widget = QListWidget()
+    qtbot.addWidget(list_widget)
+    restored_history = HistoryManager(list_widget)
+    restored_controller = AppController(restored_history)
+
+    SessionSerializer(restored_history).restore_session(restored_controller, session_state)
+
+    assert len(restored_controller.user_selected_substrate_covariances) == 2
+    np.testing.assert_allclose(restored_controller.user_selected_substrate_covariances[0], user_cov0)
+    assert restored_controller.user_selected_substrate_covariances[1] is None
+
+    assert len(restored_controller.fitted_substrate_spot_covariances) == 2
+    np.testing.assert_allclose(restored_controller.fitted_substrate_spot_covariances[0], fitted_cov0)
+    np.testing.assert_allclose(restored_controller.fitted_substrate_spot_covariances[1], fitted_cov1)
+
+    assert len(restored_controller.adsorbate_spot_covariance_sets) == 2
+    first_set = restored_controller.adsorbate_spot_covariance_sets[0]
+    second_set = restored_controller.adsorbate_spot_covariance_sets[1]
+    assert len(first_set) == 2 and len(second_set) == 1
+    np.testing.assert_allclose(first_set[0], ads_cov00)
+    assert first_set[1] is None
+    np.testing.assert_allclose(second_set[0], ads_cov10)
+
+    assert len(restored_controller.corrected_adsorbate_covariance_sets) == 2
+    corr_first = restored_controller.corrected_adsorbate_covariance_sets[0]
+    corr_second = restored_controller.corrected_adsorbate_covariance_sets[1]
+    assert len(corr_first) == 2 and len(corr_second) == 1
+    np.testing.assert_allclose(corr_first[0], corr_cov00)
+    np.testing.assert_allclose(corr_first[1], corr_cov01)
+    assert corr_second[0] is None
+
+
 def test_migrate_legacy_offsets_and_domain_wall_results():
     payload = {
         "format_version": "1.1",
