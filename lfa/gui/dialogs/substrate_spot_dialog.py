@@ -849,6 +849,16 @@ class SubstrateSpotSelectionDialog(QDialog):
         Ly_nm = root_node.parameters.get("size_nm_y")
         if not (Lx_nm and Ly_nm and Lx_nm > 0 and Ly_nm > 0):
             return None
+        sigma_Lx_nm = root_node.parameters.get("size_nm_x_sigma")
+        sigma_Ly_nm = root_node.parameters.get("size_nm_y_sigma")
+        try:
+            sigma_Lx_nm = float(sigma_Lx_nm) if sigma_Lx_nm is not None else 0.0
+        except (TypeError, ValueError):
+            sigma_Lx_nm = 0.0
+        try:
+            sigma_Ly_nm = float(sigma_Ly_nm) if sigma_Ly_nm is not None else 0.0
+        except (TypeError, ValueError):
+            sigma_Ly_nm = 0.0
         try:
             covariances = self.presenter.state.fitted_spot_covariances or None
             return get_real_space_lattice_parameters(
@@ -859,6 +869,8 @@ class SubstrateSpotSelectionDialog(QDialog):
                 fft_shape_cols_kx=fft_cols_kx,
                 fft_shape_rows_ky=fft_rows_ky,
                 selected_g_vector_covariances_px=covariances,
+                Lx_sigma_nm=sigma_Lx_nm,
+                Ly_sigma_nm=sigma_Ly_nm,
             )
         except Exception as exc:  # pragma: no cover - defensive
             logger.debug("Failed to compute real space preview: %s", exc)

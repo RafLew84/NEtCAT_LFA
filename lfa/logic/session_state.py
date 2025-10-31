@@ -250,6 +250,7 @@ class ControllerState:
     substrate_visual_offset_nm: LayerOffsetNm = field(default_factory=LayerOffsetNm)
     adsorbate_visual_offsets_nm: Dict[int, LayerOffsetNm] = field(default_factory=dict)
     adsorbate_spot_pairs: Dict[int, List[Pair]] = field(default_factory=lambda: {0: []})
+    pixel_calibration_sigma_nm: Tuple[float, float] = field(default_factory=lambda: (0.0, 0.0))
 
     @classmethod
     def from_controller(cls, controller: "AppController") -> "ControllerState":
@@ -282,6 +283,10 @@ class ControllerState:
             "corrected_adsorbate_covariance_sets",
             [[]],
         ) or [[]]
+        pixel_sigma_raw = getattr(controller, "pixel_calibration_sigma_nm", (0.0, 0.0))
+        pixel_sigma = _coerce_point(pixel_sigma_raw) if pixel_sigma_raw is not None else None
+        if pixel_sigma is None:
+            pixel_sigma = (0.0, 0.0)
 
         return cls(
             original_file_path=getattr(controller, "original_file_path", None),
@@ -327,6 +332,7 @@ class ControllerState:
             ),
             adsorbate_visual_offsets_nm=ads_offsets,
             adsorbate_spot_pairs=adsorbate_pairs or {0: []},
+            pixel_calibration_sigma_nm=(float(pixel_sigma[0]), float(pixel_sigma[1])),
         )
 
     def apply_to(self, controller: "AppController") -> None:
@@ -423,6 +429,7 @@ class ControllerState:
             ]
             for idx, pairs in self.adsorbate_spot_pairs.items()
         }
+        controller.pixel_calibration_sigma_nm = tuple(self.pixel_calibration_sigma_nm)
 
         controller.set_substrate_raw_visibility(self.show_substrate_raw_spots)
         controller.set_substrate_transformed_visibility(self.show_substrate_transformed_spots)
@@ -459,6 +466,9 @@ class ControllerState:
                 except (TypeError, ValueError):
                     continue
                 ads_offsets[idx] = LayerOffsetNm.from_any(value)
+        pixel_sigma_payload = _coerce_point(payload.get("pixel_calibration_sigma_nm"))
+        if pixel_sigma_payload is None:
+            pixel_sigma_payload = (0.0, 0.0)
 
         return cls(
             original_file_path=payload.get("original_file_path"),
@@ -502,6 +512,7 @@ class ControllerState:
             adsorbate_spot_pairs={
                 int(key): _coerce_pairs(value) for key, value in (adsorbate_pairs.items() if isinstance(adsorbate_pairs, dict) else [])
             } or {0: []},
+            pixel_calibration_sigma_nm=(float(pixel_sigma_payload[0]), float(pixel_sigma_payload[1])),
         )
 
     def to_payload(self) -> Dict[str, Any]:
@@ -552,6 +563,7 @@ class ControllerState:
                 idx: _pairs_to_payload(pairs)
                 for idx, pairs in self.adsorbate_spot_pairs.items()
             },
+            "pixel_calibration_sigma_nm": tuple(float(v) for v in self.pixel_calibration_sigma_nm),
         }
 
 

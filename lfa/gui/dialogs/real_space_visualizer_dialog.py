@@ -1,4 +1,4 @@
-﻿# lfa/gui/dialogs/real_space_visualizer_dialog.py
+# lfa/gui/dialogs/real_space_visualizer_dialog.py
 import logging
 import numpy as np
 from typing import Optional, List, Dict, Any, Tuple
@@ -386,7 +386,7 @@ class RealSpaceFFTVisualizerDialog(QDialog):
             self._redraw_fft_overlays()
             self._real_space_force_autorange = True
             self._redraw_real_space_lattices()
-            self.angle_sub_ads_label.setText("- Â°")
+            self.angle_sub_ads_label.setText("- deg")
         else:
              logger.warning(f"Visualizer: No user data for combo box index {combo_box_index}")
 
@@ -420,7 +420,7 @@ class RealSpaceFFTVisualizerDialog(QDialog):
             scale_text = format_pair(tuple(stretches), 3)
             rmse_text = format_float(analysis.get("rmse"), 3)
 
-            self.info_sub_rot_label.setText(f"{rotation_text}Â°" if rotation_text != "N/A" else "N/A")
+            self.info_sub_rot_label.setText(f"{rotation_text}deg" if rotation_text != "N/A" else "N/A")
             self.info_sub_scale_label.setText(scale_text if scale_text != "-" else "-")
             self.info_sub_rmse_label.setText(f"{rmse_text} px" if rmse_text != "-" else "-")
         else:
@@ -433,7 +433,7 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         self._real_space_force_autorange = True
         self._redraw_real_space_lattices()
         self._update_real_space_param_labels()
-        self.angle_sub_ads_label.setText("- Â°")
+        self.angle_sub_ads_label.setText("- deg")
 
 
     def _populate_adsorbate_set_combo_and_checkboxes(self):
@@ -730,53 +730,74 @@ class RealSpaceFFTVisualizerDialog(QDialog):
 
 
     def _update_real_space_param_labels(self):
-        """
-        Update real space parameter labels with current values.
-        
-        Updates:
-        - Substrate lattice parameters
-        - Adsorbate lattice parameters
-        - Substrate-adsorbate angle information
-        """
+        """Update real space parameter labels with current values."""
         logger.debug("Visualizer: Updating real space parameter labels...")
-        if self.app_controller and self.app_controller.substrate_real_space_results:
-            params = self.app_controller.substrate_real_space_results
+
+        def resolve_sigma_text(pair: Optional[Tuple[float, float]]) -> Optional[str]:
+            if not pair:
+                return None
+            sx = format_float(pair[0], 4)
+            sy = format_float(pair[1], 4)
+            if sx == "-" or sy == "-":
+                return None
+            return f"({sx}, {sy}) nm"
+
+        calibration_text = "- nm"
+        controller = self.app_controller
+
+        if controller and controller.substrate_real_space_results:
+            params = controller.substrate_real_space_results
             a1_text = format_float(params.get("a1_nm"), 3)
             a2_text = format_float(params.get("a2_nm"), 3)
             alpha_text = format_float(params.get("alpha_deg"), 2)
+
             self.sub_real_a1_label.setText(f"{a1_text} nm" if a1_text != "-" else "- nm")
             self.sub_real_a2_label.setText(f"{a2_text} nm" if a2_text != "-" else "- nm")
-            self.sub_real_alpha_label.setText(f"{alpha_text} Â°" if alpha_text != "-" else "- Â°")
+            self.sub_real_alpha_label.setText(f"{alpha_text} deg" if alpha_text != "-" else "- deg")
+
+            formatted_sigma = resolve_sigma_text(params.get("pixel_calibration_sigma_nm"))
+            if formatted_sigma:
+                calibration_text = formatted_sigma
         else:
             self.sub_real_a1_label.setText("- nm")
             self.sub_real_a2_label.setText("- nm")
-            self.sub_real_alpha_label.setText("- Â°")
+            self.sub_real_alpha_label.setText("- deg")
 
         current_ads_set_idx_vis = self.ads_set_combo_vis.currentData()
+
         if (
-            self.app_controller
+            controller
             and current_ads_set_idx_vis is not None
-            and current_ads_set_idx_vis in self.app_controller.adsorbate_real_space_results
+            and current_ads_set_idx_vis in controller.adsorbate_real_space_results
         ):
-            params = self.app_controller.adsorbate_real_space_results[current_ads_set_idx_vis]
+            params = controller.adsorbate_real_space_results[current_ads_set_idx_vis]
             a1_text = format_float(params.get("a1_nm"), 3)
             a2_text = format_float(params.get("a2_nm"), 3)
             alpha_text = format_float(params.get("alpha_deg"), 2)
+
             self.ads_real_a1_label.setText(f"{a1_text} nm" if a1_text != "-" else "- nm")
             self.ads_real_a2_label.setText(f"{a2_text} nm" if a2_text != "-" else "- nm")
-            self.ads_real_alpha_label.setText(f"{alpha_text} Â°" if alpha_text != "-" else "- Â°")
+            self.ads_real_alpha_label.setText(f"{alpha_text} deg" if alpha_text != "-" else "- deg")
+
+            formatted_sigma = resolve_sigma_text(params.get("pixel_calibration_sigma_nm"))
+            if formatted_sigma and calibration_text == "- nm":
+                calibration_text = formatted_sigma
         else:
             self.ads_real_a1_label.setText("- nm")
             self.ads_real_a2_label.setText("- nm")
-            self.ads_real_alpha_label.setText("- Â°")
-        
-        self.angle_sub_ads_label.setText("- Â°")
-        self.calculate_sub_ads_angle_button.setEnabled(bool(
-            self.app_controller and self.app_controller.substrate_real_space_results and
-            current_ads_set_idx_vis is not None and
-            current_ads_set_idx_vis in self.app_controller.adsorbate_real_space_results and
-            self.app_controller.adsorbate_real_space_results[current_ads_set_idx_vis]
-        ))
+            self.ads_real_alpha_label.setText("- deg")
+
+        self.calibration_sigma_label.setText(calibration_text)
+        self.angle_sub_ads_label.setText("- deg")
+        self.calculate_sub_ads_angle_button.setEnabled(
+            bool(
+                controller
+                and controller.substrate_real_space_results
+                and current_ads_set_idx_vis is not None
+                and current_ads_set_idx_vis in controller.adsorbate_real_space_results
+                and controller.adsorbate_real_space_results[current_ads_set_idx_vis]
+            )
+        )
 
     @pyqtSlot()
     def _on_calculate_sub_ads_angle_clicked(self):
@@ -814,7 +835,7 @@ class RealSpaceFFTVisualizerDialog(QDialog):
                 angle_text = format_float(angle_for_display_deg, precision=3)
                 angle_display = f"{angle_text} deg" if angle_text != "-" else "-"
                 self.angle_sub_ads_label.setText(angle_display)
-                logger.info(f"Displayed angle between default a1 vectors: {angle_for_display_deg:.3f}Â°")
+                logger.info(f"Displayed angle between default a1 vectors: {angle_for_display_deg:.3f}deg")
             else:
                 self.angle_sub_ads_label.setText("N/A (Zero vector)")
 
@@ -846,7 +867,7 @@ class RealSpaceFFTVisualizerDialog(QDialog):
                 while alignment_angle_rad > np.pi: alignment_angle_rad -= 2 * np.pi
                 
                 self.visual_alignment_angle_rad = alignment_angle_rad
-                logger.info(f"Stored visual alignment angle (background): {np.degrees(self.visual_alignment_angle_rad):.3f}Â°")
+                logger.info(f"Stored visual alignment angle (background): {np.degrees(self.visual_alignment_angle_rad):.3f}deg")
             else:
                 self.visual_alignment_angle_rad = 0.0
             

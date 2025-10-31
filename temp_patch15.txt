@@ -1,0 +1,11 @@
+*** Begin Patch
+*** Update File: lfa/logic/reporting.py
+@@
+     _add_matrix_to_record(record, result.get("real_space_metric_covariance"), base_key="rs_metric_cov")
++    sigma_pair = _safe_vector(result.get("pixel_calibration_sigma_nm"))
++    if sigma_pair:
++        record["pixel_sigma_nm_x"] = sigma_pair[0]
++        record["pixel_sigma_nm_y"] = sigma_pair[1]
+ 
+     return record
+*** End Patch

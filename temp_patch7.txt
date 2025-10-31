@@ -1,0 +1,8 @@
+*** Begin Patch
+*** Update File: lfa/gui/panels/fft_analysis_panel.py
+@@
+-import numpy as np
+-from typing import Optional, Dict, Any
++import numpy as np
++from typing import Optional, Dict, Any, Tuple
+*** End Patch

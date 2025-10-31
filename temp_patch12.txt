@@ -1,0 +1,29 @@
+*** Begin Patch
+*** Update File: lfa/gui/dialogs/real_space_visualizer_dialog.py
+@@
+         if self.app_controller and self.app_controller.substrate_real_space_results:
+             params = self.app_controller.substrate_real_space_results
+             a1_text = format_float(params.get("a1_nm"), 3)
+             a2_text = format_float(params.get("a2_nm"), 3)
+             alpha_text = format_float(params.get("alpha_deg"), 2)
+             self.sub_real_a1_label.setText(f"{a1_text} nm" if a1_text != "-" else "- nm")
+             self.sub_real_a2_label.setText(f"{a2_text} nm" if a2_text != "-" else "- nm")
+-            self.sub_real_alpha_label.setText(f"{alpha_text} °" if alpha_text != "-" else "- °")
++            self.sub_real_alpha_label.setText(f"{alpha_text} °" if alpha_text != "-" else "- °")
++            sigma_pair = params.get("pixel_calibration_sigma_nm")
++            if sigma_pair:
++                sx = format_float(sigma_pair[0], 4)
++                sy = format_float(sigma_pair[1], 4)
++                if sx != "-" and sy != "-":
++                    self.calibration_sigma_label.setText(f"({sx}, {sy}) nm")
++                else:
++                    self.calibration_sigma_label.setText("- nm")
++            else:
++                self.calibration_sigma_label.setText("- nm")
+         else:
+             self.sub_real_a1_label.setText("- nm")
+             self.sub_real_a2_label.setText("- nm")
+-            self.sub_real_alpha_label.setText("- °")
++            self.sub_real_alpha_label.setText("- °")
++            self.calibration_sigma_label.setText("- nm")
+*** End Patch

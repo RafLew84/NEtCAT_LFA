@@ -118,6 +118,7 @@ class SessionService:
         controller.user_selected_substrate_spots.clear()
         controller.substrate_visual_offset_nm = (0.0, 0.0)
         controller.adsorbate_visual_offsets_nm = {0: (0.0, 0.0)}
+        controller.pixel_calibration_sigma_nm = (0.0, 0.0)
 
         self._history.refresh_widget()
 

@@ -1,0 +1,11 @@
+*** Begin Patch
+*** Update File: lfa/gui/panels/fft_analysis_panel.py
+@@
+-        self.sub_rs_alpha_label = QLabel("- °")
++        self.sub_rs_alpha_label = QLabel("- °")
++        self.calibration_sigma_label = QLabel("- nm")
+@@
+-        substrate_params_form.addRow("Angle ? (a1,a2):", self.sub_rs_alpha_label)
++        substrate_params_form.addRow("Angle ? (a1,a2):", self.sub_rs_alpha_label)
++        substrate_params_form.addRow("Pixel ? (x,y):", self.calibration_sigma_label)
+*** End Patch

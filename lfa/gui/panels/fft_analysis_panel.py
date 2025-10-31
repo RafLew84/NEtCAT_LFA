@@ -1,7 +1,7 @@
 # lfa/gui/panels/fft_analysis_panel.py
 import logging
 import numpy as np
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Tuple
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QGroupBox, QFormLayout, QComboBox, QTextEdit,
     QCheckBox, QRadioButton, QSpinBox, QPushButton, QHBoxLayout, QLabel
@@ -141,31 +141,33 @@ class FFTAnalysisPanel(QWidget):
             self.superstructure_periodicity_group.setVisible(False)
 
     def _create_real_space_params_group(self, parent_layout: QVBoxLayout):
-        self.real_space_group = QGroupBox("Real Space Lattice Parameters")
+        self.real_space_group = QGroupBox('Real Space Lattice Parameters')
         real_space_layout = QVBoxLayout(self.real_space_group)
 
-        substrate_params_group = QGroupBox("Substrate")
+        substrate_params_group = QGroupBox('Substrate')
         substrate_params_form = QFormLayout(substrate_params_group)
-        self.sub_rs_a1_label = QLabel("- nm")
-        self.sub_rs_a2_label = QLabel("- nm")
-        self.sub_rs_alpha_label = QLabel("- °")
-        substrate_params_form.addRow("Vector 1 |a1|:", self.sub_rs_a1_label)
-        substrate_params_form.addRow("Vector 2 |a2|:", self.sub_rs_a2_label)
-        substrate_params_form.addRow("Angle α (a1,a2):", self.sub_rs_alpha_label)
-        self.calculate_substrate_rs_button = QPushButton("Calculate Substrate Parameters")
+        self.sub_rs_a1_label = QLabel('- nm')
+        self.sub_rs_a2_label = QLabel('- nm')
+        self.sub_rs_alpha_label = QLabel('- deg')
+        self.calibration_sigma_label = QLabel('- nm')
+        substrate_params_form.addRow('Vector 1 |a1|:', self.sub_rs_a1_label)
+        substrate_params_form.addRow('Vector 2 |a2|:', self.sub_rs_a2_label)
+        substrate_params_form.addRow('Angle (a1,a2) [deg]:', self.sub_rs_alpha_label)
+        substrate_params_form.addRow('Pixel sigma (x,y):', self.calibration_sigma_label)
+        self.calculate_substrate_rs_button = QPushButton('Calculate Substrate Parameters')
         self.calculate_substrate_rs_button.setEnabled(True)
         substrate_params_form.addRow(self.calculate_substrate_rs_button)
         real_space_layout.addWidget(substrate_params_group)
 
-        adsorbate_params_group = QGroupBox("Adsorbate (Current Set)")
+        adsorbate_params_group = QGroupBox('Adsorbate (Current Set)')
         adsorbate_params_form = QFormLayout(adsorbate_params_group)
-        self.ads_rs_a1_label = QLabel("- nm")
-        self.ads_rs_a2_label = QLabel("- nm")
-        self.ads_rs_alpha_label = QLabel("- °")
-        adsorbate_params_form.addRow("Vector 1 |a1|:", self.ads_rs_a1_label)
-        adsorbate_params_form.addRow("Vector 2 |a2|:", self.ads_rs_a2_label)
-        adsorbate_params_form.addRow("Angle α (a1,a2):", self.ads_rs_alpha_label)
-        self.calculate_adsorbate_rs_button = QPushButton("Calculate Adsorbate Parameters (Current Set)")
+        self.ads_rs_a1_label = QLabel('- nm')
+        self.ads_rs_a2_label = QLabel('- nm')
+        self.ads_rs_alpha_label = QLabel('- deg')
+        adsorbate_params_form.addRow('Vector 1 |a1|:', self.ads_rs_a1_label)
+        adsorbate_params_form.addRow('Vector 2 |a2|:', self.ads_rs_a2_label)
+        adsorbate_params_form.addRow('Angle (a1,a2) [deg]:', self.ads_rs_alpha_label)
+        self.calculate_adsorbate_rs_button = QPushButton('Calculate Adsorbate Parameters (Current Set)')
         self.calculate_adsorbate_rs_button.setEnabled(True)
         adsorbate_params_form.addRow(self.calculate_adsorbate_rs_button)
         real_space_layout.addWidget(adsorbate_params_group)
@@ -342,8 +344,18 @@ class FFTAnalysisPanel(QWidget):
         if value is None:
             return f"- {unit}"
         if sigma is not None and sigma >= 0:
-            return f"{value:.{value_precision}f} ± {sigma:.{sigma_precision}f} {unit}"
+            return f"{value:.{value_precision}f} +/- {sigma:.{sigma_precision}f} {unit}"
         return f"{value:.{value_precision}f} {unit}"
+
+    def _format_sigma_pair(self, pair: Optional[Tuple[float, float]]) -> str:
+        if not pair:
+            return "- nm"
+        try:
+            sx = float(pair[0])
+            sy = float(pair[1])
+        except (TypeError, ValueError):
+            return "- nm"
+        return f"({sx:.4f}, {sy:.4f}) nm"
 
     def _set_label_with_sigma(self, label: QLabel, value: Optional[float], sigma: Optional[float], unit: str, *, value_precision: int = 3, sigma_precision: int = 3) -> None:
         numeric_value = float(value) if isinstance(value, (int, float, np.floating)) else None
@@ -378,14 +390,18 @@ class FFTAnalysisPanel(QWidget):
                     self.sub_rs_alpha_label,
                     params.get("alpha_deg"),
                     params.get("alpha_deg_sigma"),
-                    "°",
+                    "deg",
                     value_precision=2,
                     sigma_precision=2,
+                )
+                self.calibration_sigma_label.setText(
+                    self._format_sigma_pair(params.get("pixel_calibration_sigma_nm"))
                 )
             else:
                 self._set_label_with_sigma(self.sub_rs_a1_label, None, None, "nm")
                 self._set_label_with_sigma(self.sub_rs_a2_label, None, None, "nm")
-                self._set_label_with_sigma(self.sub_rs_alpha_label, None, None, "°")
+                self._set_label_with_sigma(self.sub_rs_alpha_label, None, None, "deg")
+                self.calibration_sigma_label.setText("- nm")
 
     def set_calculate_substrate_rs_button_enabled(self, enabled: bool):
         if hasattr(self, 'calculate_substrate_rs_button'):
@@ -414,14 +430,18 @@ class FFTAnalysisPanel(QWidget):
                     self.ads_rs_alpha_label,
                     params.get("alpha_deg"),
                     params.get("alpha_deg_sigma"),
-                    "°",
+                    "deg",
                     value_precision=2,
                     sigma_precision=2,
                 )
             else:
                 self._set_label_with_sigma(self.ads_rs_a1_label, None, None, "nm")
                 self._set_label_with_sigma(self.ads_rs_a2_label, None, None, "nm")
-                self._set_label_with_sigma(self.ads_rs_alpha_label, None, None, "°")
+                self._set_label_with_sigma(self.ads_rs_alpha_label, None, None, "deg")
+            if params and params.get("pixel_calibration_sigma_nm") is not None:
+                self.calibration_sigma_label.setText(
+                    self._format_sigma_pair(params.get("pixel_calibration_sigma_nm"))
+                )
 
     def set_substrate_combo_text(self, text: str):
         """Sets the text in substrate_combo, blocking signals to avoid loops."""

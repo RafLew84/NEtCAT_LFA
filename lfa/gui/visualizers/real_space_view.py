@@ -83,6 +83,7 @@ class RealSpaceVisualizerWidgets:
     sub_real_a1_label: QLabel
     sub_real_a2_label: QLabel
     sub_real_alpha_label: QLabel
+    calibration_sigma_label: QLabel
     ads_set_combo_vis: QComboBox
     ads_real_a1_label: QLabel
     ads_real_a2_label: QLabel
@@ -184,13 +185,13 @@ def build_real_space_visualizer_ui(
     substrate_lattice_cells_spin = QSpinBox()
     substrate_lattice_cells_spin.setRange(1, 50)
     substrate_lattice_cells_spin.setValue(10)
-    substrate_lattice_cells_spin.setToolTip("Number of substrate lattice cells drawn in each direction (N×N).")
+    substrate_lattice_cells_spin.setToolTip("Number of substrate lattice cells drawn in each direction (NxN).")
     display_options_form.addRow("Substrate lattice span (N):", substrate_lattice_cells_spin)
 
     adsorbate_lattice_cells_spin = QSpinBox()
     adsorbate_lattice_cells_spin.setRange(1, 50)
     adsorbate_lattice_cells_spin.setValue(10)
-    adsorbate_lattice_cells_spin.setToolTip("Number of adsorbate lattice cells drawn in each direction (N×N).")
+    adsorbate_lattice_cells_spin.setToolTip("Number of adsorbate lattice cells drawn in each direction (NxN).")
     display_options_form.addRow("Adsorbate lattice span (N):", adsorbate_lattice_cells_spin)
 
     substrate_atom_size_spin = QDoubleSpinBox()
@@ -269,14 +270,14 @@ def build_real_space_visualizer_ui(
     custom_angle_a1_spin.setDecimals(2)
     custom_angle_a1_spin.setSingleStep(1.0)
     custom_angle_a1_spin.setValue(0.0)
-    custom_form.addRow("Angle of a1 (°):", custom_angle_a1_spin)
+    custom_form.addRow("Angle of a1 (deg):", custom_angle_a1_spin)
 
     custom_angle_between_spin = QDoubleSpinBox()
     custom_angle_between_spin.setRange(0.0, 180.0)
     custom_angle_between_spin.setDecimals(2)
     custom_angle_between_spin.setSingleStep(1.0)
     custom_angle_between_spin.setValue(60.0)
-    custom_form.addRow("Angle between a1 & a2 (°):", custom_angle_between_spin)
+    custom_form.addRow("Angle between a1 & a2 (deg):", custom_angle_between_spin)
 
     custom_length_convert_button = QPushButton("Convert Lengths/Angles to Components")
     custom_form.addRow(custom_length_convert_button)
@@ -308,25 +309,25 @@ def build_real_space_visualizer_ui(
     substrate_offset_x_spin.setRange(-100.0, 100.0)
     substrate_offset_x_spin.setDecimals(3)
     substrate_offset_x_spin.setSingleStep(0.05)
-    offsets_form.addRow("Substrate ΔX:", substrate_offset_x_spin)
+    offsets_form.addRow("Substrate DeltaX:", substrate_offset_x_spin)
 
     substrate_offset_y_spin = QDoubleSpinBox()
     substrate_offset_y_spin.setRange(-100.0, 100.0)
     substrate_offset_y_spin.setDecimals(3)
     substrate_offset_y_spin.setSingleStep(0.05)
-    offsets_form.addRow("Substrate ΔY:", substrate_offset_y_spin)
+    offsets_form.addRow("Substrate DeltaY:", substrate_offset_y_spin)
 
     adsorbate_offset_x_spin = QDoubleSpinBox()
     adsorbate_offset_x_spin.setRange(-100.0, 100.0)
     adsorbate_offset_x_spin.setDecimals(3)
     adsorbate_offset_x_spin.setSingleStep(0.05)
-    offsets_form.addRow("Adsorbate ΔX:", adsorbate_offset_x_spin)
+    offsets_form.addRow("Adsorbate DeltaX:", adsorbate_offset_x_spin)
 
     adsorbate_offset_y_spin = QDoubleSpinBox()
     adsorbate_offset_y_spin.setRange(-100.0, 100.0)
     adsorbate_offset_y_spin.setDecimals(3)
     adsorbate_offset_y_spin.setSingleStep(0.05)
-    offsets_form.addRow("Adsorbate ΔY:", adsorbate_offset_y_spin)
+    offsets_form.addRow("Adsorbate DeltaY:", adsorbate_offset_y_spin)
 
     display_options_form.addRow(offsets_group)
 
@@ -353,10 +354,12 @@ def build_real_space_visualizer_ui(
     sub_real_params_layout = QFormLayout(sub_real_params_group)
     sub_real_a1_label = QLabel("- nm")
     sub_real_a2_label = QLabel("- nm")
-    sub_real_alpha_label = QLabel("- °")
+    sub_real_alpha_label = QLabel("- deg")
+    calibration_sigma_label = QLabel("- nm")
     sub_real_params_layout.addRow("|a1|:", sub_real_a1_label)
     sub_real_params_layout.addRow("|a2|:", sub_real_a2_label)
-    sub_real_params_layout.addRow("Angle α:", sub_real_alpha_label)
+    sub_real_params_layout.addRow("Angle (a1,a2) [deg]:", sub_real_alpha_label)
+    sub_real_params_layout.addRow("Pixel sigma (x,y):", calibration_sigma_label)
     controls_panel_layout.addWidget(sub_real_params_group)
 
     ads_real_params_group = QGroupBox("Adsorbate Real Space Parameters")
@@ -365,11 +368,11 @@ def build_real_space_visualizer_ui(
     ads_real_params_layout.addRow("Select Adsorbate Set:", ads_set_combo_vis)
     ads_real_a1_label = QLabel("- nm")
     ads_real_a2_label = QLabel("- nm")
-    ads_real_alpha_label = QLabel("- °")
+    ads_real_alpha_label = QLabel("- deg")
     ads_real_params_layout.addRow("|a1|:", ads_real_a1_label)
     ads_real_params_layout.addRow("|a2|:", ads_real_a2_label)
-    ads_real_params_layout.addRow("Angle α:", ads_real_alpha_label)
-    angle_sub_ads_label = QLabel("- °")
+    ads_real_params_layout.addRow("Angle (a1,a2) [deg]:", ads_real_alpha_label)
+    angle_sub_ads_label = QLabel("- deg")
     ads_real_params_layout.addRow("Sub-Ads Angle:", angle_sub_ads_label)
     calculate_sub_ads_angle_button = QPushButton("Calculate Sub-Ads Angle")
     ads_real_params_layout.addRow(calculate_sub_ads_angle_button)
@@ -437,6 +440,7 @@ def build_real_space_visualizer_ui(
         sub_real_a1_label=sub_real_a1_label,
         sub_real_a2_label=sub_real_a2_label,
         sub_real_alpha_label=sub_real_alpha_label,
+        calibration_sigma_label=calibration_sigma_label,
         ads_set_combo_vis=ads_set_combo_vis,
         ads_real_a1_label=ads_real_a1_label,
         ads_real_a2_label=ads_real_a2_label,

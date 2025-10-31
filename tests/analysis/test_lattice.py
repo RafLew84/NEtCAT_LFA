@@ -225,3 +225,22 @@ class TestLatticeCalculations:
     def test_get_real_space_parameters_invalid_input(self):
         assert get_real_space_lattice_parameters([], LATTICE_TYPE_SQUARE, 10, 10, 100, 100) is None
         assert get_real_space_lattice_parameters([(1,1),(2,2)], LATTICE_TYPE_SQUARE, 0, 10, 100, 100) is None
+
+    def test_pixel_calibration_uncertainty_contributes_to_covariance(self):
+        g_vectors = [(10.0, 0.0), (0.0, 12.0)]
+        result = get_real_space_lattice_parameters(
+            selected_g_vectors_relative_px=g_vectors,
+            lattice_type=LATTICE_TYPE_SQUARE,
+            Lx_nm=20.0,
+            Ly_nm=22.0,
+            fft_shape_cols_kx=128,
+            fft_shape_rows_ky=128,
+            selected_g_vector_covariances_px=None,
+            Lx_sigma_nm=0.5,
+            Ly_sigma_nm=0.4,
+        )
+        assert result is not None
+        g1_cov = result.get("g1_vec_cov_nm_inv")
+        assert g1_cov is not None
+        expected_var_x = ((10.0 / (20.0 ** 2)) ** 2) * (0.5 ** 2)
+        assert np.isclose(g1_cov[0][0], expected_var_x)

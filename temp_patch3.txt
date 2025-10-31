@@ -1,0 +1,52 @@
+@@
+-        Lx_nm = root_node.parameters.get("size_nm_x")
+-        Ly_nm = root_node.parameters.get("size_nm_y")
++        Lx_nm = root_node.parameters.get("size_nm_x")
++        Ly_nm = root_node.parameters.get("size_nm_y")
+         if not (Lx_nm and Ly_nm and Lx_nm > 0 and Ly_nm > 0): 
+             logger.warning("Invalid Lx/Ly.")
+             self.adsorbate_real_space_params_updated.emit(set_index, {"error": "Invalid Lx/Ly."})
+             return
++
++        sigma_Lx_nm, sigma_Ly_nm = self._resolve_pixel_calibration_uncertainty(root_node)
+@@
+-        g1_cov_ads_nm = scale_matrix @ g1_cov_ads_px @ scale_matrix.T if g1_cov_ads_px is not None else None
+-        g2_cov_ads_nm = scale_matrix @ g2_cov_ads_px @ scale_matrix.T if g2_cov_ads_px is not None else None
++        g1_cov_ads_nm = scale_matrix @ g1_cov_ads_px @ scale_matrix.T if g1_cov_ads_px is not None else None
++        g2_cov_ads_nm = scale_matrix @ g2_cov_ads_px @ scale_matrix.T if g2_cov_ads_px is not None else None
++
++        g1_cov_ads_nm = augment_covariance_with_calibration(
++            g1_ads_px,
++            g1_cov_ads_nm,
++            Lx_nm,
++            Ly_nm,
++            sigma_Lx_nm,
++            sigma_Ly_nm,
++        )
++        g2_cov_ads_nm = augment_covariance_with_calibration(
++            g2_ads_px,
++            g2_cov_ads_nm,
++            Lx_nm,
++            Ly_nm,
++            sigma_Lx_nm,
++            sigma_Ly_nm,
++        )
+@@
+         results = {
+             "a1_nm": a1_ads_mag_nm, "a2_nm": a2_ads_mag_nm, "alpha_deg": alpha_ads_deg,
+             "a1_vec_nm": a1_ads_vec_nm, "a2_vec_nm": a2_ads_vec_nm,
+             "g1_vec_px_ideal_sys": g1_ads_px,
+             "g2_vec_px_ideal_sys": g2_ads_px,
+             "g1_vec_nm_inv": g1_ads_nm_inv, 
+             "g2_vec_nm_inv": g2_ads_nm_inv,
+             "source_corrected_spots_ideal_px": corrected_spots_ideal_px_abs
+         }
+@@
+         if metrics_uncertainty is not None:
+             results["real_space_metric_covariance"] = metrics_uncertainty.covariance
+             diag_entries = np.clip(np.diag(metrics_uncertainty.covariance), 0.0, None)
+             if diag_entries.size >= 3:
+                 results["a1_nm_sigma"] = float(np.sqrt(diag_entries[0]))
+                 results["a2_nm_sigma"] = float(np.sqrt(diag_entries[1]))
+                 results["alpha_deg_sigma"] = float(np.sqrt(diag_entries[2]))
++        results["pixel_calibration_sigma_nm"] = (float(sigma_Lx_nm), float(sigma_Ly_nm))

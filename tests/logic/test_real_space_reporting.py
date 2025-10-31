@@ -34,6 +34,7 @@ def _sample_real_space_result() -> dict:
         "g2_vec_px": (4.0, 11.0),
         "g2_vec_cov_px": np.array([[0.7**2, 0.0], [0.0, 0.8**2]], dtype=float),
         "real_space_metric_covariance": np.diag([0.005**2, 0.006**2, 0.2**2]),
+        "pixel_calibration_sigma_nm": (0.01, 0.02),
     }
 
 
@@ -45,6 +46,7 @@ def test_build_real_space_summary_includes_uncertainties():
 
     assert "|a1| = 0.2500 +/- 0.0050 nm" in summary
     assert "Adsorbate Set 1" in summary
+    assert "Pixel" in summary
 
 
 def test_build_real_space_json_contains_sigma_fields():
@@ -55,6 +57,8 @@ def test_build_real_space_json_contains_sigma_fields():
 
     assert pytest.approx(payload["substrate"]["a1_nm_sigma"]) == 0.005
     assert payload["adsorbate"][2]["g1_vec_cov_nm_inv"] == [[0.0001, 0.0], [0.0, 0.0004]]
+    assert pytest.approx(payload["substrate"]["pixel_calibration_sigma_nm"][0]) == 0.01
+    assert pytest.approx(payload["substrate"]["pixel_calibration_sigma_nm"][1]) == 0.02
 
 
 def test_build_real_space_records_flatten_vectors():
@@ -68,6 +72,8 @@ def test_build_real_space_records_flatten_vectors():
     assert first["label"] == "substrate"
     assert pytest.approx(first["g1_nm_inv_sigma_0"]) == 0.01
     assert "rs_metric_cov_00" in first
+    assert pytest.approx(first["pixel_sigma_nm_x"]) == 0.01
+    assert pytest.approx(first["pixel_sigma_nm_y"]) == 0.02
 
 
 def test_app_controller_real_space_exports(qtbot, tmp_path: Path):
@@ -85,11 +91,14 @@ def test_app_controller_real_space_exports(qtbot, tmp_path: Path):
     assert controller.copy_real_space_summary_to_clipboard() is True
     clipboard_text = QApplication.clipboard().text()
     assert "|a1| = 0.2500 +/- 0.0050 nm" in clipboard_text
+    assert "Pixel" in clipboard_text
 
     json_path = tmp_path / "real_space_report.json"
     controller.export_real_space_report_to_json(str(json_path))
     data = json.loads(json_path.read_text(encoding="utf-8"))
     assert pytest.approx(data["substrate"]["alpha_deg_sigma"]) == 0.2
+    assert pytest.approx(data["substrate"]["pixel_calibration_sigma_nm"][0]) == 0.01
+    assert pytest.approx(data["substrate"]["pixel_calibration_sigma_nm"][1]) == 0.02
 
     csv_path = tmp_path / "real_space_report.csv"
     controller.export_real_space_report_to_csv(str(csv_path))
@@ -97,3 +106,5 @@ def test_app_controller_real_space_exports(qtbot, tmp_path: Path):
         rows = list(csv.DictReader(handle))
     assert rows
     assert rows[0]["a2_nm_sigma"] == "0.006"
+    assert pytest.approx(float(rows[0]["pixel_sigma_nm_x"])) == 0.01
+    assert pytest.approx(float(rows[0]["pixel_sigma_nm_y"])) == 0.02

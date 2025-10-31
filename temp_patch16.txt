@@ -1,0 +1,24 @@
+*** Begin Patch
+*** Update File: lfa/logic/reporting.py
+@@
+ def _format_value_with_sigma(
+     value: Any,
+     sigma: Any,
+     unit: str,
+     *,
+@@
+     if numeric_sigma is not None and numeric_sigma >= 0.0:
+         return f"{numeric_value:.{precision}f} +/- {numeric_sigma:.{precision}f} {unit}".strip()
+ 
+     return f"{numeric_value:.{precision}f} {unit}".strip()
++
++
++def _format_sigma_pair_text(pair: Tuple[float, ...]) -> str:
++    if not pair or len(pair) < 2:
++        return "(0.0000, 0.0000) nm"
++    sx = _safe_float(pair[0])
++    sy = _safe_float(pair[1])
++    if sx is None or sy is None:
++        return "(0.0000, 0.0000) nm"
++    return f"({sx:.4f}, {sy:.4f}) nm"
+*** End Patch

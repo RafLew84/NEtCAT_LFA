@@ -153,6 +153,7 @@ def _json_payload_for_result(result: Optional[RealSpaceResult]) -> Optional[Dict
         "g1_vec_cov_px": _safe_matrix(result.get("g1_vec_cov_px")),
         "g2_vec_cov_px": _safe_matrix(result.get("g2_vec_cov_px")),
         "real_space_metric_covariance": _safe_matrix(result.get("real_space_metric_covariance")),
+        "pixel_calibration_sigma_nm": _safe_vector(result.get("pixel_calibration_sigma_nm")),
     }
     return payload
 
@@ -203,6 +204,10 @@ def _record_for_result(
     )
 
     _add_matrix_to_record(record, result.get("real_space_metric_covariance"), base_key="rs_metric_cov")
+    sigma_pair = _safe_vector(result.get("pixel_calibration_sigma_nm"))
+    if sigma_pair:
+        record["pixel_sigma_nm_x"] = sigma_pair[0]
+        record["pixel_sigma_nm_y"] = sigma_pair[1]
 
     return record
 
@@ -224,6 +229,16 @@ def _format_value_with_sigma(
         return f"{numeric_value:.{precision}f} +/- {numeric_sigma:.{precision}f} {unit}".strip()
 
     return f"{numeric_value:.{precision}f} {unit}".strip()
+
+
+def _format_sigma_pair_text(pair: Tuple[float, ...]) -> str:
+    if not pair or len(pair) < 2:
+        return "- nm"
+    sx = _safe_float(pair[0])
+    sy = _safe_float(pair[1])
+    if sx is None or sy is None:
+        return "- nm"
+    return f"({sx:.4f}, {sy:.4f}) nm"
 
 
 def _format_vector_with_covariance(

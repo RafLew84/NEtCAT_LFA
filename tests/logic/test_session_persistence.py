@@ -216,6 +216,7 @@ def test_session_round_trip_preserves_covariances(qtbot):
         [corr_cov00, corr_cov01],
         [None],
     ]
+    controller.pixel_calibration_sigma_nm = (0.01, 0.02)
 
     serializer = SessionSerializer(controller.history_manager)
     session_state = serializer.build_session_state(controller)
@@ -250,6 +251,7 @@ def test_session_round_trip_preserves_covariances(qtbot):
     np.testing.assert_allclose(corr_first[0], corr_cov00)
     np.testing.assert_allclose(corr_first[1], corr_cov01)
     assert corr_second[0] is None
+    assert restored_controller.pixel_calibration_sigma_nm == pytest.approx((0.01, 0.02))
 
 
 def test_migrate_legacy_offsets_and_domain_wall_results():

@@ -62,17 +62,19 @@ class FFTPanelState:
 
 try:
     from ..analysis.lattice import (
-        get_real_space_lattice_parameters, 
-        calculate_real_space_vectors_from_g, 
-        convert_g_vector_px_to_nm_inv, 
+        get_real_space_lattice_parameters,
+        calculate_real_space_vectors_from_g,
+        convert_g_vector_px_to_nm_inv,
         select_adsorbate_reciprocal_basis_vectors_px,
         compute_real_space_metric_uncertainty,
+        augment_covariance_with_calibration,
     )
     LATTICE_ANALYSIS_FUNCTIONS_AVAILABLE = True
 except ImportError: 
     logging.error("AppController: Could not import lattice analysis functions.")
     LATTICE_ANALYSIS_FUNCTIONS_AVAILABLE = False
     def get_real_space_lattice_parameters(*args, **kwargs): return None
+    def augment_covariance_with_calibration(*args, **kwargs): return None
 
 class AppController(QObject):
     """
@@ -170,6 +172,7 @@ class AppController(QObject):
         self.adsorbate_expected_lattice_types: Dict[int, str] = {0: ADSORBATE_LATTICE_TYPE_UNKNOWN}
         self.substrate_visual_offset_nm: Tuple[float, float] = (0.0, 0.0)
         self.adsorbate_visual_offsets_nm: Dict[int, Tuple[float, float]] = {0: (0.0, 0.0)}
+        self.pixel_calibration_sigma_nm: Tuple[float, float] = (0.0, 0.0)
 
         self.superstructure_periodicity_results: Optional[Dict[str, Any]] = None
         self.session_serializer = SessionSerializer(self.history_manager)
@@ -574,6 +577,8 @@ class AppController(QObject):
 
         print(f"displayable_fitted_substrate_spots_on_fft: {self.displayable_fitted_substrate_spots_on_fft}")
         print(f"fitted_g_vectors_relative_px: {fitted_g_vectors_relative_px}")
+        sigma_Lx_nm, sigma_Ly_nm = self._resolve_pixel_calibration_uncertainty(root_node)
+
         results = get_real_space_lattice_parameters(
             selected_g_vectors_relative_px=fitted_g_vectors_relative_px,
             lattice_type=self.substrate_lattice_type,
@@ -582,6 +587,8 @@ class AppController(QObject):
             fft_shape_cols_kx=fft_cols_kx,
             fft_shape_rows_ky=fft_rows_ky,
             selected_g_vector_covariances_px=fitted_covariances_relative_px,
+            Lx_sigma_nm=sigma_Lx_nm,
+            Ly_sigma_nm=sigma_Ly_nm,
         )
 
         if results:
@@ -645,6 +652,7 @@ class AppController(QObject):
             logger.warning("Invalid Lx/Ly.")
             self.adsorbate_real_space_params_updated.emit(set_index, {"error": "Invalid Lx/Ly."})
             return
+        sigma_Lx_nm, sigma_Ly_nm = self._resolve_pixel_calibration_uncertainty(root_node)
         
         fft_rows_ky, fft_cols_kx = self.current_fft_data_shape
         center_kx_ideal_px = fft_cols_kx / 2.0
@@ -751,6 +759,23 @@ class AppController(QObject):
         g1_cov_ads_nm = scale_matrix @ g1_cov_ads_px @ scale_matrix.T if g1_cov_ads_px is not None else None
         g2_cov_ads_nm = scale_matrix @ g2_cov_ads_px @ scale_matrix.T if g2_cov_ads_px is not None else None
 
+        g1_cov_ads_nm = augment_covariance_with_calibration(
+            g1_ads_px,
+            g1_cov_ads_nm,
+            Lx_nm,
+            Ly_nm,
+            sigma_Lx_nm,
+            sigma_Ly_nm,
+        )
+        g2_cov_ads_nm = augment_covariance_with_calibration(
+            g2_ads_px,
+            g2_cov_ads_nm,
+            Lx_nm,
+            Ly_nm,
+            sigma_Lx_nm,
+            sigma_Ly_nm,
+        )
+
         metrics_uncertainty = None
         if g1_cov_ads_nm is not None and g2_cov_ads_nm is not None:
             combined_covariance = np.zeros((4, 4), dtype=float)
@@ -789,6 +814,7 @@ class AppController(QObject):
                 results["a1_nm_sigma"] = float(np.sqrt(diag_entries[0]))
                 results["a2_nm_sigma"] = float(np.sqrt(diag_entries[1]))
                 results["alpha_deg_sigma"] = float(np.sqrt(diag_entries[2]))
+        results["pixel_calibration_sigma_nm"] = (float(sigma_Lx_nm), float(sigma_Ly_nm))
         logger.info(f"Adsorbate set {set_index} real space params: a1={a1_ads_mag_nm:.3f}nm, a2={a2_ads_mag_nm:.3f}nm, alpha={alpha_ads_deg:.2f}deg")
         self.adsorbate_real_space_results[set_index] = results
         self.adsorbate_real_space_params_updated.emit(set_index, results)
@@ -1011,6 +1037,19 @@ class AppController(QObject):
         """Sets the expected lattice type for a given adsorbate set."""
         self.spot_service.set_expected_adsorbate_lattice_type(set_index, lattice_type)
 
+    def set_pixel_calibration_uncertainty(self, sigma_x_nm: float, sigma_y_nm: float) -> None:
+        """Update the stored pixel calibration uncertainties (nm)."""
+        try:
+            sx = max(float(sigma_x_nm), 0.0)
+        except (TypeError, ValueError):
+            sx = 0.0
+        try:
+            sy = max(float(sigma_y_nm), 0.0)
+        except (TypeError, ValueError):
+            sy = 0.0
+        self.pixel_calibration_sigma_nm = (sx, sy)
+        logger.info("AppController: Pixel calibration uncertainty set to (%.4f, %.4f) nm", sx, sy)
+
     def clear_all_adsorbate_sets(self):
         """Clears all adsorbate sets and resets to one empty set."""
         self.spot_service.clear_all_adsorbate_sets()
@@ -1171,6 +1210,23 @@ class AppController(QObject):
         if history_node and history_node.data_type == "FFT" and getattr(history_node, "image_data", None) is not None:
             return history_node.image_data.shape
         return self.current_fft_data_shape
+
+    def _resolve_pixel_calibration_uncertainty(self, root_node: Optional[HistoryNode]) -> Tuple[float, float]:
+        """Return the (sigma_x, sigma_y) calibration uncertainties in nanometres."""
+        default_x, default_y = self.pixel_calibration_sigma_nm
+        params = getattr(root_node, "parameters", {}) if root_node else {}
+
+        def _coerce(value, default):
+            if value is None:
+                return float(default)
+            try:
+                return max(float(value), 0.0)
+            except (TypeError, ValueError):
+                return float(default)
+
+        sigma_x = _coerce(params.get("size_nm_x_sigma"), default_x)
+        sigma_y = _coerce(params.get("size_nm_y_sigma"), default_y)
+        return (sigma_x, sigma_y)
 
     def _can_calculate_substrate_real_space(self, history_node: HistoryNode) -> bool:
         """Check whether current data is sufficient to compute substrate real-space metrics."""

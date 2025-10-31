@@ -1,0 +1,9 @@
+*** Begin Patch
+*** Update File: tests/logic/test_real_space_reporting.py
+@@
+         "g2_vec_px": (4.0, 11.0),
+         "g2_vec_cov_px": np.array([[0.7**2, 0.0], [0.0, 0.8**2]], dtype=float),
+         "real_space_metric_covariance": np.diag([0.005**2, 0.006**2, 0.2**2]),
++        "pixel_calibration_sigma_nm": (0.01, 0.02),
+     }
+*** End Patch

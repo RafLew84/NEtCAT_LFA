@@ -1,0 +1,19 @@
+*** Begin Patch
+*** Update File: lfa/logic/reporting.py
+@@
+ def _format_sigma_pair_text(pair: Tuple[float, ...]) -> str:
+-    if not pair or len(pair) < 2:
+-        return "(0.0000, 0.0000) nm"
+-    sx = _safe_float(pair[0])
+-    sy = _safe_float(pair[1])
+-    if sx is None or sy is None:
+-        return "(0.0000, 0.0000) nm"
+-    return f"({sx:.4f}, {sy:.4f}) nm"
++    if not pair or len(pair) < 2:
++        return "- nm"
++    sx = _safe_float(pair[0])
++    sy = _safe_float(pair[1])
++    if sx is None or sy is None:
++        return "- nm"
++    return f"({sx:.4f}, {sy:.4f}) nm"
+*** End Patch

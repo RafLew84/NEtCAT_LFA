@@ -29,6 +29,44 @@ LATTICE_TYPE_UNKNOWN = "Unknown"
 
 logger = logging.getLogger(__name__)
 
+def augment_covariance_with_calibration(
+    g_vector_px: Tuple[float, float],
+    covariance_nm_inv: Optional[np.ndarray],
+    Lx_nm: float,
+    Ly_nm: float,
+    sigma_Lx_nm: float,
+    sigma_Ly_nm: float,
+) -> Optional[np.ndarray]:
+    """
+    Add contributions from pixel-size calibration uncertainty to a covariance matrix.
+    """
+    has_existing = covariance_nm_inv is not None
+    if covariance_nm_inv is not None:
+        cov = np.array(covariance_nm_inv, dtype=float)
+        if cov.shape != (2, 2):
+            cov = np.zeros((2, 2), dtype=float)
+            has_existing = False
+    else:
+        cov = np.zeros((2, 2), dtype=float)
+
+    added = False
+    gx_px = float(g_vector_px[0]) if g_vector_px is not None else 0.0
+    gy_px = float(g_vector_px[1]) if g_vector_px is not None else 0.0
+
+    if sigma_Lx_nm and sigma_Lx_nm > 0.0 and abs(Lx_nm) > 1e-12:
+        deriv_x = gx_px / (Lx_nm ** 2)
+        cov[0, 0] += (deriv_x * sigma_Lx_nm) ** 2
+        added = True
+
+    if sigma_Ly_nm and sigma_Ly_nm > 0.0 and abs(Ly_nm) > 1e-12:
+        deriv_y = gy_px / (Ly_nm ** 2)
+        cov[1, 1] += (deriv_y * sigma_Ly_nm) ** 2
+        added = True
+
+    if not has_existing and not added:
+        return None
+    return cov
+
 # Lattice Definitions
 # Store real-space lattice constant 'a' (nearest neighbor or conventional cell param) in nm.
 # Store type ('hexagonal', 'square') to determine reciprocal lattice calculation.
@@ -696,6 +734,8 @@ def get_real_space_lattice_parameters(
     fft_shape_cols_kx: int,       # Total columns in FFT (N_kx)
     fft_shape_rows_ky: int,       # Total rows in FFT (N_ky)
     selected_g_vector_covariances_px: Optional[List[Optional[np.ndarray]]] = None,
+    Lx_sigma_nm: float = 0.0,
+    Ly_sigma_nm: float = 0.0,
 ) -> Optional[Dict[str, Any]]:
     """
     Calculates real-space lattice parameters (a1, a2 magnitudes, angle alpha)
@@ -805,14 +845,33 @@ def get_real_space_lattice_parameters(
     alpha_s_rad = np.arccos(cos_alpha_s)
     alpha_s_deg = np.degrees(alpha_s_rad)
 
+    scale_matrix = np.array([[1.0 / Lx_nm, 0.0], [0.0, 1.0 / Ly_nm]], dtype=float)
     g1_cov_nm_inv: Optional[np.ndarray] = None
     g2_cov_nm_inv: Optional[np.ndarray] = None
-    if g1_cov_px is not None or g2_cov_px is not None:
-        scale_matrix = np.array([[1.0 / Lx_nm, 0.0], [0.0, 1.0 / Ly_nm]], dtype=float)
-        if g1_cov_px is not None:
-            g1_cov_nm_inv = scale_matrix @ g1_cov_px @ scale_matrix.T
-        if g2_cov_px is not None:
-            g2_cov_nm_inv = scale_matrix @ g2_cov_px @ scale_matrix.T
+    if g1_cov_px is not None:
+        g1_cov_nm_inv = scale_matrix @ g1_cov_px @ scale_matrix.T
+    if g2_cov_px is not None:
+        g2_cov_nm_inv = scale_matrix @ g2_cov_px @ scale_matrix.T
+
+    Lx_sigma_nm = float(Lx_sigma_nm or 0.0)
+    Ly_sigma_nm = float(Ly_sigma_nm or 0.0)
+
+    g1_cov_nm_inv = augment_covariance_with_calibration(
+        g1_s_px,
+        g1_cov_nm_inv,
+        Lx_nm,
+        Ly_nm,
+        Lx_sigma_nm,
+        Ly_sigma_nm,
+    )
+    g2_cov_nm_inv = augment_covariance_with_calibration(
+        g2_s_px,
+        g2_cov_nm_inv,
+        Lx_nm,
+        Ly_nm,
+        Lx_sigma_nm,
+        Ly_sigma_nm,
+    )
 
     metrics_uncertainty: Optional[PropagationResult] = None
     if g1_cov_nm_inv is not None and g2_cov_nm_inv is not None:
@@ -854,6 +913,7 @@ def get_real_space_lattice_parameters(
             results["a1_nm_sigma"] = float(np.sqrt(diag_entries[0]))
             results["a2_nm_sigma"] = float(np.sqrt(diag_entries[1]))
             results["alpha_deg_sigma"] = float(np.sqrt(diag_entries[2]))
+    results["pixel_calibration_sigma_nm"] = (float(Lx_sigma_nm), float(Ly_sigma_nm))
     logger.info(f"Calculated real space params: a1={a1_s_mag_nm:.4f}nm, a2={a2_s_mag_nm:.4f}nm, alpha={alpha_s_deg:.2f}deg")
     return results
 

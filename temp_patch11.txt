@@ -1,0 +1,9 @@
+*** Begin Patch
+*** Update File: lfa/gui/visualizers/real_space_view.py
+@@
+         sub_real_a1_label=sub_real_a1_label,
+         sub_real_a2_label=sub_real_a2_label,
+         sub_real_alpha_label=sub_real_alpha_label,
++        calibration_sigma_label=calibration_sigma_label,
+         ads_set_combo_vis=ads_set_combo_vis,
+*** End Patch

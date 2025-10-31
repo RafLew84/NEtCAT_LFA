@@ -1,0 +1,12 @@
+*** Begin Patch
+*** Update File: lfa/logic/session_state.py
+@@
+         controller.adsorbate_spot_pairs = {
+             idx: [
+                 (tuple(raw) if raw is not None else None, tuple(transformed) if transformed is not None else None)
+                 for raw, transformed in pairs
+             ]
+             for idx, pairs in self.adsorbate_spot_pairs.items()
+         }
++        controller.pixel_calibration_sigma_nm = tuple(self.pixel_calibration_sigma_nm)
+*** End Patch
