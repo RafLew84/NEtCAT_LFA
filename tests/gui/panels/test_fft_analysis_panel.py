@@ -61,3 +61,31 @@ def test_fft_panel_updates_sigma_labels(qtbot):
 
     calibration_text_after_ads = panel.calibration_sigma_label.text()
     assert "(0.0030, 0.0040) nm" == calibration_text_after_ads
+
+
+def test_fft_panel_transform_results_include_uncertainty(qtbot):
+    panel = FFTAnalysisPanel()
+    qtbot.addWidget(panel)
+
+    analysis = {
+        "rotation_angle_deg": 3.21,
+        "rotation_angle_deg_sigma": 0.11,
+        "principal_stretches": (0.99, 1.04),
+        "principal_stretches_sigma": (0.015, 0.017),
+        "rmse": 0.062,
+    }
+
+    panel.update_transform_results_display(analysis)
+
+    rotation_text = panel.rotation_angle_label.text()
+    assert "Rotation (M->I):" in rotation_text
+    assert "+/- 0.11" in rotation_text
+    assert "deg" in rotation_text
+
+    stretch_text = panel.scale_factor_label.text()
+    assert "+/- 0.015" in stretch_text
+    assert "+/- 0.017" in stretch_text
+    assert "Stretches" in stretch_text
+
+    rmse_text = panel.rmse_label.text()
+    assert "0.062" in rmse_text
