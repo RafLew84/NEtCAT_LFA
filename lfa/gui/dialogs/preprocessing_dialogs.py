@@ -1,4 +1,4 @@
-# lfa/gui/preprocessing_dialogs.py
+# lfa/gui/dialogs/preprocessing_dialogs.py
 import logging
 import numpy as np
 from typing import Optional, Tuple, Dict, Any, List
@@ -7,8 +7,7 @@ try:
     from PyQt6.QtWidgets import (
         QDialog, QVBoxLayout, QHBoxLayout, QSlider, QLabel, QCheckBox,
         QDialogButtonBox, QWidget, QSizePolicy, QSpacerItem, QFrame, QMessageBox, 
-        QGroupBox, QRadioButton, QPushButton, QComboBox, QSpinBox, QDoubleSpinBox,
-        QApplication
+        QGroupBox, QRadioButton, QPushButton, QComboBox, QSpinBox, QDoubleSpinBox
     )
     from PyQt6.QtGui import QIntValidator
     from PyQt6.QtCore import Qt, pyqtSlot
@@ -44,68 +43,286 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-class GaussianBlurDialog(QDialog): # Inherits directly from QDialog
+class BasePreprocessingDialog(QDialog):
     """
-    A dialog window for applying Gaussian Blur to image data.
-    
-    This dialog provides a user interface for applying Gaussian blur with the following features:
-    - Side-by-side view of original and processed images
-    - Region of Interest (ROI) selection
-    - Option to apply blur to ROI only or entire image
-    - Live preview functionality
-    - Adjustable sigma parameter for blur intensity
-    
-    Attributes:
-        original_data (np.ndarray): The input image data
-        preview_data (np.ndarray): The current preview of processed data
-        _final_processed_data (Optional[np.ndarray]): The final processed data after dialog acceptance
-        _final_params (Dict[str, Any]): The final parameters used for processing
-        _final_is_roi_applied_only (bool): Whether the operation was applied to ROI only
+    Shared functionality for preprocessing dialogs.
+
+    Subclasses are responsible for:
+      * creating the PyQtGraph views and associated controls
+      * setting ``self.original_data`` and ``self.preview_data`` before calling
+        :meth:`_initialize_common_behavior`
+      * implementing :meth:`_get_current_parameters` and :meth:`_apply_operation`
     """
 
-    def __init__(self, original_data: np.ndarray, parent=None):
-        """
-        Initialize the Gaussian Blur dialog.
-        
-        Args:
-            original_data (np.ndarray): The input image data to process
-            parent (Optional[QWidget]): Parent widget for the dialog
-            
-        Raises:
-            ValueError: If original_data is None
-        """
+    def __init__(self, operation_name: str, parent=None):
         super().__init__(parent)
-        if original_data is None: raise ValueError("Original data cannot be None")
-
-        self.operation_name = "Gaussian Blur" # Operation name
-        self.original_data = original_data.astype(np.float32)
-        self.preview_data = self.original_data.copy()
+        self.operation_name = operation_name
+        self.original_data: Optional[np.ndarray] = None
+        self.preview_data: Optional[np.ndarray] = None
         self._final_processed_data: Optional[np.ndarray] = None
         self._final_params: Dict[str, Any] = {}
         self._final_is_roi_applied_only: bool = False
+        self._manage_roi_with_checkbox: bool = True
+
+    # ------------------------------------------------------------------ public helpers
+    def _initialize_common_behavior(self) -> None:
+        """
+        Call once subclasses have constructed the UI widgets.
+        Connects the shared signals/slots, updates the initial ROI label and
+        triggers the first preview.
+        """
+        if getattr(self, "apply_to_roi_only_checkbox", None) is not None:
+            self.apply_to_roi_only_checkbox.stateChanged.connect(self._on_parameter_or_preview_changed)
+        if getattr(self, "live_preview_checkbox", None) is not None:
+            self.live_preview_checkbox.stateChanged.connect(self._on_parameter_or_preview_changed)
+        if getattr(self, "roi", None) is not None:
+            self.roi.sigRegionChanged.connect(self._on_roi_changed)
+        if getattr(self, "button_box", None) is not None:
+            self.button_box.accepted.connect(self.accept)
+            self.button_box.rejected.connect(self.reject)
+
+        self._update_roi_visibility()
+        self._update_roi_label()
+        self.update_original_view()
+        self._update_preview()
+        logger.debug("%s: common preprocessing behaviour initialised.", self.operation_name)
+
+    # ------------------------------------------------------------------ overridable hooks
+    def _handle_parameter_widget_change(self) -> None:
+        """Hook for subclasses to update parameter labels when widgets change."""
+        return
+
+    # ------------------------------------------------------------------ shared slots/logic
+    def _on_parameter_or_preview_changed(self) -> None:
+        self._handle_parameter_widget_change()
+        if self._manage_roi_with_checkbox:
+            self._update_roi_visibility()
+        if getattr(self, "live_preview_checkbox", None) is not None and self.live_preview_checkbox.isChecked():
+            self._update_preview()
+
+    def _update_roi_visibility(self) -> None:
+        if getattr(self, "roi", None) is None or getattr(self, "apply_to_roi_only_checkbox", None) is None:
+            return
+        is_roi_mode = self.apply_to_roi_only_checkbox.isChecked()
+        self.roi.setVisible(is_roi_mode)
+        if getattr(self, "roi_info_label", None) is not None:
+            self.roi_info_label.setVisible(is_roi_mode)
+
+    def _on_roi_changed(self) -> None:
+        self._update_roi_label()
+        if (
+            getattr(self, "apply_to_roi_only_checkbox", None) is not None
+            and self.apply_to_roi_only_checkbox.isChecked()
+            and getattr(self, "live_preview_checkbox", None) is not None
+            and self.live_preview_checkbox.isChecked()
+        ):
+            self._update_preview()
+
+    def _update_roi_label(self) -> None:
+        if getattr(self, "roi_info_label", None) is None or getattr(self, "roi", None) is None:
+            return
+        if not self.roi.isVisible():
+            self.roi_info_label.setText("ROI: Not selected")
+            return
+        pos = self.roi.pos()
+        size = self.roi.size()
+        self.roi_info_label.setText(
+            f"ROI: ({pos.x():.1f}, {pos.y():.1f}) Size: ({size.x():.1f}, {size.y():.1f})"
+        )
+
+    def _get_roi_slice(self) -> Optional[Tuple[slice, slice]]:
+        if getattr(self, "roi", None) is None or not self.roi.isVisible():
+            return None
+        size = self.roi.size()
+        if not (size.x() > 0 and size.y() > 0):
+            return None
+        pos = self.roi.pos()
+        height, width = self.original_data.shape if self.original_data is not None else (0, 0)
+        x0, y0 = int(round(pos.x())), int(round(pos.y()))
+        w, h = int(round(size.x())), int(round(size.y()))
+        x1, y1 = min(x0 + w, width), min(y0 + h, height)
+        x0, y0 = max(0, x0), max(0, y0)
+        if x1 > x0 and y1 > y0:
+            return slice(y0, y1), slice(x0, x1)
+        logger.warning("%s: invalid ROI dimensions.", self.operation_name)
+        return None
+
+    def _apply_with_optional_roi(
+        self,
+        original: np.ndarray,
+        processed: Optional[np.ndarray],
+        apply_roi_only: bool,
+    ) -> Optional[np.ndarray]:
+        """
+        Merge ``processed`` with ``original`` when ROI-only mode is enabled.
+
+        Args:
+            original: Source image that should remain untouched outside the ROI.
+            processed: Full-frame processed image. May be ``None`` if the operation failed.
+            apply_roi_only: Whether the result should only replace the selected ROI.
+
+        Returns:
+            A numpy array ready to display/apply, or ``None`` if ``processed`` is ``None``.
+        """
+        if processed is None:
+            return None
+        if not apply_roi_only:
+            return processed
+        roi_slice = self._get_roi_slice()
+        if roi_slice is None:
+            logger.warning(
+                "%s: ROI-only requested but ROI is invalid; returning original data.",
+                self.operation_name,
+            )
+            return original
+        result = original.copy()
+        result[roi_slice] = processed[roi_slice]
+        return result
+
+    def _update_preview(self) -> None:
+        if self.original_data is None:
+            return
+        params = self._get_current_parameters()
+        logger.debug("%s: updating preview with params=%s", self.operation_name, params)
+        preview = None
+        try:
+            preview = self._apply_operation(self.original_data, params)
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.exception("%s: error during preview computation", self.operation_name, exc_info=exc)
+        if preview is None:
+            preview = self.original_data.copy()
+        self.preview_data = preview
+        self.update_preview_view()
+
+    def update_original_view(self) -> None:
+        if self.original_data is not None and getattr(self, "img_original", None):
+            self.img_original.setImage(self.original_data.T)
+            if getattr(self, "plot_original", None):
+                self.plot_original.autoRange()
+
+    def update_preview_view(self) -> None:
+        if getattr(self, "img_processed", None) is None:
+            return
+        if self.preview_data is not None:
+            self.img_processed.setImage(self.preview_data.T)
+        else:
+            self.img_processed.clear()
+
+    # ------------------------------------------------------------------ dialog lifecycle
+    def accept(self) -> None:
+        params = self._get_current_parameters()
+        self._final_params = params
+        self._final_is_roi_applied_only = params.get("apply_roi_only", False)
+        logger.info("%s: applying operation (ROI only=%s)", self.operation_name, self._final_is_roi_applied_only)
+        try:
+            result = self._apply_operation(self.original_data, params)
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.exception("%s: error computing final result", self.operation_name, exc_info=exc)
+            result = None
+        if result is None:
+            QMessageBox.critical(self, "Error", f"{self.operation_name} failed. See logs for details.")
+            self._final_processed_data = None
+            self._final_is_roi_applied_only = False
+            super().reject()
+            return
+        if np.allclose(result, self.original_data):
+            logger.info("%s: data unchanged; dialog will be rejected.", self.operation_name)
+            self._final_processed_data = None
+            super().reject()
+            return
+        self._final_processed_data = result
+        super().accept()
+
+    def reject(self) -> None:
+        logger.info("%s dialog rejected.", self.operation_name)
+        self._final_processed_data = None
+        super().reject()
+
+    # ------------------------------------------------------------------ result helpers
+    def get_processed_data(self) -> Optional[np.ndarray]:
+        if self._final_processed_data is None:
+            return None
+        return self._final_processed_data.copy()
+
+    def get_parameters(self) -> Dict[str, Any]:
+        return self._final_params if self._final_params else self._get_current_parameters()
+
+    def was_roi_applied_only(self) -> bool:
+        return self._final_is_roi_applied_only
+
+    def get_final_roi_slice(self) -> Optional[Tuple[slice, slice]]:
+        return self._get_roi_slice() if self._final_is_roi_applied_only else None
+
+    # ------------------------------------------------------------------ abstract interface
+    def _get_current_parameters(self) -> Dict[str, Any]:
+        """Return the current parameter dictionary."""
+        raise NotImplementedError("Subclasses must implement _get_current_parameters()")
+
+    def _apply_operation(self, image: np.ndarray, params: Dict[str, Any]) -> Optional[np.ndarray]:
+        """Execute the underlying image processing operation."""
+        raise NotImplementedError("Subclasses must implement _apply_operation()")
+
+
+
+class GaussianBlurDialog(BasePreprocessingDialog):
+    """Dialog for applying Gaussian blur with ROI-aware preview."""
+
+    def __init__(self, original_data: np.ndarray, parent=None):
+        if original_data is None:
+            raise ValueError("Original data cannot be None")
+        super().__init__("Gaussian Blur", parent)
+        self.original_data = original_data.astype(np.float32)
+        self.preview_data = self.original_data.copy()
 
         self.setWindowTitle(f"{self.operation_name} Settings")
         self.setMinimumSize(900, 500)
-        current_flags=self.windowFlags(); self.setWindowFlags(current_flags | Qt.WindowType.WindowMinimizeButtonHint | Qt.WindowType.WindowMaximizeButtonHint)
+        current_flags = self.windowFlags()
+        self.setWindowFlags(
+            current_flags
+            | Qt.WindowType.WindowMinimizeButtonHint
+            | Qt.WindowType.WindowMaximizeButtonHint
+        )
 
-        main_layout=QVBoxLayout(self); top_layout=QHBoxLayout(); controls_area_layout=QVBoxLayout(); bottom_layout=QHBoxLayout()
+        main_layout = QVBoxLayout(self)
+        top_layout = QHBoxLayout()
+        controls_area_layout = QVBoxLayout()
+        bottom_layout = QHBoxLayout()
 
-        pg.setConfigOption('background', 'w'); pg.setConfigOption('foreground', 'k'); self.win = pg.GraphicsLayoutWidget()
-        self.plot_original = self.win.addPlot(row=0, col=0, title="Original", name="plot_orig"); self.img_original = ImageItem(); self.plot_original.addItem(self.img_original); self.plot_original.hideAxis('left'); self.plot_original.hideAxis('bottom'); self.plot_original.setAspectLocked(True)
-        self.plot_processed = self.win.addPlot(row=0, col=1, title="Preview", name="plot_proc"); self.img_processed = ImageItem(); self.plot_processed.addItem(self.img_processed); self.plot_processed.hideAxis('left'); self.plot_processed.hideAxis('bottom'); self.plot_processed.setAspectLocked(True)
-        self.plot_processed.vb.setXLink(self.plot_original.vb); self.plot_processed.vb.setYLink(self.plot_original.vb)
-        self.plot_original.vb.invertY(True); self.plot_processed.vb.invertY(True)
+        pg.setConfigOption("background", "w")
+        pg.setConfigOption("foreground", "k")
+        self.win = pg.GraphicsLayoutWidget()
+        self.plot_original = self.win.addPlot(row=0, col=0, title="Original", name="plot_orig")
+        self.img_original = ImageItem()
+        self.plot_original.addItem(self.img_original)
+        self.plot_original.hideAxis("left")
+        self.plot_original.hideAxis("bottom")
+        self.plot_original.setAspectLocked(True)
+
+        self.plot_processed = self.win.addPlot(row=0, col=1, title="Preview", name="plot_proc")
+        self.img_processed = ImageItem()
+        self.plot_processed.addItem(self.img_processed)
+        self.plot_processed.hideAxis("left")
+        self.plot_processed.hideAxis("bottom")
+        self.plot_processed.setAspectLocked(True)
+        self.plot_processed.vb.setXLink(self.plot_original.vb)
+        self.plot_processed.vb.setYLink(self.plot_original.vb)
+        self.plot_original.vb.invertY(True)
+        self.plot_processed.vb.invertY(True)
         top_layout.addWidget(self.win, stretch=3)
 
-        controls_panel = QWidget(); controls_panel.setMaximumWidth(250); controls_panel.setLayout(controls_area_layout)
+        controls_panel = QWidget()
+        controls_panel.setMaximumWidth(250)
+        controls_panel.setLayout(controls_area_layout)
 
         parameter_widget_container = QWidget()
-        specific_param_layout = QVBoxLayout(parameter_widget_container)
-        specific_param_layout.setContentsMargins(0,0,0,0)
-        self._create_parameter_controls(specific_param_layout)
+        parameter_layout = QVBoxLayout(parameter_widget_container)
+        parameter_layout.setContentsMargins(0, 0, 0, 0)
+        self._create_parameter_controls(parameter_layout)
         controls_area_layout.addWidget(parameter_widget_container)
 
-        controls_area_layout.addWidget(QFrame(frameShape=QFrame.Shape.HLine, frameShadow=QFrame.Shadow.Sunken))
+        controls_area_layout.addWidget(
+            QFrame(frameShape=QFrame.Shape.HLine, frameShadow=QFrame.Shadow.Sunken)
+        )
 
         self.apply_to_roi_only_checkbox = QCheckBox("Apply only to ROI area")
         self.apply_to_roi_only_checkbox.setChecked(False)
@@ -114,617 +331,384 @@ class GaussianBlurDialog(QDialog): # Inherits directly from QDialog
         controls_area_layout.addWidget(self.apply_to_roi_only_checkbox)
         controls_area_layout.addWidget(self.live_preview_checkbox)
 
-        controls_area_layout.addWidget(QFrame(frameShape=QFrame.Shape.HLine, frameShadow=QFrame.Shadow.Sunken))
+        controls_area_layout.addWidget(
+            QFrame(frameShape=QFrame.Shape.HLine, frameShadow=QFrame.Shadow.Sunken)
+        )
 
         self.roi_info_label = QLabel("ROI: Not selected")
         controls_area_layout.addWidget(self.roi_info_label)
-        h, w = self.original_data.shape; roi_w, roi_h = w//4, h//4; roi_x, roi_y = w//2 - roi_w//2, h//2 - roi_h//2
-        self.roi = RectROI(pos=(roi_x, roi_y), size=(roi_w, roi_h), pen=pg.mkPen('y', width=2), translateSnap=True, scaleSnap=True); self.plot_original.addItem(self.roi)
-        is_roi_mode = self.apply_to_roi_only_checkbox.isChecked()
-        self.roi.setVisible(is_roi_mode)
-        self.roi_info_label.setVisible(is_roi_mode)
-        self._on_roi_changed() # Update label
+
+        height, width = self.original_data.shape
+        roi_w, roi_h = width // 4, height // 4
+        roi_x = width // 2 - roi_w // 2
+        roi_y = height // 2 - roi_h // 2
+        self.roi = RectROI(
+            pos=(roi_x, roi_y),
+            size=(roi_w, roi_h),
+            pen=pg.mkPen("y", width=2),
+            translateSnap=True,
+            scaleSnap=True,
+        )
+        self.plot_original.addItem(self.roi)
 
         controls_area_layout.addStretch()
         top_layout.addWidget(controls_panel, stretch=1)
 
-        self.button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel); self.button_box.button(QDialogButtonBox.StandardButton.Ok).setText("Apply Changes"); bottom_layout.addWidget(self.button_box)
+        self.button_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        self.button_box.button(QDialogButtonBox.StandardButton.Ok).setText("Apply Changes")
+        bottom_layout.addWidget(self.button_box)
 
-        main_layout.addLayout(top_layout); main_layout.addLayout(bottom_layout)
+        main_layout.addLayout(top_layout)
+        main_layout.addLayout(bottom_layout)
 
-        self.update_original_view(); self._update_preview()
-        self.apply_to_roi_only_checkbox.stateChanged.connect(self._on_parameter_or_preview_changed)
-        self.live_preview_checkbox.stateChanged.connect(self._on_parameter_or_preview_changed)
-        self.roi.sigRegionChanged.connect(self._on_roi_changed)
-        self.button_box.accepted.connect(self.accept); self.button_box.rejected.connect(self.reject)
+        self._initialize_common_behavior()
 
-        logger.debug(f"Standalone {self.operation_name} dialog initialized.")
-    
-    def get_final_roi_slice(self) -> Optional[Tuple[slice, slice]]:
-        """
-        Get the final ROI slice if ROI mode was enabled.
-        
-        Returns:
-            Optional[Tuple[slice, slice]]: The ROI slice coordinates if ROI mode was enabled,
-                                         None otherwise
-        """
-        if self._final_is_roi_applied_only:
-            current_slice = self._get_roi_slice()
-            logger.debug(f"get_final_roi_slice called, roi_only={self._final_is_roi_applied_only}, slice={current_slice}")
-            return current_slice
-        else:
-            logger.debug(f"get_final_roi_slice called, roi_only={self._final_is_roi_applied_only}, returning None")
-            return None
+    def _create_parameter_controls(self, layout: QVBoxLayout) -> None:
+        sigma_layout = QHBoxLayout()
+        sigma_layout.addWidget(QLabel("Sigma:"))
+        self.sigma_slider = QSlider(Qt.Orientation.Horizontal)
+        self.sigma_slider.setRange(0, 100)
+        self.sigma_slider.setTickInterval(10)
+        self.sigma_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
+        self.sigma_slider.setValue(0)
+        sigma_layout.addWidget(self.sigma_slider)
+        self.sigma_value_label = QLabel("0.0")
+        sigma_layout.addWidget(self.sigma_value_label)
+        layout.addLayout(sigma_layout)
 
-    def _create_parameter_controls(self, layout: QVBoxLayout):
-        """
-        Create and add parameter controls specific to Gaussian Blur.
-        
-        Args:
-            layout (QVBoxLayout): The layout to add controls to
-        """
-        """Adds controls specific to Gaussian Blur (sigma slider)."""
-        sigma_controls_layout = QHBoxLayout()
-        self.sigma_label = QLabel(f"Sigma: {0.0:.1f}")
-        self.sigma_slider = QSlider(Qt.Orientation.Horizontal); self.sigma_slider.setMinimum(0); self.sigma_slider.setMaximum(100); self.sigma_slider.setValue(0); self.sigma_slider.setTickInterval(10); self.sigma_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
-        sigma_controls_layout.addWidget(QLabel("Sigma:")); sigma_controls_layout.addWidget(self.sigma_slider); sigma_controls_layout.addWidget(self.sigma_label)
-        # Connect slider to parameter change handler
-        self.sigma_slider.valueChanged.connect(self._on_parameter_or_preview_changed) # Connect to common slot
-        layout.addLayout(sigma_controls_layout)
+        self.sigma_slider.valueChanged.connect(self._on_parameter_or_preview_changed)
+
+    def _handle_parameter_widget_change(self) -> None:
+        sigma = self.sigma_slider.value() / 10.0
+        self.sigma_value_label.setText(f"{sigma:.1f}")
 
     def _get_current_parameters(self) -> Dict[str, Any]:
-        """
-        Get the current parameter values and ROI mode state.
-        
-        Returns:
-            Dict[str, Any]: Dictionary containing:
-                - sigma: float - Current blur sigma value
-                - apply_roi_only: bool - Whether to apply only to ROI
-        """
-        """Returns the current sigma value AND the state of the ROI checkbox."""
         sigma = self.sigma_slider.value() / 10.0
         return {
-            'sigma': round(sigma, 2),
-            'apply_roi_only': self.apply_to_roi_only_checkbox.isChecked() # Checkbox state
+            "sigma": round(sigma, 2),
+            "apply_roi_only": self.apply_to_roi_only_checkbox.isChecked(),
         }
 
     def _apply_operation(self, image: np.ndarray, params: Dict[str, Any]) -> Optional[np.ndarray]:
-        """
-        Apply Gaussian blur to the image with given parameters.
-        
-        Args:
-            image (np.ndarray): Input image to process
-            params (Dict[str, Any]): Processing parameters including sigma and ROI mode
-            
-        Returns:
-            Optional[np.ndarray]: Processed image, or None if processing failed
-        """
-        """Applies gaussian_blur, potentially only to ROI based on params."""
-        sigma = params.get('sigma', 0.0)
-        apply_roi_only = params.get('apply_roi_only', False)
-        logger.debug(f"Applying Gaussian Blur. Sigma={sigma}, ROI Only={apply_roi_only}")
+        sigma = params.get("sigma", 0.0)
+        apply_roi_only = params.get("apply_roi_only", False)
+        logger.debug("Applying Gaussian Blur. Sigma=%s, ROI Only=%s", sigma, apply_roi_only)
         try:
-            processed_full = gaussian_blur(image, sigma)
-            if processed_full is None: return None
-
-            if apply_roi_only:
-                roi_slice = self._get_roi_slice()
-                if roi_slice:
-                    result_image = image.copy()
-                    result_image[roi_slice] = processed_full[roi_slice]
-                    return result_image
-                else:
-                    logger.warning("Cannot apply Gaussian Blur to ROI only: Invalid ROI.")
-                    return image
-            else:
-                return processed_full
-        except Exception as e:
-            logger.exception(f"Error applying gaussian_blur: {e}")
+            processed = gaussian_blur(image, sigma)
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.exception("Gaussian Blur failed", exc_info=exc)
             return None
+        return self._apply_with_optional_roi(image, processed, apply_roi_only)
 
-    @pyqtSlot()
-    def _on_parameter_or_preview_changed(self):
-        """
-        Handle changes to parameters, ROI mode, or preview settings.
-        Updates the preview if live preview is enabled.
-        """
-        if hasattr(self, 'sigma_slider'):
-             sigma = self.sigma_slider.value() / 10.0
-             self.sigma_label.setText(f"Sigma: {sigma:.1f}")
 
-        is_roi_mode = self.apply_to_roi_only_checkbox.isChecked()
-        self.roi.setVisible(is_roi_mode)
-        self.roi_info_label.setVisible(is_roi_mode)
 
-        if self.live_preview_checkbox.isChecked():
-            self._update_preview()
-
-    @pyqtSlot()
-    def _on_roi_changed(self):
-        """
-        Handle ROI changes by updating the info label and preview.
-        Only updates preview if both ROI mode and live preview are enabled.
-        """
-        pos=self.roi.pos(); size=self.roi.size(); info_text = f"ROI: ({pos.x():.1f}, {pos.y():.1f}) Size: ({size.x():.1f}, {size.y():.1f})"; self.roi_info_label.setText(info_text)
-        if self.apply_to_roi_only_checkbox.isChecked() and self.live_preview_checkbox.isChecked():
-             self._update_preview()
-
-    def _get_roi_slice(self) -> Optional[Tuple[slice, slice]]:
-        """
-        Get the current ROI slice coordinates.
-        
-        Returns:
-            Optional[Tuple[slice, slice]]: ROI slice coordinates if ROI is valid,
-                                         None if ROI is invalid or not visible
-        """
-        if not self.roi.isVisible() or not self.roi.size().x() > 0 or not self.roi.size().y() > 0: return None
-        pos=self.roi.pos(); size=self.roi.size(); h,w=self.original_data.shape; x0,y0=int(round(pos.x())),int(round(pos.y())); width,height=int(round(size.x())),int(round(size.y())); x1=min(x0+width,w); y1=min(y0+height,h); x0=max(0,x0); y0=max(0,y0)
-        if x1>x0 and y1>y0: return slice(y0,y1), slice(x0,x1)
-        else: logger.warning("Invalid ROI dimensions."); return None
-
-    def _update_preview(self):
-        """
-        Update the preview image based on current parameters and settings.
-        Handles both ROI and full-image processing modes.
-        """
-        if not self.live_preview_checkbox.isChecked():
-            self.preview_data = self.original_data.copy(); self.update_preview_view()
-            return
-        params = self._get_current_parameters()
-        logger.debug(f"Updating preview. Params: {params}")
-        try:
-            self.preview_data = self._apply_operation(self.original_data, params)
-            if self.preview_data is None:
-                 self.preview_data = self.original_data.copy()
-            self.update_preview_view()
-        except Exception as e: logger.exception(f"Error during preview update: {e}")
-
-    def update_original_view(self):
-        if self.original_data is not None and self.img_original: self.img_original.setImage(self.original_data.T); self.plot_original.autoRange()
-    def update_preview_view(self):
-        if not self.img_processed: return
-        if self.preview_data is not None: self.img_processed.setImage(self.preview_data.T); logger.debug("Preview view updated.")
-        else: self.img_processed.clear(); logger.debug("Preview view cleared.")
-
-    def accept(self):
-        """
-        Calculate final result and close dialog.
-        Applies the processing with current parameters and stores the result.
-        """
-        params = self._get_current_parameters()
-        self._final_is_roi_applied_only = params.get('apply_roi_only', False)
-        logger.info(f"Dialog accepted. Finalizing '{self.operation_name}'. Apply ROI Only: {self._final_is_roi_applied_only}, Params: {params}")
-        try:
-            base_image = self.original_data
-            self._final_processed_data = self._apply_operation(base_image, params)
-            if self._final_processed_data is None: raise ValueError("Processing operation failed.")
-            if np.allclose(self._final_processed_data, self.original_data): logger.info("Data not modified."); self._final_processed_data = None; super().reject(); return
-            logger.info("Final processing calculated."); super().accept()
-        except Exception as e: logger.exception(f"Error final processing: {e}"); QMessageBox.critical(self, "Error", f"... {e}"); self._final_processed_data = None; self._final_is_roi_applied_only = False; super().reject()
-
-    def reject(self): logger.info(f"{self.operation_name} dialog rejected."); self._final_processed_data = None; super().reject()
-    def get_processed_data(self) -> Optional[np.ndarray]: return self._final_processed_data.copy() if self._final_processed_data is not None else None
-    def get_parameters(self) -> dict: return self._get_current_parameters()
-    def was_roi_applied_only(self) -> bool: return self._final_is_roi_applied_only
-
-class GaussianSharpeningDialog(QDialog):
-    """
-    A dialog window for applying Gaussian Sharpening (Unsharp Mask) to image data.
-    
-    This dialog provides a user interface for applying image sharpening with the following features:
-    - Side-by-side view of original and processed images
-    - Region of Interest (ROI) selection
-    - Option to apply sharpening to ROI only or entire image
-    - Live preview functionality
-    - Adjustable radius (sigma) and amount parameters for sharpening control
-    
-    The sharpening is implemented using the Unsharp Mask technique:
-    Sharpened = original + amount * (original - blurred)
-    where blurred is obtained using a Gaussian filter with sigma=radius.
-    
-    Attributes:
-        original_data (np.ndarray): The input image data
-        preview_data (np.ndarray): The current preview of processed data
-        _final_processed_data (Optional[np.ndarray]): The final processed data after dialog acceptance
-        _final_params (Dict[str, Any]): The final parameters used for processing
-        _final_is_roi_applied_only (bool): Whether the operation was applied to ROI only
-    """
+class GaussianSharpeningDialog(BasePreprocessingDialog):
+    """Dialog for Gaussian unsharp masking with ROI support."""
 
     def __init__(self, original_data: np.ndarray, parent=None):
-        """
-        Initialize the Gaussian Sharpening dialog.
-        
-        Args:
-            original_data (np.ndarray): The input image data to process
-            parent (Optional[QWidget]): Parent widget for the dialog
-            
-        Raises:
-            ValueError: If original_data is None
-        """
-        super().__init__(parent)
-        if original_data is None: raise ValueError("Original data cannot be None")
-
-        self.operation_name = "Gaussian Sharpening"
+        if original_data is None:
+            raise ValueError("Original data cannot be None")
+        super().__init__("Gaussian Sharpening", parent)
         self.original_data = original_data.astype(np.float32)
         self.preview_data = self.original_data.copy()
-        self._final_processed_data: Optional[np.ndarray] = None
-        self._final_params: Dict[str, Any] = {}
-        self._final_is_roi_applied_only: bool = False
 
         self.setWindowTitle(f"{self.operation_name} Settings")
         self.setMinimumSize(900, 550)
-        current_flags=self.windowFlags(); self.setWindowFlags(current_flags | Qt.WindowType.WindowMinimizeButtonHint | Qt.WindowType.WindowMaximizeButtonHint)
+        current_flags = self.windowFlags()
+        self.setWindowFlags(
+            current_flags
+            | Qt.WindowType.WindowMinimizeButtonHint
+            | Qt.WindowType.WindowMaximizeButtonHint
+        )
 
-        main_layout=QVBoxLayout(self); top_layout=QHBoxLayout(); controls_area_layout=QVBoxLayout(); bottom_layout=QHBoxLayout()
+        main_layout = QVBoxLayout(self)
+        top_layout = QHBoxLayout()
+        controls_area_layout = QVBoxLayout()
+        bottom_layout = QHBoxLayout()
 
-        pg.setConfigOption('background', 'w'); pg.setConfigOption('foreground', 'k'); self.win = pg.GraphicsLayoutWidget()
-        self.plot_original = self.win.addPlot(row=0, col=0, title="Original", name="plot_orig"); self.img_original = ImageItem(); self.plot_original.addItem(self.img_original); self.plot_original.hideAxis('left'); self.plot_original.hideAxis('bottom'); self.plot_original.setAspectLocked(True)
-        self.plot_processed = self.win.addPlot(row=0, col=1, title="Preview", name="plot_proc"); self.img_processed = ImageItem(); self.plot_processed.addItem(self.img_processed); self.plot_processed.hideAxis('left'); self.plot_processed.hideAxis('bottom'); self.plot_processed.setAspectLocked(True)
-        self.plot_processed.vb.setXLink(self.plot_original.vb); self.plot_processed.vb.setYLink(self.plot_original.vb)
-        self.plot_original.vb.invertY(True); self.plot_processed.vb.invertY(True)
+        pg.setConfigOption("background", "w")
+        pg.setConfigOption("foreground", "k")
+        self.win = pg.GraphicsLayoutWidget()
+        self.plot_original = self.win.addPlot(row=0, col=0, title="Original", name="plot_orig")
+        self.img_original = ImageItem()
+        self.plot_original.addItem(self.img_original)
+        self.plot_original.hideAxis("left")
+        self.plot_original.hideAxis("bottom")
+        self.plot_original.setAspectLocked(True)
+
+        self.plot_processed = self.win.addPlot(row=0, col=1, title="Preview", name="plot_proc")
+        self.img_processed = ImageItem()
+        self.plot_processed.addItem(self.img_processed)
+        self.plot_processed.hideAxis("left")
+        self.plot_processed.hideAxis("bottom")
+        self.plot_processed.setAspectLocked(True)
+        self.plot_processed.vb.setXLink(self.plot_original.vb)
+        self.plot_processed.vb.setYLink(self.plot_original.vb)
+        self.plot_original.vb.invertY(True)
+        self.plot_processed.vb.invertY(True)
         top_layout.addWidget(self.win, stretch=3)
 
-        controls_panel = QWidget(); controls_panel.setMaximumWidth(250); controls_panel.setLayout(controls_area_layout)
+        controls_panel = QWidget()
+        controls_panel.setMaximumWidth(250)
+        controls_panel.setLayout(controls_area_layout)
+
         parameter_widget_container = QWidget()
-        specific_param_layout = QVBoxLayout(parameter_widget_container); specific_param_layout.setContentsMargins(0,0,0,0)
-        self._create_parameter_controls(specific_param_layout)
+        parameter_layout = QVBoxLayout(parameter_widget_container)
+        parameter_layout.setContentsMargins(0, 0, 0, 0)
+        self._create_parameter_controls(parameter_layout)
         controls_area_layout.addWidget(parameter_widget_container)
 
-        controls_area_layout.addWidget(QFrame(frameShape=QFrame.Shape.HLine, frameShadow=QFrame.Shadow.Sunken))
+        controls_area_layout.addWidget(
+            QFrame(frameShape=QFrame.Shape.HLine, frameShadow=QFrame.Shadow.Sunken)
+        )
 
-        self.apply_to_roi_only_checkbox = QCheckBox("Apply only to ROI area"); self.apply_to_roi_only_checkbox.setChecked(False)
-        self.live_preview_checkbox = QCheckBox("Live Preview"); self.live_preview_checkbox.setChecked(True)
+        self.apply_to_roi_only_checkbox = QCheckBox("Apply only to ROI area")
+        self.apply_to_roi_only_checkbox.setChecked(False)
+        self.live_preview_checkbox = QCheckBox("Live Preview")
+        self.live_preview_checkbox.setChecked(True)
         controls_area_layout.addWidget(self.apply_to_roi_only_checkbox)
         controls_area_layout.addWidget(self.live_preview_checkbox)
 
-        controls_area_layout.addWidget(QFrame(frameShape=QFrame.Shape.HLine, frameShadow=QFrame.Shadow.Sunken))
+        controls_area_layout.addWidget(
+            QFrame(frameShape=QFrame.Shape.HLine, frameShadow=QFrame.Shadow.Sunken)
+        )
 
-        self.roi_info_label = QLabel("ROI: Not selected"); controls_area_layout.addWidget(self.roi_info_label)
-        h, w = self.original_data.shape; roi_w, roi_h = w//4, h//4; roi_x, roi_y = w//2-roi_w//2, h//2-roi_h//2
-        self.roi = RectROI(pos=(roi_x, roi_y), size=(roi_w, roi_h), pen=pg.mkPen('c', width=2), translateSnap=True, scaleSnap=True); # Cyan ROI
+        self.roi_info_label = QLabel("ROI: Not selected")
+        controls_area_layout.addWidget(self.roi_info_label)
+
+        height, width = self.original_data.shape
+        roi_w, roi_h = width // 4, height // 4
+        roi_x = width // 2 - roi_w // 2
+        roi_y = height // 2 - roi_h // 2
+        self.roi = RectROI(
+            pos=(roi_x, roi_y),
+            size=(roi_w, roi_h),
+            pen=pg.mkPen("c", width=2),
+            translateSnap=True,
+            scaleSnap=True,
+        )
         self.plot_original.addItem(self.roi)
-        is_roi_mode = self.apply_to_roi_only_checkbox.isChecked()
-        self.roi.setVisible(is_roi_mode); self.roi_info_label.setVisible(is_roi_mode)
-        self._on_roi_changed()
 
         controls_area_layout.addStretch()
         top_layout.addWidget(controls_panel, stretch=1)
 
-        self.button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel); self.button_box.button(QDialogButtonBox.StandardButton.Ok).setText("Apply Changes"); bottom_layout.addWidget(self.button_box)
+        self.button_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        self.button_box.button(QDialogButtonBox.StandardButton.Ok).setText("Apply Changes")
+        bottom_layout.addWidget(self.button_box)
 
-        main_layout.addLayout(top_layout); main_layout.addLayout(bottom_layout)
+        main_layout.addLayout(top_layout)
+        main_layout.addLayout(bottom_layout)
 
-        self.update_original_view(); self._update_preview()
-        self.apply_to_roi_only_checkbox.stateChanged.connect(self._on_parameter_or_preview_changed)
-        self.live_preview_checkbox.stateChanged.connect(self._on_parameter_or_preview_changed)
-        self.roi.sigRegionChanged.connect(self._on_roi_changed)
-        self.button_box.accepted.connect(self.accept); self.button_box.rejected.connect(self.reject)
+        self._initialize_common_behavior()
 
-        logger.debug(f"Standalone {self.operation_name} dialog initialized.")
-
-    def get_final_roi_slice(self) -> Optional[Tuple[slice, slice]]:
-        """
-        Get the final ROI slice if ROI mode was enabled.
-        
-        Returns:
-            Optional[Tuple[slice, slice]]: The ROI slice coordinates if ROI mode was enabled,
-                                         None otherwise
-        """
-        if self._final_is_roi_applied_only:
-            current_slice = self._get_roi_slice()
-            logger.debug(f"get_final_roi_slice called, roi_only={self._final_is_roi_applied_only}, slice={current_slice}")
-            return current_slice
-        else:
-            logger.debug(f"get_final_roi_slice called, roi_only={self._final_is_roi_applied_only}, returning None")
-            return None
-
-    def _create_parameter_controls(self, layout: QVBoxLayout):
-        """
-        Create and add parameter controls specific to Gaussian Sharpening.
-        
-        Adds two main controls:
-        - Radius (Sigma): Controls the scale of features being sharpened (0.0 - 10.0)
-        - Amount: Controls the strength of the sharpening effect (0.0 - 5.0)
-        
-        Args:
-            layout (QVBoxLayout): The layout to add controls to
-        """
+    def _create_parameter_controls(self, layout: QVBoxLayout) -> None:
         radius_layout = QHBoxLayout()
-        self.radius_label = QLabel(f"Radius (Sigma): {1.0:.1f}") # Default radius = 1.0
+        radius_layout.addWidget(QLabel("Radius:"))
         self.radius_slider = QSlider(Qt.Orientation.Horizontal)
-        self.radius_slider.setMinimum(0)  # Min sigma = 0
-        self.radius_slider.setMaximum(100) # Maps to 0.0 - 10.0
-        self.radius_slider.setValue(10)    # Default value 1.0 * 10
+        self.radius_slider.setRange(0, 100)  # maps to 0.0 - 10.0
         self.radius_slider.setTickInterval(10)
         self.radius_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
-        radius_layout.addWidget(QLabel("Radius:"))
+        self.radius_slider.setValue(10)
         radius_layout.addWidget(self.radius_slider)
-        radius_layout.addWidget(self.radius_label)
+        self.radius_value_label = QLabel("1.0")
+        radius_layout.addWidget(self.radius_value_label)
         layout.addLayout(radius_layout)
 
         amount_layout = QHBoxLayout()
-        self.amount_label = QLabel(f"Amount: {1.0:.1f}") # Default amount = 1.0
+        amount_layout.addWidget(QLabel("Amount:"))
         self.amount_slider = QSlider(Qt.Orientation.Horizontal)
-        self.amount_slider.setMinimum(0)  # Min amount = 0 (no sharpening)
-        self.amount_slider.setMaximum(50) # Maps to 0.0 - 5.0
-        self.amount_slider.setValue(10)    # Default value 1.0 * 10
+        self.amount_slider.setRange(0, 50)  # maps to 0.0 - 5.0
         self.amount_slider.setTickInterval(5)
         self.amount_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
-        amount_layout.addWidget(QLabel("Amount:"))
+        self.amount_slider.setValue(10)
         amount_layout.addWidget(self.amount_slider)
-        amount_layout.addWidget(self.amount_label)
+        self.amount_value_label = QLabel("1.0")
+        amount_layout.addWidget(self.amount_value_label)
         layout.addLayout(amount_layout)
 
-        self.radius_slider.valueChanged.connect(self._on_specific_parameter_changed)
-        self.amount_slider.valueChanged.connect(self._on_specific_parameter_changed)
+        self.radius_slider.valueChanged.connect(self._on_parameter_or_preview_changed)
+        self.amount_slider.valueChanged.connect(self._on_parameter_or_preview_changed)
 
-
-    @pyqtSlot()
-    def _on_specific_parameter_changed(self):
-        """
-        Handle changes to sharpening-specific parameters.
-        Updates the parameter labels and triggers preview update.
-        """
+    def _handle_parameter_widget_change(self) -> None:
         radius = self.radius_slider.value() / 10.0
         amount = self.amount_slider.value() / 10.0
-        self.radius_label.setText(f"Radius (Sigma): {radius:.1f}")
-        self.amount_label.setText(f"Amount: {amount:.1f}")
-        self._on_parameter_or_preview_changed()
-
+        self.radius_value_label.setText(f"{radius:.1f}")
+        self.amount_value_label.setText(f"{amount:.1f}")
 
     def _get_current_parameters(self) -> Dict[str, Any]:
-        """
-        Get the current parameter values and ROI mode state.
-        
-        Returns:
-            Dict[str, Any]: Dictionary containing:
-                - radius: float - Current sharpening radius (sigma) value (0.0 - 10.0)
-                - amount: float - Current sharpening amount value (0.0 - 5.0)
-                - apply_roi_only: bool - Whether to apply only to ROI
-        """
         radius = self.radius_slider.value() / 10.0
         amount = self.amount_slider.value() / 10.0
         return {
-            'radius': round(radius, 2),
-            'amount': round(amount, 2),
-            'apply_roi_only': self.apply_to_roi_only_checkbox.isChecked()
+            "radius": round(radius, 2),
+            "amount": round(amount, 2),
+            "apply_roi_only": self.apply_to_roi_only_checkbox.isChecked(),
         }
 
     def _apply_operation(self, image: np.ndarray, params: Dict[str, Any]) -> Optional[np.ndarray]:
-        """
-        Apply Gaussian sharpening to the image with given parameters.
-        
-        Args:
-            image (np.ndarray): Input image to process
-            params (Dict[str, Any]): Processing parameters including radius, amount and ROI mode
-            
-        Returns:
-            Optional[np.ndarray]: Processed image, or None if processing failed
-            
-        Note:
-            If ROI mode is enabled, the sharpening is only applied to the selected region.
-            Higher radius values affect larger features, while higher amount values increase
-            the sharpening intensity.
-        """
-        radius = params.get('radius', 1.0)
-        amount = params.get('amount', 1.0)
-        apply_roi_only = params.get('apply_roi_only', False)
-        logger.debug(f"Sharpening _apply_operation: R={radius}, A={amount}, ROI Only={apply_roi_only}")
-
+        radius = params.get("radius", 1.0)
+        amount = params.get("amount", 1.0)
+        apply_roi_only = params.get("apply_roi_only", False)
+        logger.debug(
+            "Applying Gaussian sharpening. Radius=%s, Amount=%s, ROI Only=%s",
+            radius,
+            amount,
+            apply_roi_only,
+        )
         try:
-            processed_full = gaussian_sharpen_unsharp_mask(image, radius=radius, amount=amount)
-            if processed_full is None: return None
-
-            if apply_roi_only:
-                roi_slice = self._get_roi_slice()
-                if roi_slice:
-                    result_image = image.copy()
-                    result_image[roi_slice] = processed_full[roi_slice]
-                    return result_image
-                else:
-                    logger.warning("Cannot apply Sharpening to ROI only: Invalid ROI.")
-                    return image
-            else:
-                return processed_full
-        except Exception as e:
-            logger.exception(f"Error applying gaussian_sharpen_unsharp_mask: {e}")
+            processed = gaussian_sharpen_unsharp_mask(image, radius, amount)
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.exception("Gaussian sharpening failed", exc_info=exc)
             return None
-
-    @pyqtSlot()
-    def _on_parameter_or_preview_changed(self):
-        is_roi_mode = self.apply_to_roi_only_checkbox.isChecked()
-        self.roi.setVisible(is_roi_mode); self.roi_info_label.setVisible(is_roi_mode)
-        if self.live_preview_checkbox.isChecked(): self._update_preview()
-
-    @pyqtSlot()
-    def _on_roi_changed(self):
-        pos=self.roi.pos(); size=self.roi.size(); info_text = f"ROI: ({pos.x():.1f}, {pos.y():.1f}) Size: ({size.x():.1f}, {size.y():.1f})"; self.roi_info_label.setText(info_text)
-        if self.apply_to_roi_only_checkbox.isChecked() and self.live_preview_checkbox.isChecked(): self._update_preview()
-
-    def _get_roi_slice(self) -> Optional[Tuple[slice, slice]]:
-        """
-        Get the current ROI slice coordinates.
-        
-        Returns:
-            Optional[Tuple[slice, slice]]: ROI slice coordinates if ROI is valid,
-                                         None if ROI is invalid or not visible
-                                         
-        Note:
-            The ROI coordinates are clamped to the image boundaries to ensure
-            they remain within valid image dimensions.
-        """
-        if not self.roi.isVisible() or not self.roi.size().x()>0 or not self.roi.size().y()>0: 
-            return None
-        pos=self.roi.pos(); size=self.roi.size()
-        h,w=self.original_data.shape
-        x0,y0=int(round(pos.x())),int(round(pos.y()))
-        width,height=int(round(size.x())),int(round(size.y()))
-        x1=min(x0+width,w); y1=min(y0+height,h)
-        x0=max(0,x0); y0=max(0,y0);
-        if x1>x0 and y1>y0: 
-            return slice(y0,y1), slice(x0,x1)
-        else: 
-            logger.warning("Invalid ROI dims.")
-        return None
-
-    def _update_preview(self):
-        if not self.live_preview_checkbox.isChecked(): self.preview_data = self.original_data.copy(); self.update_preview_view(); return
-        params = self._get_current_parameters(); logger.debug(f"Updating preview. Params: {params}")
-        try:
-            self.preview_data = self._apply_operation(self.original_data, params)
-            if self.preview_data is None: self.preview_data = self.original_data.copy()
-            self.update_preview_view()
-        except Exception as e: logger.exception(f"Error during preview update: {e}")
-
-    def update_original_view(self):
-        if self.original_data is not None and self.img_original: self.img_original.setImage(self.original_data.T); self.plot_original.autoRange()
-    def update_preview_view(self):
-        if not self.img_processed: return
-        if self.preview_data is not None: self.img_processed.setImage(self.preview_data.T); logger.debug("Preview view updated.")
-        else: self.img_processed.clear(); logger.debug("Preview view cleared.")
-
-    def accept(self):
-        params = self._get_current_parameters(); self._final_is_roi_applied_only = params.get('apply_roi_only', False)
-        logger.info(f"Dialog accepted. Finalizing '{self.operation_name}'. Apply ROI Only: {self._final_is_roi_applied_only}, Params: {params}")
-        try:
-            self._final_processed_data = self._apply_operation(self.original_data, params)
-            if self._final_processed_data is None: raise ValueError("Processing failed.")
-            if np.allclose(self._final_processed_data, self.original_data): logger.info("Data not modified."); self._final_processed_data = None; super().reject(); return
-            logger.info("Final processing calculated."); super().accept()
-        except Exception as e: logger.exception(f"Error final processing: {e}"); QMessageBox.critical(self, "Error", f"... {e}"); self._final_processed_data = None; self._final_is_roi_applied_only = False; super().reject()
-
-    def reject(self): logger.info(f"{self.operation_name} dialog rejected."); self._final_processed_data = None; super().reject()
-    def get_processed_data(self) -> Optional[np.ndarray]: return self._final_processed_data.copy() if self._final_processed_data is not None else None
-    def get_parameters(self) -> dict: return self._get_current_parameters()
-    def was_roi_applied_only(self) -> bool: return self._final_is_roi_applied_only
+        return self._apply_with_optional_roi(image, processed, apply_roi_only)
 
 
-class NLMeansDialog(QDialog):
-    """
-    Standalone dialog window for applying Non-Local Means denoising (skimage).
-    Includes ROI/Whole image mode toggle and live preview.
-    """
+
+class NLMeansDialog(BasePreprocessingDialog):
+    """Dialog for scikit-image Non-Local Means denoising with ROI support."""
+
     def __init__(self, original_data: np.ndarray, parent=None):
-        super().__init__(parent)
-        if original_data is None: raise ValueError("Original data cannot be None")
-
-        self.operation_name = "NL-Means Denoising (skimage)"
+        if original_data is None:
+            raise ValueError("Original data cannot be None")
+        super().__init__("NL-Means Denoising (skimage)", parent)
         self.original_data = original_data.astype(np.float32)
         self.preview_data = self.original_data.copy()
-        self._final_processed_data: Optional[np.ndarray] = None
-        self._final_params: Dict[str, Any] = {}
-        self._final_is_roi_applied_only: bool = False
 
         self.setWindowTitle(f"{self.operation_name} Settings")
-        self.setMinimumSize(900, 600) 
-        current_flags=self.windowFlags(); self.setWindowFlags(current_flags | Qt.WindowType.WindowMinimizeButtonHint | Qt.WindowType.WindowMaximizeButtonHint)
+        self.setMinimumSize(900, 600)
+        current_flags = self.windowFlags()
+        self.setWindowFlags(
+            current_flags
+            | Qt.WindowType.WindowMinimizeButtonHint
+            | Qt.WindowType.WindowMaximizeButtonHint
+        )
 
-        main_layout=QVBoxLayout(self); top_layout=QHBoxLayout(); controls_area_layout=QVBoxLayout(); bottom_layout=QHBoxLayout()
+        main_layout = QVBoxLayout(self)
+        top_layout = QHBoxLayout()
+        controls_area_layout = QVBoxLayout()
+        bottom_layout = QHBoxLayout()
 
-        pg.setConfigOption('background', 'w'); pg.setConfigOption('foreground', 'k'); self.win = pg.GraphicsLayoutWidget()
-        self.plot_original = self.win.addPlot(row=0, col=0, title="Original", name="plot_orig"); self.img_original = ImageItem()
-        self.plot_original.addItem(self.img_original); self.plot_original.hideAxis('left'); self.plot_original.hideAxis('bottom')
+        pg.setConfigOption("background", "w")
+        pg.setConfigOption("foreground", "k")
+        self.win = pg.GraphicsLayoutWidget()
+        self.plot_original = self.win.addPlot(row=0, col=0, title="Original", name="plot_orig")
+        self.img_original = ImageItem()
+        self.plot_original.addItem(self.img_original)
+        self.plot_original.hideAxis("left")
+        self.plot_original.hideAxis("bottom")
         self.plot_original.setAspectLocked(True)
-        self.plot_processed = self.win.addPlot(row=0, col=1, title="Preview", name="plot_proc"); self.img_processed = ImageItem()
-        self.plot_processed.addItem(self.img_processed); self.plot_processed.hideAxis('left')
-        self.plot_processed.hideAxis('bottom'); self.plot_processed.setAspectLocked(True)
+
+        self.plot_processed = self.win.addPlot(row=0, col=1, title="Preview", name="plot_proc")
+        self.img_processed = ImageItem()
+        self.plot_processed.addItem(self.img_processed)
+        self.plot_processed.hideAxis("left")
+        self.plot_processed.hideAxis("bottom")
+        self.plot_processed.setAspectLocked(True)
         self.plot_processed.vb.setXLink(self.plot_original.vb)
         self.plot_processed.vb.setYLink(self.plot_original.vb)
-        self.plot_original.vb.invertY(True); self.plot_processed.vb.invertY(True)
+        self.plot_original.vb.invertY(True)
+        self.plot_processed.vb.invertY(True)
         top_layout.addWidget(self.win, stretch=3)
 
-        controls_panel = QWidget(); controls_panel.setMaximumWidth(250); controls_panel.setLayout(controls_area_layout)
+        controls_panel = QWidget()
+        controls_panel.setMaximumWidth(250)
+        controls_panel.setLayout(controls_area_layout)
+
         parameter_widget_container = QWidget()
-        specific_param_layout = QVBoxLayout(parameter_widget_container); specific_param_layout.setContentsMargins(0,0,0,0)
-        self._create_parameter_controls(specific_param_layout)
+        parameter_layout = QVBoxLayout(parameter_widget_container)
+        parameter_layout.setContentsMargins(0, 0, 0, 0)
+        self._create_parameter_controls(parameter_layout)
         controls_area_layout.addWidget(parameter_widget_container)
 
-        controls_area_layout.addWidget(QFrame(frameShape=QFrame.Shape.HLine, frameShadow=QFrame.Shadow.Sunken))
+        controls_area_layout.addWidget(
+            QFrame(frameShape=QFrame.Shape.HLine, frameShadow=QFrame.Shadow.Sunken)
+        )
 
-        self.apply_to_roi_only_checkbox = QCheckBox("Apply only to ROI area"); self.apply_to_roi_only_checkbox.setChecked(False)
-        self.live_preview_checkbox = QCheckBox("Live Preview"); self.live_preview_checkbox.setChecked(True)
+        self.apply_to_roi_only_checkbox = QCheckBox("Apply only to ROI area")
+        self.apply_to_roi_only_checkbox.setChecked(False)
+        self.live_preview_checkbox = QCheckBox("Live Preview")
+        self.live_preview_checkbox.setChecked(True)
         controls_area_layout.addWidget(self.apply_to_roi_only_checkbox)
         controls_area_layout.addWidget(self.live_preview_checkbox)
 
-        controls_area_layout.addWidget(QFrame(frameShape=QFrame.Shape.HLine, frameShadow=QFrame.Shadow.Sunken))
+        controls_area_layout.addWidget(
+            QFrame(frameShape=QFrame.Shape.HLine, frameShadow=QFrame.Shadow.Sunken)
+        )
 
-        self.roi_info_label = QLabel("ROI: Not selected"); controls_area_layout.addWidget(self.roi_info_label)
-        h, w = self.original_data.shape; roi_w, roi_h = w//4, h//4; roi_x, roi_y = w//2-roi_w//2, h//2-roi_h//2
-        self.roi = RectROI(pos=(roi_x, roi_y), size=(roi_w, roi_h), pen=pg.mkPen('b', width=2), translateSnap=True, scaleSnap=True); # Blue ROI
+        self.roi_info_label = QLabel("ROI: Not selected")
+        controls_area_layout.addWidget(self.roi_info_label)
+
+        height, width = self.original_data.shape
+        roi_w, roi_h = width // 4, height // 4
+        roi_x = width // 2 - roi_w // 2
+        roi_y = height // 2 - roi_h // 2
+        self.roi = RectROI(
+            pos=(roi_x, roi_y),
+            size=(roi_w, roi_h),
+            pen=pg.mkPen("b", width=2),
+            translateSnap=True,
+            scaleSnap=True,
+        )
         self.plot_original.addItem(self.roi)
-        is_roi_mode = self.apply_to_roi_only_checkbox.isChecked()
-        self.roi.setVisible(is_roi_mode); self.roi_info_label.setVisible(is_roi_mode)
-        self._on_roi_changed()
 
         controls_area_layout.addStretch()
         top_layout.addWidget(controls_panel, stretch=1)
 
-        self.button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel); self.button_box.button(QDialogButtonBox.StandardButton.Ok).setText("Apply Changes"); bottom_layout.addWidget(self.button_box)
+        self.button_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        self.button_box.button(QDialogButtonBox.StandardButton.Ok).setText("Apply Changes")
+        bottom_layout.addWidget(self.button_box)
 
-        main_layout.addLayout(top_layout); main_layout.addLayout(bottom_layout)
+        main_layout.addLayout(top_layout)
+        main_layout.addLayout(bottom_layout)
 
-        self.update_original_view(); self._update_preview()
-        self.apply_to_roi_only_checkbox.stateChanged.connect(self._on_parameter_or_preview_changed)
-        self.live_preview_checkbox.stateChanged.connect(self._on_parameter_or_preview_changed)
-        self.roi.sigRegionChanged.connect(self._on_roi_changed)
-        self.button_box.accepted.connect(self.accept); self.button_box.rejected.connect(self.reject)
+        self._initialize_common_behavior()
 
-        logger.debug(f"Standalone {self.operation_name} dialog initialized.")
-    
-    def get_final_roi_slice(self) -> Optional[Tuple[slice, slice]]:
-        if self._final_is_roi_applied_only:
-            current_slice = self._get_roi_slice()
-            logger.debug(f"get_final_roi_slice called, roi_only={self._final_is_roi_applied_only}, slice={current_slice}")
-            return current_slice
-        else:
-            logger.debug(f"get_final_roi_slice called, roi_only={self._final_is_roi_applied_only}, returning None")
-            return None
-
-
-    def _create_parameter_controls(self, layout: QVBoxLayout):
-        """Adds controls specific to NL-Means Filter."""
+    def _create_parameter_controls(self, layout: QVBoxLayout) -> None:
         sigma_layout = QHBoxLayout()
-        sigma_layout.addWidget(QLabel("Noise Sigma (σ):"))
+        sigma_layout.addWidget(QLabel("Sigma:"))
         self.sigma_spinbox = QDoubleSpinBox()
         self.sigma_spinbox.setDecimals(4)
-        self.sigma_spinbox.setRange(0.0001, 1e6) 
-        estimated_sigma = np.std(self.original_data) / 10.0 
-        self.sigma_spinbox.setValue(max(0.001, estimated_sigma)) 
+        self.sigma_spinbox.setRange(0.0001, 1_000_000.0)
+        estimated_sigma = float(np.std(self.original_data) / 10.0)
+        self.sigma_spinbox.setValue(max(0.001, estimated_sigma))
         self.sigma_spinbox.setSingleStep(0.01)
         sigma_layout.addWidget(self.sigma_spinbox)
         layout.addLayout(sigma_layout)
 
         h_mult_layout = QHBoxLayout()
-        h_mult_layout.addWidget(QLabel("H Multiplier (h = mult * σ):"))
+        h_mult_layout.addWidget(QLabel("H multiplier:"))
         self.h_mult_spinbox = QDoubleSpinBox()
         self.h_mult_spinbox.setDecimals(2)
-        self.h_mult_spinbox.setRange(0.1, 5.0) 
-        self.h_mult_spinbox.setValue(1.0) 
+        self.h_mult_spinbox.setRange(0.1, 5.0)
+        self.h_mult_spinbox.setValue(1.0)
         self.h_mult_spinbox.setSingleStep(0.05)
         h_mult_layout.addWidget(self.h_mult_spinbox)
         layout.addLayout(h_mult_layout)
 
-        psize_layout = QHBoxLayout()
-        psize_layout.addWidget(QLabel("Patch Size:"))
+        patch_size_layout = QHBoxLayout()
+        patch_size_layout.addWidget(QLabel("Patch size:"))
         self.patch_size_spinbox = QSpinBox()
-        self.patch_size_spinbox.setMinimum(3)
-        self.patch_size_spinbox.setMaximum(21) 
-        self.patch_size_spinbox.setSingleStep(2) 
-        self.patch_size_spinbox.setValue(7) 
-        psize_layout.addWidget(self.patch_size_spinbox)
-        layout.addLayout(psize_layout)
+        self.patch_size_spinbox.setRange(3, 21)
+        self.patch_size_spinbox.setSingleStep(2)
+        self.patch_size_spinbox.setValue(7)
+        patch_size_layout.addWidget(self.patch_size_spinbox)
+        layout.addLayout(patch_size_layout)
 
-        pdist_layout = QHBoxLayout()
-        pdist_layout.addWidget(QLabel("Patch Distance:"))
+        patch_dist_layout = QHBoxLayout()
+        patch_dist_layout.addWidget(QLabel("Patch distance:"))
         self.patch_dist_spinbox = QSpinBox()
-        self.patch_dist_spinbox.setMinimum(1)
-        self.patch_dist_spinbox.setMaximum(100)
-        self.patch_dist_spinbox.setValue(11) 
-        pdist_layout.addWidget(self.patch_dist_spinbox)
-        layout.addLayout(pdist_layout)
+        self.patch_dist_spinbox.setRange(1, 100)
+        self.patch_dist_spinbox.setValue(11)
+        patch_dist_layout.addWidget(self.patch_dist_spinbox)
+        layout.addLayout(patch_dist_layout)
 
         self.fast_mode_checkbox = QCheckBox("Use Fast Mode")
-        self.fast_mode_checkbox.setChecked(True) 
+        self.fast_mode_checkbox.setChecked(True)
         layout.addWidget(self.fast_mode_checkbox)
 
         self.sigma_spinbox.valueChanged.connect(self._on_parameter_or_preview_changed)
@@ -734,124 +718,46 @@ class NLMeansDialog(QDialog):
         self.fast_mode_checkbox.stateChanged.connect(self._on_parameter_or_preview_changed)
 
     def _get_current_parameters(self) -> Dict[str, Any]:
-        """Gathers parameters for NL-Means Filter."""
         return {
-            'sigma': self.sigma_spinbox.value(),
-            'h_param_mult': self.h_mult_spinbox.value(),
-            'patch_size': self.patch_size_spinbox.value(),
-            'patch_distance': self.patch_dist_spinbox.value(),
-            'fast_mode': self.fast_mode_checkbox.isChecked(),
-            'apply_roi_only': self.apply_to_roi_only_checkbox.isChecked()
+            "sigma": self.sigma_spinbox.value(),
+            "h_param_mult": self.h_mult_spinbox.value(),
+            "patch_size": self.patch_size_spinbox.value(),
+            "patch_distance": self.patch_dist_spinbox.value(),
+            "fast_mode": self.fast_mode_checkbox.isChecked(),
+            "apply_roi_only": self.apply_to_roi_only_checkbox.isChecked(),
         }
 
     def _apply_operation(self, image: np.ndarray, params: Dict[str, Any]) -> Optional[np.ndarray]:
-        """Applies denoise_nlmeans_skimage based on parameters."""
-        sigma = params.get('sigma', 0.01)
-        h_mult = params.get('h_param_mult', 1.0)
-        p_size = params.get('patch_size', 7)
-        p_dist = params.get('patch_distance', 11)
-        f_mode = params.get('fast_mode', True)
-        apply_roi_only = params.get('apply_roi_only', False)
-
-        logger.debug(f"NL-Means _apply_operation called. Params: {params}")
-
+        logger.debug("NL-Means parameters: %s", params)
         try:
-            processed_full = denoise_nlmeans_skimage(
-                image, sigma=sigma, h_param_mult=h_mult, patch_size=p_size,
-                patch_distance=p_dist, fast_mode=f_mode
+            processed = denoise_nlmeans_skimage(
+                image,
+                sigma=params.get("sigma", 0.01),
+                h_param_mult=params.get("h_param_mult", 1.0),
+                patch_size=params.get("patch_size", 7),
+                patch_distance=params.get("patch_distance", 11),
+                fast_mode=params.get("fast_mode", True),
             )
-            if processed_full is None: return None
-
-            if apply_roi_only:
-                roi_slice = self._get_roi_slice()
-                if roi_slice:
-                    result_image = image.copy()
-                    result_image[roi_slice] = processed_full[roi_slice]
-                    return result_image
-                else:
-                    logger.warning("Cannot apply NL-Means to ROI only: Invalid ROI.")
-                    return image 
-            else:
-                return processed_full
-        except Exception as e:
-            logger.exception(f"Error applying denoise_nlmeans_skimage: {e}")
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.exception("NL-Means denoising failed", exc_info=exc)
             return None
-
-    @pyqtSlot()
-    def _on_parameter_or_preview_changed(self):
-        is_roi_mode = self.apply_to_roi_only_checkbox.isChecked()
-        self.roi.setVisible(is_roi_mode)
-        self.roi_info_label.setVisible(is_roi_mode)
-        if self.live_preview_checkbox.isChecked():
-            self._update_preview()
-
-    @pyqtSlot()
-    def _on_roi_changed(self):
-        pos=self.roi.pos(); size=self.roi.size()
-        info_text = f"ROI: ({pos.x():.1f}, {pos.y():.1f}) Size: ({size.x():.1f}, {size.y():.1f})"
-        self.roi_info_label.setText(info_text)
-        if self.apply_to_roi_only_checkbox.isChecked() and self.live_preview_checkbox.isChecked():
-             self._update_preview()
-
-    def _get_roi_slice(self) -> Optional[Tuple[slice, slice]]:
-        if not self.roi.isVisible() or not self.roi.size().x() > 0 or not self.roi.size().y() > 0: return None
-        pos=self.roi.pos(); size=self.roi.size()
-        h,w=self.original_data.shape; x0,y0=int(round(pos.x())),int(round(pos.y()))
-        width,height=int(round(size.x())),int(round(size.y()))
-        x1=min(x0+width,w); y1=min(y0+height,h)
-        x0=max(0,x0); y0=max(0,y0)
-        if x1>x0 and y1>y0: return slice(y0,y1), slice(x0,x1)
-        else: logger.warning("Invalid ROI dimensions."); return None
-
-    def _update_preview(self):
-        if not self.live_preview_checkbox.isChecked():
-            self.preview_data = self.original_data.copy(); self.update_preview_view(); return
-        params = self._get_current_parameters()
-        logger.debug(f"Updating preview. Params: {params}")
-        try:
-            self.preview_data = self._apply_operation(self.original_data, params)
-            if self.preview_data is None: self.preview_data = self.original_data.copy()
-            self.update_preview_view()
-        except Exception as e: logger.exception(f"Error during preview update: {e}")
-
-    def update_original_view(self):
-        if self.original_data is not None and self.img_original: self.img_original.setImage(self.original_data.T); self.plot_original.autoRange()
-    def update_preview_view(self):
-        if not self.img_processed: return
-        if self.preview_data is not None: self.img_processed.setImage(self.preview_data.T); logger.debug("Preview view updated.")
-        else: self.img_processed.clear(); logger.debug("Preview view cleared.")
-
-    def accept(self):
-        params = self._get_current_parameters()
-        self._final_is_roi_applied_only = params.get('apply_roi_only', False)
-        logger.info(f"Dialog accepted. Finalizing '{self.operation_name}'. Apply ROI Only: {self._final_is_roi_applied_only}, Params: {params}")
-        try:
-            self._final_processed_data = self._apply_operation(self.original_data, params)
-            if self._final_processed_data is None: raise ValueError("Processing failed.")
-            if np.allclose(self._final_processed_data, self.original_data): logger.info("Data not modified."); self._final_processed_data = None; super().reject(); return
-            logger.info("Final processing calculated."); super().accept()
-        except Exception as e: logger.exception(f"Error final processing: {e}"); QMessageBox.critical(self, "Error", f"... {e}"); self._final_processed_data = None; self._final_is_roi_applied_only = False; super().reject()
-
-    def reject(self): logger.info(f"{self.operation_name} dialog rejected."); self._final_processed_data = None; super().reject()
-    def get_processed_data(self) -> Optional[np.ndarray]: return self._final_processed_data.copy() if self._final_processed_data is not None else None
-    def get_parameters(self) -> dict: return self._get_current_parameters()
-    def was_roi_applied_only(self) -> bool: return self._final_is_roi_applied_only
+        return self._apply_with_optional_roi(
+            image,
+            processed,
+            params.get("apply_roi_only", False),
+        )
 
 
-class PlaneLevelingDialog(QDialog):
-    """
-    Standalone dialog window for Plane Leveling with multiple modes.
-    """
+
+class PlaneLevelingDialog(BasePreprocessingDialog):
+    """Dialog for plane leveling with whole, ROI, and 3-point modes."""
+
     def __init__(self, original_data: np.ndarray, parent=None):
-        super().__init__(parent)
-        if original_data is None: raise ValueError("Original data cannot be None")
-
-        self.operation_name = "Plane Leveling"
+        if original_data is None:
+            raise ValueError("Original data cannot be None")
+        super().__init__("Plane Leveling", parent)
         self.original_data = original_data.astype(np.float32)
         self.preview_data = self.original_data.copy()
-        self._final_processed_data: Optional[np.ndarray] = None
-        self._final_params: Dict[str, Any] = {}
-        self._final_is_roi_applied_only: bool = False
 
         self._is_selecting_points = False
         self._selected_points: List[Tuple[int, int]] = []
@@ -859,583 +765,565 @@ class PlaneLevelingDialog(QDialog):
 
         self.setWindowTitle(f"{self.operation_name} Settings")
         self.setMinimumSize(900, 550)
-        current_flags=self.windowFlags(); self.setWindowFlags(current_flags | Qt.WindowType.WindowMinimizeButtonHint | Qt.WindowType.WindowMaximizeButtonHint)
+        current_flags = self.windowFlags()
+        self.setWindowFlags(
+            current_flags
+            | Qt.WindowType.WindowMinimizeButtonHint
+            | Qt.WindowType.WindowMaximizeButtonHint
+        )
 
-        main_layout=QVBoxLayout(self); top_layout=QHBoxLayout(); controls_area_layout=QVBoxLayout(); bottom_layout=QHBoxLayout()
+        main_layout = QVBoxLayout(self)
+        top_layout = QHBoxLayout()
+        controls_area_layout = QVBoxLayout()
+        bottom_layout = QHBoxLayout()
 
-        pg.setConfigOption('background', 'w'); pg.setConfigOption('foreground', 'k'); self.win = pg.GraphicsLayoutWidget()
+        pg.setConfigOption("background", "w")
+        pg.setConfigOption("foreground", "k")
+        self.win = pg.GraphicsLayoutWidget()
         self.plot_original = self.win.addPlot(row=0, col=0, title="Original", name="plot_orig")
-        self.img_original = ImageItem(); self.plot_original.addItem(self.img_original)
-        self.plot_original.hideAxis('left'); self.plot_original.hideAxis('bottom')
+        self.img_original = ImageItem()
+        self.plot_original.addItem(self.img_original)
+        self.plot_original.hideAxis("left")
+        self.plot_original.hideAxis("bottom")
         self.plot_original.setAspectLocked(True)
+
         self.plot_processed = self.win.addPlot(row=0, col=1, title="Preview", name="plot_proc")
-        self.img_processed = ImageItem(); self.plot_processed.addItem(self.img_processed)
-        self.plot_processed.hideAxis('left'); self.plot_processed.hideAxis('bottom')
+        self.img_processed = ImageItem()
+        self.plot_processed.addItem(self.img_processed)
+        self.plot_processed.hideAxis("left")
+        self.plot_processed.hideAxis("bottom")
         self.plot_processed.setAspectLocked(True)
         self.plot_processed.vb.setXLink(self.plot_original.vb)
         self.plot_processed.vb.setYLink(self.plot_original.vb)
-        self.plot_original.vb.invertY(True); self.plot_processed.vb.invertY(True)
+        self.plot_original.vb.invertY(True)
+        self.plot_processed.vb.invertY(True)
         top_layout.addWidget(self.win, stretch=3)
 
-        controls_panel = QWidget(); controls_panel.setMaximumWidth(250); controls_panel.setLayout(controls_area_layout)
+        controls_panel = QWidget()
+        controls_panel.setMaximumWidth(260)
+        controls_panel.setLayout(controls_area_layout)
 
-        self._create_parameter_controls(controls_area_layout)
+        parameter_widget_container = QWidget()
+        parameter_layout = QVBoxLayout(parameter_widget_container)
+        parameter_layout.setContentsMargins(0, 0, 0, 0)
+        self._create_parameter_controls(parameter_layout)
+        controls_area_layout.addWidget(parameter_widget_container)
 
-        controls_area_layout.addWidget(QFrame(frameShape=QFrame.Shape.HLine, frameShadow=QFrame.Shadow.Sunken))
+        controls_area_layout.addWidget(
+            QFrame(frameShape=QFrame.Shape.HLine, frameShadow=QFrame.Shadow.Sunken)
+        )
 
         self.apply_to_roi_only_checkbox = QCheckBox("Apply plane only to ROI area")
         self.apply_to_roi_only_checkbox.setChecked(False)
-        self.apply_to_roi_only_checkbox.setVisible(False)
+        controls_area_layout.addWidget(self.apply_to_roi_only_checkbox)
 
         self.live_preview_checkbox = QCheckBox("Live Preview")
         self.live_preview_checkbox.setChecked(True)
-
-        controls_area_layout.addWidget(self.apply_to_roi_only_checkbox)
         controls_area_layout.addWidget(self.live_preview_checkbox)
 
-        controls_area_layout.addWidget(QFrame(frameShape=QFrame.Shape.HLine, frameShadow=QFrame.Shadow.Sunken))
+        controls_area_layout.addWidget(
+            QFrame(frameShape=QFrame.Shape.HLine, frameShadow=QFrame.Shadow.Sunken)
+        )
 
         self.roi_info_label = QLabel("ROI: Not selected")
         controls_area_layout.addWidget(self.roi_info_label)
-        self.roi_info_label.setVisible(False)
+
+        height, width = self.original_data.shape
+        roi_w, roi_h = width // 4, height // 4
+        roi_x = width // 2 - roi_w // 2
+        roi_y = height // 2 - roi_h // 2
+        self.roi = RectROI(
+            pos=(roi_x, roi_y),
+            size=(roi_w, roi_h),
+            pen=pg.mkPen("g", width=2),
+            translateSnap=True,
+            scaleSnap=True,
+        )
+        self.plot_original.addItem(self.roi)
 
         controls_area_layout.addStretch()
         top_layout.addWidget(controls_panel, stretch=1)
 
-        h, w = self.original_data.shape; roi_w, roi_h = w//4, h//4; roi_x, roi_y = w//2 - roi_w//2, h//2 - roi_h//2
-        self.roi = RectROI(pos=(roi_x, roi_y), size=(roi_w, roi_h), pen=pg.mkPen('g', width=2), translateSnap=True, scaleSnap=True); # Different color for distinction
-        self.plot_original.addItem(self.roi)
-        self.roi.setVisible(False)
-        self._on_roi_changed()
-
-        self.button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel); self.button_box.button(QDialogButtonBox.StandardButton.Ok).setText("Apply Changes"); bottom_layout.addWidget(self.button_box)
-
-        main_layout.addLayout(top_layout); main_layout.addLayout(bottom_layout)
-
-        self.update_original_view(); self._update_preview()
-        self.live_preview_checkbox.stateChanged.connect(self._update_preview_slot)
-        self.apply_to_roi_only_checkbox.stateChanged.connect(self._update_preview_slot)
-        self.roi.sigRegionChanged.connect(self._on_roi_changed)
-        self.button_box.accepted.connect(self.accept); self.button_box.rejected.connect(self.reject)
-
-        logger.debug(f"Standalone {self.operation_name} dialog initialized.")
-
-    def get_final_roi_slice(self) -> Optional[Tuple[slice, slice]]:
-        if self._final_is_roi_applied_only:
-            current_slice = self._get_roi_slice()
-            logger.debug(f"get_final_roi_slice called, roi_only={self._final_is_roi_applied_only}, slice={current_slice}")
-            return current_slice
-        else:
-            logger.debug(f"get_final_roi_slice called, roi_only={self._final_is_roi_applied_only}, returning None")
-            return None
-
-
-
-    def _create_parameter_controls(self, layout: QVBoxLayout):
-        """Adds controls specific to Plane Leveling."""
-        mode_groupbox = QGroupBox("Leveling Mode")
-        mode_layout = QVBoxLayout()
-        self.rb_whole = QRadioButton("Fit to Whole Image"); self.rb_roi = QRadioButton("Fit to ROI"); self.rb_3pt = QRadioButton("Use 3 Points")
-        mode_layout.addWidget(self.rb_whole); mode_layout.addWidget(self.rb_roi); mode_layout.addWidget(self.rb_3pt)
-        mode_groupbox.setLayout(mode_layout); layout.addWidget(mode_groupbox)
-
-        self.points_groupbox = QGroupBox("3 Point Selection"); points_layout = QVBoxLayout()
-        self.points_label = QLabel("Click 'Select Points', then click 3 points on 'Original'.")
-        self.point_coords_labels = [QLabel(f"P{i+1}: -") for i in range(3)]; self.select_points_button = QPushButton("Select Points"); self.clear_points_button = QPushButton("Clear Points"); self.clear_points_button.setEnabled(False)
-        points_layout.addWidget(self.points_label); [points_layout.addWidget(lbl) for lbl in self.point_coords_labels]; btn_layout = QHBoxLayout(); btn_layout.addWidget(self.select_points_button); btn_layout.addWidget(self.clear_points_button); points_layout.addLayout(btn_layout)
-        self.points_groupbox.setLayout(points_layout); layout.addWidget(self.points_groupbox); self.points_groupbox.setVisible(False)
-
-        self.rb_whole.toggled.connect(self._on_mode_changed)
-        self.rb_roi.toggled.connect(self._on_mode_changed)
-        self.rb_3pt.toggled.connect(self._on_mode_changed)
-        self.select_points_button.clicked.connect(self._toggle_point_selection); self.clear_points_button.clicked.connect(self._clear_points)
-        self.rb_whole.setChecked(True) # Default mode
-
-
-    @pyqtSlot()
-    def _update_preview_slot(self):
-         if self.live_preview_checkbox.isChecked():
-              self._update_preview()
-
-    @pyqtSlot(bool)
-    def _on_mode_changed(self):
-        is_roi_mode = self.rb_roi.isChecked()
-        is_3pt_mode = self.rb_3pt.isChecked()
-        self.roi.setVisible(is_roi_mode)
-        self.roi_info_label.setVisible(is_roi_mode)
-        self.apply_to_roi_only_checkbox.setVisible(is_roi_mode)
-        self.points_groupbox.setVisible(is_3pt_mode)
-        if not is_3pt_mode and self._is_selecting_points: self._toggle_point_selection(force_off=True)
-        elif not is_3pt_mode: self._clear_points()
-        if self.live_preview_checkbox.isChecked(): self._update_preview()
-
-    @pyqtSlot()
-    def _on_roi_changed(self):
-        """Updates ROI info label and preview if live preview is on and ROI mode active."""
-        pos=self.roi.pos(); size=self.roi.size(); info_text = f"ROI: ({pos.x():.1f}, {pos.y():.1f}) Size: ({size.x():.1f}, {size.y():.1f})"; self.roi_info_label.setText(info_text)
-        if self.rb_roi.isChecked() and self.live_preview_checkbox.isChecked():
-             self._update_preview()
-
-    def _toggle_point_selection(self, checked=False, force_off=False):
-        if force_off:
-            self._is_selecting_points = False
-        else:
-            self._is_selecting_points = not self._is_selecting_points
-
-        if self._is_selecting_points:
-            logger.info("Start 3pt select")
-            self.select_points_button.setText("Stop")
-            self._clear_points()
-            if self._mouse_click_connection is None:
-                vb = self.plot_original.getViewBox()
-                scene = vb.scene()
-                if scene and hasattr(scene, 'sigMouseClicked') and callable(getattr(scene, 'sigMouseClicked')):
-                    self._mouse_click_connection = scene.sigMouseClicked.connect(self._handle_mouse_click)
-                    logger.debug("Click connected.")
-                else:
-                    logger.error("Cannot connect click.")
-                    self._is_selecting_points = False
-                    self.select_points_button.setText("Select")
-        else:
-            logger.info("Stop 3pt select")
-            self.select_points_button.setText("Select")
-            if self._mouse_click_connection is not None:
-                try:
-                    vb = self.plot_original.getViewBox()
-                    scene = vb.scene()
-                    if scene and hasattr(scene, 'sigMouseClicked') and callable(getattr(scene, 'sigMouseClicked')):
-                        scene.sigMouseClicked.disconnect(self._mouse_click_connection)
-                        logger.debug("Click disconnected.")
-                except Exception as e:
-                    logger.warning(f"Cannot disconnect click: {e}")
-                self._mouse_click_connection = None
-
-    def _clear_points(self): self._selected_points = []; [lbl.setText(f"P{i+1}: -") for i, lbl in enumerate(self.point_coords_labels)]; self.clear_points_button.setEnabled(False); logger.info("Points cleared."); self._update_preview_slot()
-    def _handle_mouse_click(self, event):
-        if not self._is_selecting_points or len(self._selected_points) >= 3: return
-        pos_scene = event.scenePos(); pos_data = self.plot_original.vb.mapSceneToView(pos_scene); x=int(round(pos_data.x())); y=int(round(pos_data.y())); h, w = self.original_data.shape
-        if 0 <= x < w and 0 <= y < h: point = (x, y); self._selected_points.append(point); idx = len(self._selected_points); self.point_coords_labels[idx-1].setText(f"P{idx}: ({x}, {y})"); self.clear_points_button.setEnabled(True); logger.info(f"Point {idx}: ({x}, {y})")
-        if len(self._selected_points) == 3: self._toggle_point_selection(force_off=True); self._update_preview_slot()
-        else: logger.warning(f"Clicked outside bounds: ({x}, {y})")
-
-    def _get_roi_slice(self) -> Optional[Tuple[slice, slice]]:
-        if not self.roi.isVisible() or not self.roi.size().x() > 0 or not self.roi.size().y() > 0: return None
-        pos=self.roi.pos(); size=self.roi.size(); h,w=self.original_data.shape; x0,y0=int(round(pos.x())),int(round(pos.y())); width,height=int(round(size.x())),int(round(size.y())); x1=min(x0+width,w); y1=min(y0+height,h); x0=max(0,x0); y0=max(0,y0)
-        if x1>x0 and y1>y0: return slice(y0,y1), slice(x0,x1)
-        else: logger.warning("Invalid ROI dimensions."); return None
-
-    def _get_current_parameters(self) -> Dict[str, Any]:
-        """Collects parameters for Plane Leveling."""
-        params = {'apply_roi_only': self.apply_to_roi_only_checkbox.isChecked()}
-        if self.rb_whole.isChecked(): params['mode'] = 'whole'
-        elif self.rb_roi.isChecked(): params['mode'] = 'roi'
-        elif self.rb_3pt.isChecked(): params['mode'] = '3pt'; params['points'] = self._selected_points.copy()
-        else: params['mode'] = 'unknown'
-        return params
-
-    def _calculate_leveled_image(self, image_in: np.ndarray, params: Dict[str, Any]) -> Optional[np.ndarray]:
-         """Helper method to calculate the leveled image based on params."""
-         mode = params.get('mode', 'whole')
-         apply_roi_only = params.get('apply_roi_only', False) and mode == 'roi'
-         fitted_plane = None; roi_slice = None
-
-         try:
-             if mode == 'whole': fitted_plane = fit_plane(image_in, roi_slice=None)
-             elif mode == 'roi':
-                 roi_slice = self._get_roi_slice()
-                 if roi_slice: fitted_plane = fit_plane(image_in, roi_slice=roi_slice)
-                 else: logger.warning("Invalid ROI for fit."); return image_in
-             elif mode == '3pt':
-                 points = params.get('points', [])
-                 if len(points) == 3: fitted_plane = fit_plane_3pts(image_in, points)
-                 else: logger.warning("Not enough points for 3pt fit."); return image_in
-
-             if fitted_plane is None: logger.error("Plane fitting failed."); return image_in
-
-             if apply_roi_only and roi_slice:
-                  logger.debug("Leveling: Applying subtraction only within ROI.")
-                  leveled_image = image_in.copy()
-                  leveled_image[roi_slice] = image_in[roi_slice] - fitted_plane[roi_slice]
-                  return leveled_image
-             else:
-                  logger.debug("Leveling: Applying subtraction to whole image.")
-                  leveled_image = level_by_plane(image_in, fitted_plane)
-                  return leveled_image
-
-         except Exception as e:
-             logger.exception(f"Error in plane leveling calculation: {e}")
-             return None
-
-
-    def _update_preview(self):
-        """Updates preview."""
-        if not self.live_preview_checkbox.isChecked():
-            self.preview_data = self.original_data.copy(); self.update_preview_view()
-            return
-
-        params = self._get_current_parameters()
-        logger.debug(f"Updating preview. Params: {params}")
-        calculated_preview = self._calculate_leveled_image(self.original_data, params)
-        self.preview_data = calculated_preview if calculated_preview is not None else self.original_data.copy()
-        self.update_preview_view()
-
-
-    def update_original_view(self):
-        if self.original_data is not None and self.img_original: self.img_original.setImage(self.original_data.T); self.plot_original.autoRange()
-    def update_preview_view(self):
-        if not self.img_processed: return
-        if self.preview_data is not None: self.img_processed.setImage(self.preview_data.T); logger.debug("Preview view updated.")
-        else: self.img_processed.clear(); logger.debug("Preview view cleared.")
-
-
-    def accept(self):
-        """Calculates final result and closes dialog."""
-        params = self._get_current_parameters()
-        if params.get('mode') == '3pt' and len(params.get('points', [])) != 3:
-            QMessageBox.warning(self, "Missing Points", "Please select exactly 3 points."); return
-
-        self._final_is_roi_applied_only = params.get('apply_roi_only', False) and params.get('mode') == 'roi'
-        logger.info(f"Dialog accepted. Finalizing '{self.operation_name}'. Apply ROI Only: {self._final_is_roi_applied_only}, Params: {params}")
-        try:
-            self._final_processed_data = self._calculate_leveled_image(self.original_data, params)
-            if self._final_processed_data is None: raise ValueError("Processing operation failed.")
-            if np.allclose(self._final_processed_data, self.original_data): logger.info("Data not modified."); self._final_processed_data = None; super().reject(); return
-            logger.info("Final processing calculated."); super().accept()
-        except Exception as e: logger.exception(f"Error final processing: {e}"); QMessageBox.critical(self, "Error", f"... {e}"); self._final_processed_data = None; self._final_is_roi_applied_only = False; super().reject()
-
-    def reject(self):
-        if self._is_selecting_points: self._toggle_point_selection(force_off=True)
-        logger.info(f"{self.operation_name} dialog rejected."); self._final_processed_data = None; super().reject()
-
-    def get_processed_data(self) -> Optional[np.ndarray]: return self._final_processed_data.copy() if self._final_processed_data is not None else None
-    def get_parameters(self) -> dict: return self._get_current_parameters()
-    def was_roi_applied_only(self) -> bool: return self._final_is_roi_applied_only
-
-class BM3DDialog(QDialog):
-    """
-    Standalone dialog window for applying BM3D denoising.
-    Includes ROI/Whole image mode toggle. Live preview is disabled by default.
-    """
-    def __init__(self, original_data: np.ndarray, parent=None):
-        super().__init__(parent)
-        if original_data is None: raise ValueError("Original data cannot be None")
-
-        self.operation_name = "BM3D Denoising"
-        self.original_data = original_data.astype(np.float32)
-        self.preview_data = self.original_data.copy()
-        self._final_processed_data: Optional[np.ndarray] = None
-        self._final_params: Dict[str, Any] = {}
-        self._final_is_roi_applied_only: bool = False
-
-        self.setWindowTitle(f"{self.operation_name} Settings")
-        self.setMinimumSize(900, 550)
-        current_flags=self.windowFlags(); self.setWindowFlags(current_flags | Qt.WindowType.WindowMinimizeButtonHint | Qt.WindowType.WindowMaximizeButtonHint)
-
-        main_layout=QVBoxLayout(self); top_layout=QHBoxLayout(); controls_area_layout=QVBoxLayout() 
-        bottom_layout=QHBoxLayout()
-
-        pg.setConfigOption('background', 'w'); pg.setConfigOption('foreground', 'k')
-        self.win = pg.GraphicsLayoutWidget()
-        self.plot_original = self.win.addPlot(row=0, col=0, title="Original", name="plot_orig")
-        self.img_original = ImageItem(); self.plot_original.addItem(self.img_original)
-        self.plot_original.hideAxis('left'); self.plot_original.hideAxis('bottom')
-        self.plot_original.setAspectLocked(True)
-        self.plot_processed = self.win.addPlot(row=0, col=1, title="Preview (Click Update)", name="plot_proc")
-        self.img_processed = ImageItem(); self.plot_processed.addItem(self.img_processed)
-        self.plot_processed.hideAxis('left'); self.plot_processed.hideAxis('bottom')
-        self.plot_processed.setAspectLocked(True)
-        self.plot_processed.vb.setXLink(self.plot_original.vb)
-        self.plot_processed.vb.setYLink(self.plot_original.vb)
-        self.plot_original.vb.invertY(True); self.plot_processed.vb.invertY(True)
-        top_layout.addWidget(self.win, stretch=3)
-
-        controls_panel = QWidget(); controls_panel.setMaximumWidth(250)
-        controls_panel.setLayout(controls_area_layout)
-        parameter_widget_container = QWidget()
-        specific_param_layout = QVBoxLayout(parameter_widget_container)
-        specific_param_layout.setContentsMargins(0,0,0,0)
-        self._create_parameter_controls(specific_param_layout)
-        controls_area_layout.addWidget(parameter_widget_container)
-        controls_area_layout.addWidget(QFrame(frameShape=QFrame.Shape.HLine, frameShadow=QFrame.Shadow.Sunken))
-
-        self.apply_to_roi_only_checkbox = QCheckBox("Apply only to ROI area")
-        self.apply_to_roi_only_checkbox.setChecked(False)
-        self.live_preview_checkbox = QCheckBox("Live Preview")
-        self.live_preview_checkbox.setChecked(False)
-        self.live_preview_checkbox.setEnabled(False)
-        self.live_preview_checkbox.setToolTip("Live preview disabled for BM3D due to performance.")
-        self.update_preview_button = QPushButton("Update Preview")
-
-        controls_area_layout.addWidget(self.apply_to_roi_only_checkbox)
-        controls_area_layout.addWidget(self.live_preview_checkbox)
-        controls_area_layout.addWidget(self.update_preview_button) # Add button
-
-        controls_area_layout.addWidget(QFrame(frameShape=QFrame.Shape.HLine, frameShadow=QFrame.Shadow.Sunken))
-
-        self.roi_info_label = QLabel("ROI: Not selected")
-        controls_area_layout.addWidget(self.roi_info_label)
-        h, w = self.original_data.shape; roi_w, roi_h = w//4, h//4; roi_x, roi_y = w//2-roi_w//2, h//2-roi_h//2
-        self.roi = RectROI(pos=(roi_x, roi_y), size=(roi_w, roi_h), pen=pg.mkPen('r', width=2), translateSnap=True, scaleSnap=True); # Red ROI
-        self.plot_original.addItem(self.roi)
-        is_roi_mode = self.apply_to_roi_only_checkbox.isChecked()
-        self.roi.setVisible(is_roi_mode); self.roi_info_label.setVisible(is_roi_mode)
-        self._on_roi_changed()
-
-        controls_area_layout.addStretch()
-        top_layout.addWidget(controls_panel, stretch=1)
-
-        self.button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        self.button_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
         self.button_box.button(QDialogButtonBox.StandardButton.Ok).setText("Apply Changes")
         bottom_layout.addWidget(self.button_box)
 
-        main_layout.addLayout(top_layout); main_layout.addLayout(bottom_layout)
+        main_layout.addLayout(top_layout)
+        main_layout.addLayout(bottom_layout)
 
-        self.update_original_view(); self._update_preview()
-        self.apply_to_roi_only_checkbox.stateChanged.connect(self._on_settings_changed)
-        self.roi.sigRegionChanged.connect(self._on_roi_changed) # ROI still updates label
-        self.update_preview_button.clicked.connect(self._update_preview) # Button updates preview
-        self.button_box.accepted.connect(self.accept)
-        self.button_box.rejected.connect(self.reject)
+        # The base class should not auto-manage ROI visibility; the mode handler handles it.
+        self._manage_roi_with_checkbox = False
+        self._initialize_common_behavior()
+        self._update_mode_ui()
 
-        logger.debug(f"Standalone {self.operation_name} dialog initialized.")
-    
-    def get_final_roi_slice(self) -> Optional[Tuple[slice, slice]]:
-        if self._final_is_roi_applied_only:
-            current_slice = self._get_roi_slice()
-            logger.debug(f"get_final_roi_slice called, roi_only={self._final_is_roi_applied_only}, slice={current_slice}")
-            return current_slice
-        else:
-            logger.debug(f"get_final_roi_slice called, roi_only={self._final_is_roi_applied_only}, returning None")
-            return None
+    def _create_parameter_controls(self, layout: QVBoxLayout) -> None:
+        mode_groupbox = QGroupBox("Leveling Mode")
+        mode_layout = QVBoxLayout(mode_groupbox)
 
+        self.rb_whole = QRadioButton("Whole image")
+        self.rb_roi = QRadioButton("Fit plane to ROI")
+        self.rb_3pt = QRadioButton("Fit plane through 3 points")
+        self.rb_whole.setChecked(True)
 
-    def _create_parameter_controls(self, layout: QVBoxLayout):
-        """Adds controls specific to BM3D Filter."""
-        sigma_layout = QHBoxLayout()
-        sigma_layout.addWidget(QLabel("Noise Sigma (σ) [0-1]:")) 
-        self.sigma_spinbox = QDoubleSpinBox()
-        self.sigma_spinbox.setDecimals(4)
-        self.sigma_spinbox.setRange(0.0001, 1.0)
-        self.sigma_spinbox.setValue(0.05) 
-        self.sigma_spinbox.setSingleStep(0.005)
-        self.sigma_spinbox.setToolTip("Estimated noise standard deviation relative to the [0, 1] data range.")
-        sigma_layout.addWidget(self.sigma_spinbox)
-        layout.addLayout(sigma_layout)
+        for rb in (self.rb_whole, self.rb_roi, self.rb_3pt):
+            mode_layout.addWidget(rb)
+            rb.toggled.connect(self._on_mode_changed)
 
-        self.sigma_spinbox.valueChanged.connect(self._on_settings_changed)
+        layout.addWidget(mode_groupbox)
 
-    def _get_current_parameters(self) -> Dict[str, Any]:
-        """Gathers parameters for BM3D Filter."""
-        return {
-            'sigma_psd': self.sigma_spinbox.value(),
-            'apply_roi_only': self.apply_to_roi_only_checkbox.isChecked()
-        }
+        self.points_groupbox = QGroupBox("3-point selection")
+        points_layout = QVBoxLayout(self.points_groupbox)
+        self.point_coords_labels: List[QLabel] = []
+        for idx in range(3):
+            label = QLabel(f"P{idx + 1}: -")
+            points_layout.addWidget(label)
+            self.point_coords_labels.append(label)
 
-    def _apply_operation(self, image: np.ndarray, params: Dict[str, Any]) -> Optional[np.ndarray]:
-        """Applies denoise_bm3d_lfa based on parameters."""
-        sigma = params.get('sigma_psd', 0.05)
-        apply_roi_only = params.get('apply_roi_only', False)
-        logger.debug(f"BM3D _apply_operation called. Sigma={sigma}, ROI Only={apply_roi_only}")
-        try:
-            processed_full = denoise_bm3d_lfa(image, sigma_psd=sigma)
-            if processed_full is None: return None # Error in backend function
+        buttons_row = QHBoxLayout()
+        self.select_points_button = QPushButton("Select")
+        self.select_points_button.clicked.connect(self._toggle_point_selection)
+        buttons_row.addWidget(self.select_points_button)
 
-            if apply_roi_only:
-                roi_slice = self._get_roi_slice()
-                if roi_slice:
-                    result_image = image.copy()
-                    result_image[roi_slice] = processed_full[roi_slice]
-                    return result_image
-                else:
-                    logger.warning("Cannot apply BM3D to ROI only: Invalid ROI.")
-                    return image
-            else:
-                return processed_full 
-        except Exception as e:
-            logger.exception(f"Error applying denoise_bm3d_lfa: {e}")
-            return None
+        self.clear_points_button = QPushButton("Clear")
+        self.clear_points_button.setEnabled(False)
+        self.clear_points_button.clicked.connect(self._clear_points)
+        buttons_row.addWidget(self.clear_points_button)
 
-    @pyqtSlot()
-    def _on_settings_changed(self):
-        """Slot for parameter or ROI checkbox changes."""
-        is_roi_mode = self.apply_to_roi_only_checkbox.isChecked()
+        points_layout.addLayout(buttons_row)
+        layout.addWidget(self.points_groupbox)
+
+    def _update_mode_ui(self) -> None:
+        is_roi_mode = self.rb_roi.isChecked()
+        is_3pt_mode = self.rb_3pt.isChecked()
+
         self.roi.setVisible(is_roi_mode)
         self.roi_info_label.setVisible(is_roi_mode)
+        self.apply_to_roi_only_checkbox.setVisible(is_roi_mode)
+        if not is_roi_mode:
+            self.apply_to_roi_only_checkbox.setChecked(False)
 
-    @pyqtSlot()
-    def _on_roi_changed(self):
-        """Updates ROI info label."""
-        pos=self.roi.pos(); size=self.roi.size(); info_text = f"ROI: ({pos.x():.1f}, {pos.y():.1f}) Size: ({size.x():.1f}, {size.y():.1f})"; self.roi_info_label.setText(info_text)
+        self.points_groupbox.setVisible(is_3pt_mode)
+        if not is_3pt_mode:
+            self._toggle_point_selection(force_off=True)
+            self._clear_points(trigger_preview=False)
 
-    def _get_roi_slice(self) -> Optional[Tuple[slice, slice]]:
-        if not self.roi.isVisible() or not self.roi.size().x()>0 or not self.roi.size().y()>0: 
-            return None
-        pos=self.roi.pos()
-        size=self.roi.size()
-        h,w=self.original_data.shape
-        x0,y0=int(round(pos.x())),int(round(pos.y()))
-        width,height=int(round(size.x())),int(round(size.y()))
-        x1=min(x0+width,w); y1=min(y0+height,h); x0=max(0,x0); y0=max(0,y0);
-        if x1>x0 and y1>y0: 
-            return slice(y0,y1), slice(x0,x1)
-        else: 
-            logger.warning("Invalid ROI dims.")
-            return None
+    def _on_mode_changed(self) -> None:
+        self._update_mode_ui()
+        if self.live_preview_checkbox.isChecked():
+            self._update_preview()
 
-    @pyqtSlot()
-    def _update_preview(self):
-        """Calculates and updates the preview image MANUALLY."""
-        params = self._get_current_parameters()
-        logger.debug(f"Manually updating preview. Params: {params}")
+    def _toggle_point_selection(self, force_off: bool = False) -> None:
+        enable = not force_off and not self._is_selecting_points
+        if enable:
+            self._is_selecting_points = True
+            self.select_points_button.setText("Stop selecting")
+            vb = self.plot_original.getViewBox()
+            scene = vb.scene() if vb is not None else None
+            if scene is not None and hasattr(scene, "sigMouseClicked"):
+                self._mouse_click_connection = scene.sigMouseClicked.connect(self._handle_mouse_click)
+        else:
+            if self._mouse_click_connection is not None:
+                try:
+                    vb = self.plot_original.getViewBox()
+                    scene = vb.scene() if vb is not None else None
+                    if scene is not None and hasattr(scene, "sigMouseClicked"):
+                        scene.sigMouseClicked.disconnect(self._mouse_click_connection)
+                except Exception as exc:  # pragma: no cover - defensive
+                    logger.warning("PlaneLeveling: failed to disconnect point selection: %s", exc)
+                self._mouse_click_connection = None
+            self._is_selecting_points = False
+            self.select_points_button.setText("Select")
+
+    def _clear_points(self, trigger_preview: bool = True) -> None:
+        self._selected_points.clear()
+        for idx, label in enumerate(self.point_coords_labels, start=1):
+            label.setText(f"P{idx}: -")
+        self.clear_points_button.setEnabled(False)
+        if trigger_preview and self.live_preview_checkbox.isChecked():
+            self._update_preview()
+
+    def _handle_mouse_click(self, event) -> None:
+        if not self._is_selecting_points or len(self._selected_points) >= 3:
+            return
+        vb = self.plot_original.getViewBox()
+        if vb is None:
+            return
+        pos_data = vb.mapSceneToView(event.scenePos())
+        x = int(round(pos_data.x()))
+        y = int(round(pos_data.y()))
+        height, width = self.original_data.shape
+        if 0 <= x < width and 0 <= y < height:
+            self._selected_points.append((x, y))
+            idx = len(self._selected_points)
+            self.point_coords_labels[idx - 1].setText(f"P{idx}: ({x}, {y})")
+            self.clear_points_button.setEnabled(True)
+            logger.info("PlaneLeveling: point %s added at (%s, %s)", idx, x, y)
+            if len(self._selected_points) == 3:
+                self._toggle_point_selection(force_off=True)
+                if self.live_preview_checkbox.isChecked():
+                    self._update_preview()
+        else:
+            logger.warning("PlaneLeveling: click (%s, %s) outside bounds", x, y)
+
+    def _get_current_parameters(self) -> Dict[str, Any]:
+        mode = "whole"
+        if self.rb_roi.isChecked():
+            mode = "roi"
+        elif self.rb_3pt.isChecked():
+            mode = "3pt"
+
+        params: Dict[str, Any] = {"mode": mode, "apply_roi_only": False}
+        if mode == "roi":
+            params["apply_roi_only"] = self.apply_to_roi_only_checkbox.isChecked()
+        elif mode == "3pt":
+            params["points"] = self._selected_points.copy()
+        return params
+
+    def _calculate_leveled_image(self, image_in: np.ndarray, params: Dict[str, Any]) -> Optional[np.ndarray]:
+        mode = params.get("mode", "whole")
+        apply_roi_only = params.get("apply_roi_only", False)
+        roi_slice = None
+
         try:
-            self.preview_data = self._apply_operation(self.original_data, params)
-            if self.preview_data is None: self.preview_data = self.original_data.copy()
-            self.update_preview_view()
-        except Exception as e:
-            logger.exception(f"Error during manual preview update: {e}")
-            QMessageBox.warning(self, "Preview Error", f"Could not update preview:\n{e}")
+            if mode == "whole":
+                fitted_plane = fit_plane(image_in, roi_slice=None)
+            elif mode == "roi":
+                roi_slice = self._get_roi_slice()
+                if roi_slice is None:
+                    logger.warning("PlaneLeveling: ROI mode selected but ROI invalid.")
+                    return image_in
+                fitted_plane = fit_plane(image_in, roi_slice=roi_slice)
+            elif mode == "3pt":
+                points = params.get("points", [])
+                if len(points) != 3:
+                    logger.warning("PlaneLeveling: 3pt mode without 3 points.")
+                    return image_in
+                fitted_plane = fit_plane_3pts(image_in, points)
+            else:
+                logger.error("PlaneLeveling: unknown mode %s", mode)
+                return image_in
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.exception("PlaneLeveling: plane fitting failed", exc_info=exc)
+            return None
 
+        if fitted_plane is None:
+            return None
 
-    def update_original_view(self):
-        if self.original_data is not None and self.img_original: self.img_original.setImage(self.original_data.T); self.plot_original.autoRange()
-    def update_preview_view(self):
-        if not self.img_processed: return
-        if self.preview_data is not None: self.img_processed.setImage(self.preview_data.T); logger.debug("Preview view updated.")
-        else: self.img_processed.clear(); logger.debug("Preview view cleared.")
+        if mode == "roi" and apply_roi_only and roi_slice is not None:
+            leveled = image_in.copy()
+            leveled[roi_slice] = image_in[roi_slice] - fitted_plane[roi_slice]
+            return leveled
 
-    def accept(self):
+        return image_in - fitted_plane
+
+    def _apply_operation(self, image: np.ndarray, params: Dict[str, Any]) -> Optional[np.ndarray]:
+        return self._calculate_leveled_image(image, params)
+
+    def accept(self) -> None:
         params = self._get_current_parameters()
-        self._final_is_roi_applied_only = params.get('apply_roi_only', False)
-        logger.info(f"Dialog accepted. Finalizing '{self.operation_name}'. Apply ROI Only: {self._final_is_roi_applied_only}, Params: {params}")
-        try:
-            self._final_processed_data = self._apply_operation(self.original_data, params)
-            if self._final_processed_data is None: raise ValueError("Processing failed.")
-            if np.allclose(self._final_processed_data, self.original_data): logger.info("Data not modified."); self._final_processed_data = None; super().reject(); return
-            logger.info("Final processing calculated."); super().accept()
-        except Exception as e: logger.exception(f"Error final processing: {e}"); QMessageBox.critical(self, "Error", f"... {e}"); self._final_processed_data = None; self._final_is_roi_applied_only = False; super().reject()
+        if params.get("mode") == "3pt" and len(params.get("points", [])) != 3:
+            QMessageBox.warning(self, "Missing Points", "Please select exactly 3 points.")
+            return
+        result = self._calculate_leveled_image(self.original_data, params)
+        if result is None:
+            QMessageBox.critical(self, "Error", "Plane leveling failed. See logs for details.")
+            self._final_processed_data = None
+            self._final_is_roi_applied_only = False
+            super().reject()
+            return
+        if np.allclose(result, self.original_data):
+            logger.info("PlaneLeveling: data unchanged; rejecting dialog.")
+            self._final_processed_data = None
+            super().reject()
+            return
+        self._final_processed_data = result
+        self._final_params = params
+        self._final_is_roi_applied_only = params.get("apply_roi_only", False)
+        super().accept()
 
+    def reject(self) -> None:
+        self._toggle_point_selection(force_off=True)
+        super().reject()
 
-    def reject(self): logger.info(f"{self.operation_name} dialog rejected."); self._final_processed_data = None; super().reject()
-    def get_processed_data(self) -> Optional[np.ndarray]: return self._final_processed_data.copy() if self._final_processed_data is not None else None
-    def get_parameters(self) -> dict: return self._get_current_parameters()
-    def was_roi_applied_only(self) -> bool: return self._final_is_roi_applied_only
+    def _on_roi_changed(self) -> None:
+        super()._on_roi_changed()
+        if self.rb_roi.isChecked() and self.live_preview_checkbox.isChecked():
+            self._update_preview()
 
+class BM3DDialog(BasePreprocessingDialog):
+    """Dialog for BM3D denoising with optional ROI application."""
 
-class MedianFilterDialog(QDialog):
-    """
-    Standalone dialog window for applying Median Filter.
-    Includes ROI/Whole image mode toggle and live preview.
-    """
     def __init__(self, original_data: np.ndarray, parent=None):
-        super().__init__(parent)
-        if original_data is None: raise ValueError("Original data cannot be None")
-
-        self.operation_name = "Median Filter"
+        if original_data is None:
+            raise ValueError("Original data cannot be None")
+        super().__init__("BM3D Denoising", parent)
         self.original_data = original_data.astype(np.float32)
         self.preview_data = self.original_data.copy()
-        self._final_processed_data: Optional[np.ndarray] = None
-        self._final_params: Dict[str, Any] = {}
-        self._final_is_roi_applied_only: bool = False
 
         self.setWindowTitle(f"{self.operation_name} Settings")
-        self.setMinimumSize(900, 550) # Slightly taller to accommodate added controls
-        current_flags=self.windowFlags(); self.setWindowFlags(current_flags | Qt.WindowType.WindowMinimizeButtonHint | Qt.WindowType.WindowMaximizeButtonHint)
+        self.setMinimumSize(900, 550)
+        current_flags = self.windowFlags()
+        self.setWindowFlags(
+            current_flags
+            | Qt.WindowType.WindowMinimizeButtonHint
+            | Qt.WindowType.WindowMaximizeButtonHint
+        )
 
-        main_layout=QVBoxLayout(self); top_layout=QHBoxLayout(); controls_area_layout=QVBoxLayout(); bottom_layout=QHBoxLayout()
+        main_layout = QVBoxLayout(self)
+        top_layout = QHBoxLayout()
+        controls_area_layout = QVBoxLayout()
+        bottom_layout = QHBoxLayout()
 
-        pg.setConfigOption('background', 'w'); pg.setConfigOption('foreground', 'k')
+        pg.setConfigOption("background", "w")
+        pg.setConfigOption("foreground", "k")
         self.win = pg.GraphicsLayoutWidget()
         self.plot_original = self.win.addPlot(row=0, col=0, title="Original", name="plot_orig")
-        self.img_original = ImageItem(); self.plot_original.addItem(self.img_original)
-        self.plot_original.hideAxis('left'); self.plot_original.hideAxis('bottom')
+        self.img_original = ImageItem()
+        self.plot_original.addItem(self.img_original)
+        self.plot_original.hideAxis("left")
+        self.plot_original.hideAxis("bottom")
         self.plot_original.setAspectLocked(True)
+
         self.plot_processed = self.win.addPlot(row=0, col=1, title="Preview", name="plot_proc")
-        self.img_processed = ImageItem(); self.plot_processed.addItem(self.img_processed)
-        self.plot_processed.hideAxis('left'); self.plot_processed.hideAxis('bottom')
+        self.img_processed = ImageItem()
+        self.plot_processed.addItem(self.img_processed)
+        self.plot_processed.hideAxis("left")
+        self.plot_processed.hideAxis("bottom")
         self.plot_processed.setAspectLocked(True)
         self.plot_processed.vb.setXLink(self.plot_original.vb)
         self.plot_processed.vb.setYLink(self.plot_original.vb)
-        self.plot_original.vb.invertY(True); self.plot_processed.vb.invertY(True)
+        self.plot_original.vb.invertY(True)
+        self.plot_processed.vb.invertY(True)
         top_layout.addWidget(self.win, stretch=3)
 
-        controls_panel = QWidget(); controls_panel.setMaximumWidth(250); controls_panel.setLayout(controls_area_layout)
+        controls_panel = QWidget()
+        controls_panel.setMaximumWidth(250)
+        controls_panel.setLayout(controls_area_layout)
+
         parameter_widget_container = QWidget()
-        specific_param_layout = QVBoxLayout(parameter_widget_container); specific_param_layout.setContentsMargins(0,0,0,0)
-        self._create_parameter_controls(specific_param_layout) # Build parameter controls
+        parameter_layout = QVBoxLayout(parameter_widget_container)
+        parameter_layout.setContentsMargins(0, 0, 0, 0)
+        self._create_parameter_controls(parameter_layout)
         controls_area_layout.addWidget(parameter_widget_container)
 
-        controls_area_layout.addWidget(QFrame(frameShape=QFrame.Shape.HLine, frameShadow=QFrame.Shadow.Sunken))
+        controls_area_layout.addWidget(
+            QFrame(frameShape=QFrame.Shape.HLine, frameShadow=QFrame.Shadow.Sunken)
+        )
 
-        self.apply_to_roi_only_checkbox = QCheckBox("Apply only to ROI area"); self.apply_to_roi_only_checkbox.setChecked(False)
-        self.live_preview_checkbox = QCheckBox("Live Preview"); self.live_preview_checkbox.setChecked(True)
+        self.apply_to_roi_only_checkbox = QCheckBox("Apply only to ROI area")
+        self.apply_to_roi_only_checkbox.setChecked(False)
         controls_area_layout.addWidget(self.apply_to_roi_only_checkbox)
+
+        self.live_preview_checkbox = QCheckBox("Live Preview")
+        self.live_preview_checkbox.setChecked(False)
+        self.live_preview_checkbox.setToolTip("BM3D is expensive; live preview is disabled by default.")
         controls_area_layout.addWidget(self.live_preview_checkbox)
 
-        controls_area_layout.addWidget(QFrame(frameShape=QFrame.Shape.HLine, frameShadow=QFrame.Shadow.Sunken))
+        self.update_preview_button = QPushButton("Update Preview")
+        controls_area_layout.addWidget(self.update_preview_button)
 
-        self.roi_info_label = QLabel("ROI: Not selected"); controls_area_layout.addWidget(self.roi_info_label)
-        h, w = self.original_data.shape; roi_w, roi_h = w//4, h//4; roi_x, roi_y = w//2 - roi_w//2, h//2 - roi_h//2
-        self.roi = RectROI(pos=(roi_x, roi_y), size=(roi_w, roi_h), pen=pg.mkPen('y', width=2), translateSnap=True, scaleSnap=True); self.plot_original.addItem(self.roi)
-        is_roi_mode = self.apply_to_roi_only_checkbox.isChecked()
-        self.roi.setVisible(is_roi_mode); self.roi_info_label.setVisible(is_roi_mode)
-        self._on_roi_changed()
+        controls_area_layout.addWidget(
+            QFrame(frameShape=QFrame.Shape.HLine, frameShadow=QFrame.Shadow.Sunken)
+        )
+
+        self.roi_info_label = QLabel("ROI: Not selected")
+        controls_area_layout.addWidget(self.roi_info_label)
+
+        height, width = self.original_data.shape
+        roi_w, roi_h = width // 4, height // 4
+        roi_x = width // 2 - roi_w // 2
+        roi_y = height // 2 - roi_h // 2
+        self.roi = RectROI(
+            pos=(roi_x, roi_y),
+            size=(roi_w, roi_h),
+            pen=pg.mkPen("r", width=2),
+            translateSnap=True,
+            scaleSnap=True,
+        )
+        self.plot_original.addItem(self.roi)
 
         controls_area_layout.addStretch()
         top_layout.addWidget(controls_panel, stretch=1)
 
-        self.button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel); self.button_box.button(QDialogButtonBox.StandardButton.Ok).setText("Apply Changes"); bottom_layout.addWidget(self.button_box)
+        self.button_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        self.button_box.button(QDialogButtonBox.StandardButton.Ok).setText("Apply Changes")
+        bottom_layout.addWidget(self.button_box)
 
-        main_layout.addLayout(top_layout); main_layout.addLayout(bottom_layout)
+        main_layout.addLayout(top_layout)
+        main_layout.addLayout(bottom_layout)
 
-        self.update_original_view(); self._update_preview()
-        self.apply_to_roi_only_checkbox.stateChanged.connect(self._on_parameter_or_preview_changed)
-        self.live_preview_checkbox.stateChanged.connect(self._on_parameter_or_preview_changed)
-        self.roi.sigRegionChanged.connect(self._on_roi_changed)
-        self.button_box.accepted.connect(self.accept); self.button_box.rejected.connect(self.reject)
+        self._initialize_common_behavior()
+        self.update_preview_button.clicked.connect(self._update_preview)
 
-        logger.debug(f"Standalone {self.operation_name} dialog initialized.")
+    def _create_parameter_controls(self, layout: QVBoxLayout) -> None:
+        sigma_layout = QHBoxLayout()
+        sigma_layout.addWidget(QLabel("Noise sigma [0-1]:"))
+        self.sigma_spinbox = QDoubleSpinBox()
+        self.sigma_spinbox.setDecimals(4)
+        self.sigma_spinbox.setRange(0.0001, 1.0)
+        self.sigma_spinbox.setValue(0.05)
+        self.sigma_spinbox.setSingleStep(0.005)
+        self.sigma_spinbox.setToolTip("Estimated noise standard deviation relative to [0, 1] range.")
+        sigma_layout.addWidget(self.sigma_spinbox)
+        layout.addLayout(sigma_layout)
 
-    def get_final_roi_slice(self) -> Optional[Tuple[slice, slice]]:
-        if self._final_is_roi_applied_only:
-            current_slice = self._get_roi_slice()
-            logger.debug(f"get_final_roi_slice called, roi_only={self._final_is_roi_applied_only}, slice={current_slice}")
-            return current_slice
-        else:
-            logger.debug(f"get_final_roi_slice called, roi_only={self._final_is_roi_applied_only}, returning None")
+        self.sigma_spinbox.valueChanged.connect(self._on_parameter_or_preview_changed)
+
+    def _get_current_parameters(self) -> Dict[str, Any]:
+        return {
+            "sigma_psd": self.sigma_spinbox.value(),
+            "apply_roi_only": self.apply_to_roi_only_checkbox.isChecked(),
+        }
+
+    def _apply_operation(self, image: np.ndarray, params: Dict[str, Any]) -> Optional[np.ndarray]:
+        sigma = params.get("sigma_psd", 0.05)
+        apply_roi_only = params.get("apply_roi_only", False)
+        logger.debug("BM3D parameters: sigma=%s, ROI Only=%s", sigma, apply_roi_only)
+        try:
+            processed = denoise_bm3d_lfa(image, sigma_psd=sigma)
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.exception("BM3D denoising failed", exc_info=exc)
             return None
+        return self._apply_with_optional_roi(image, processed, apply_roi_only)
+
+    def _handle_parameter_widget_change(self) -> None:
+        roi_enabled = self.apply_to_roi_only_checkbox.isChecked()
+        self.roi.setVisible(roi_enabled)
+        self.roi_info_label.setVisible(roi_enabled)
 
 
-    def _create_parameter_controls(self, layout: QVBoxLayout):
-        """Adds controls specific to Median Filter."""
+class MedianFilterDialog(BasePreprocessingDialog):
+    """Dialog for applying a median filter with optional ROI restriction."""
+
+    def __init__(self, original_data: np.ndarray, parent=None):
+        if original_data is None:
+            raise ValueError("Original data cannot be None")
+        super().__init__("Median Filter", parent)
+        self.original_data = original_data.astype(np.float32)
+        self.preview_data = self.original_data.copy()
+
+        self.setWindowTitle(f"{self.operation_name} Settings")
+        self.setMinimumSize(900, 550)
+        current_flags = self.windowFlags()
+        self.setWindowFlags(
+            current_flags
+            | Qt.WindowType.WindowMinimizeButtonHint
+            | Qt.WindowType.WindowMaximizeButtonHint
+        )
+
+        main_layout = QVBoxLayout(self)
+        top_layout = QHBoxLayout()
+        controls_area_layout = QVBoxLayout()
+        bottom_layout = QHBoxLayout()
+
+        pg.setConfigOption("background", "w")
+        pg.setConfigOption("foreground", "k")
+        self.win = pg.GraphicsLayoutWidget()
+        self.plot_original = self.win.addPlot(row=0, col=0, title="Original", name="plot_orig")
+        self.img_original = ImageItem()
+        self.plot_original.addItem(self.img_original)
+        self.plot_original.hideAxis("left")
+        self.plot_original.hideAxis("bottom")
+        self.plot_original.setAspectLocked(True)
+
+        self.plot_processed = self.win.addPlot(row=0, col=1, title="Preview", name="plot_proc")
+        self.img_processed = ImageItem()
+        self.plot_processed.addItem(self.img_processed)
+        self.plot_processed.hideAxis("left")
+        self.plot_processed.hideAxis("bottom")
+        self.plot_processed.setAspectLocked(True)
+        self.plot_processed.vb.setXLink(self.plot_original.vb)
+        self.plot_processed.vb.setYLink(self.plot_original.vb)
+        self.plot_original.vb.invertY(True)
+        self.plot_processed.vb.invertY(True)
+        top_layout.addWidget(self.win, stretch=3)
+
+        controls_panel = QWidget()
+        controls_panel.setMaximumWidth(250)
+        controls_panel.setLayout(controls_area_layout)
+
+        parameter_widget_container = QWidget()
+        parameter_layout = QVBoxLayout(parameter_widget_container)
+        parameter_layout.setContentsMargins(0, 0, 0, 0)
+        self._create_parameter_controls(parameter_layout)
+        controls_area_layout.addWidget(parameter_widget_container)
+
+        controls_area_layout.addWidget(
+            QFrame(frameShape=QFrame.Shape.HLine, frameShadow=QFrame.Shadow.Sunken)
+        )
+
+        self.apply_to_roi_only_checkbox = QCheckBox("Apply only to ROI area")
+        self.apply_to_roi_only_checkbox.setChecked(False)
+        controls_area_layout.addWidget(self.apply_to_roi_only_checkbox)
+
+        self.live_preview_checkbox = QCheckBox("Live Preview")
+        self.live_preview_checkbox.setChecked(True)
+        controls_area_layout.addWidget(self.live_preview_checkbox)
+
+        controls_area_layout.addWidget(
+            QFrame(frameShape=QFrame.Shape.HLine, frameShadow=QFrame.Shadow.Sunken)
+        )
+
+        self.roi_info_label = QLabel("ROI: Not selected")
+        controls_area_layout.addWidget(self.roi_info_label)
+
+        height, width = self.original_data.shape
+        roi_w, roi_h = width // 4, height // 4
+        roi_x = width // 2 - roi_w // 2
+        roi_y = height // 2 - roi_h // 2
+        self.roi = RectROI(
+            pos=(roi_x, roi_y),
+            size=(roi_w, roi_h),
+            pen=pg.mkPen("y", width=2),
+            translateSnap=True,
+            scaleSnap=True,
+        )
+        self.plot_original.addItem(self.roi)
+
+        controls_area_layout.addStretch()
+        top_layout.addWidget(controls_panel, stretch=1)
+
+        self.button_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        self.button_box.button(QDialogButtonBox.StandardButton.Ok).setText("Apply Changes")
+        bottom_layout.addWidget(self.button_box)
+
+        main_layout.addLayout(top_layout)
+        main_layout.addLayout(bottom_layout)
+
+        self._initialize_common_behavior()
+        self._update_cval_visibility()
+
+    def _create_parameter_controls(self, layout: QVBoxLayout) -> None:
         size_layout = QHBoxLayout()
-        self.size_label = QLabel("Filter Size:")
+        size_layout.addWidget(QLabel("Kernel size:"))
         self.size_spinbox = QSpinBox()
-        self.size_spinbox.setMinimum(3) 
-        self.size_spinbox.setMaximum(31)
+        self.size_spinbox.setRange(1, 31)
         self.size_spinbox.setSingleStep(2)
         self.size_spinbox.setValue(3)
-        size_layout.addWidget(self.size_label)
         size_layout.addWidget(self.size_spinbox)
         layout.addLayout(size_layout)
 
         mode_layout = QHBoxLayout()
-        self.mode_label = QLabel("Boundary Mode:")
+        mode_layout.addWidget(QLabel("Mode:"))
         self.mode_combobox = QComboBox()
-        self.valid_modes = ['reflect', 'constant', 'nearest', 'mirror', 'wrap']
+        self.valid_modes = ["reflect", "constant", "nearest", "mirror", "wrap"]
         self.mode_combobox.addItems(self.valid_modes)
-        self.mode_combobox.setCurrentText('reflect')
-        mode_layout.addWidget(self.mode_label)
+        self.mode_combobox.setCurrentText("reflect")
         mode_layout.addWidget(self.mode_combobox)
         layout.addLayout(mode_layout)
 
         cval_layout = QHBoxLayout()
-        self.cval_label = QLabel("Constant Value (cval):")
+        self.cval_label = QLabel("Constant value:")
         self.cval_spinbox = QDoubleSpinBox()
-        self.cval_spinbox.setRange(-1e6, 1e6)
+        self.cval_spinbox.setRange(-1_000_000.0, 1_000_000.0)
         self.cval_spinbox.setDecimals(3)
         self.cval_spinbox.setValue(0.0)
-        self.cval_label.setVisible(False)
-        self.cval_spinbox.setVisible(False)
         cval_layout.addWidget(self.cval_label)
         cval_layout.addWidget(self.cval_spinbox)
         layout.addLayout(cval_layout)
@@ -1444,104 +1332,34 @@ class MedianFilterDialog(QDialog):
         self.mode_combobox.currentIndexChanged.connect(self._on_mode_combobox_changed)
         self.cval_spinbox.valueChanged.connect(self._on_parameter_or_preview_changed)
 
-
-    @pyqtSlot(int)
-    def _on_mode_combobox_changed(self, index):
-        """Handles mode change, enables/disables cval control."""
-        selected_mode = self.mode_combobox.itemText(index)
-        is_constant_mode = (selected_mode == 'constant')
-        self.cval_label.setVisible(is_constant_mode)
-        self.cval_spinbox.setVisible(is_constant_mode)
+    def _on_mode_combobox_changed(self, index: int) -> None:
+        self._update_cval_visibility()
         self._on_parameter_or_preview_changed()
 
+    def _update_cval_visibility(self) -> None:
+        is_constant_mode = self.mode_combobox.currentText() == "constant"
+        self.cval_label.setVisible(is_constant_mode)
+        self.cval_spinbox.setVisible(is_constant_mode)
+
     def _get_current_parameters(self) -> Dict[str, Any]:
-        """Gathers parameters for Median Filter."""
         return {
-            'size': self.size_spinbox.value(),
-            'mode': self.mode_combobox.currentText(),
-            'cval': self.cval_spinbox.value(),
-            'apply_roi_only': self.apply_to_roi_only_checkbox.isChecked()
+            "size": self.size_spinbox.value(),
+            "mode": self.mode_combobox.currentText(),
+            "cval": self.cval_spinbox.value(),
+            "apply_roi_only": self.apply_to_roi_only_checkbox.isChecked(),
         }
 
     def _apply_operation(self, image: np.ndarray, params: Dict[str, Any]) -> Optional[np.ndarray]:
-        """Applies median_filter_lfa based on parameters."""
-        size = params.get('size', 3)
-        mode = params.get('mode', 'reflect')
-        cval = params.get('cval', 0.0)
-        apply_roi_only = params.get('apply_roi_only', False)
-        logger.debug(f"Median Filter _apply_operation: size={size}, mode='{mode}', cval={cval}, ROI Only={apply_roi_only}")
-
+        size = params.get("size", 3)
+        mode = params.get("mode", "reflect")
+        cval = params.get("cval", 0.0)
+        apply_roi_only = params.get("apply_roi_only", False)
+        logger.debug("Median filter params: size=%s, mode=%s, cval=%s, ROI Only=%s", size, mode, cval, apply_roi_only)
         try:
-            processed_full = median_filter_lfa(image, size=size, mode=mode, cval=cval)
-            if processed_full is None: return None
-
-            if apply_roi_only:
-                roi_slice = self._get_roi_slice()
-                if roi_slice:
-                    result_image = image.copy()
-                    result_image[roi_slice] = processed_full[roi_slice]
-                    return result_image
-                else:
-                    logger.warning("Cannot apply Median Filter to ROI only: Invalid ROI.")
-                    return image
-            else:
-                return processed_full
-        except Exception as e:
-            logger.exception(f"Error applying median_filter_lfa: {e}")
+            processed = median_filter_lfa(image, size=size, mode=mode, cval=cval)
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.exception("Median filter failed", exc_info=exc)
             return None
-
-    @pyqtSlot()
-    def _on_parameter_or_preview_changed(self):
-        is_roi_mode = self.apply_to_roi_only_checkbox.isChecked()
-        self.roi.setVisible(is_roi_mode)
-        self.roi_info_label.setVisible(is_roi_mode)
-        if self.live_preview_checkbox.isChecked():
-            self._update_preview()
-
-    @pyqtSlot()
-    def _on_roi_changed(self):
-        pos=self.roi.pos(); size=self.roi.size(); info_text = f"ROI: ({pos.x():.1f}, {pos.y():.1f}) Size: ({size.x():.1f}, {size.y():.1f})"; self.roi_info_label.setText(info_text)
-        if self.apply_to_roi_only_checkbox.isChecked() and self.live_preview_checkbox.isChecked():
-             self._update_preview()
-
-    def _get_roi_slice(self) -> Optional[Tuple[slice, slice]]:
-        if not self.roi.isVisible() or not self.roi.size().x() > 0 or not self.roi.size().y() > 0: return None
-        pos=self.roi.pos(); size=self.roi.size(); h,w=self.original_data.shape; x0,y0=int(round(pos.x())),int(round(pos.y())); width,height=int(round(size.x())),int(round(size.y())); x1=min(x0+width,w); y1=min(y0+height,h); x0=max(0,x0); y0=max(0,y0)
-        if x1>x0 and y1>y0: return slice(y0,y1), slice(x0,x1)
-        else: logger.warning("Invalid ROI dimensions."); return None
-
-    def _update_preview(self):
-        if not self.live_preview_checkbox.isChecked():
-            self.preview_data = self.original_data.copy(); self.update_preview_view(); return
-        params = self._get_current_parameters()
-        logger.debug(f"Updating preview. Params: {params}")
-        try:
-            self.preview_data = self._apply_operation(self.original_data, params)
-            if self.preview_data is None: self.preview_data = self.original_data.copy()
-            self.update_preview_view()
-        except Exception as e: logger.exception(f"Error during preview update: {e}")
-
-    def update_original_view(self):
-        if self.original_data is not None and self.img_original: self.img_original.setImage(self.original_data.T); self.plot_original.autoRange()
-    def update_preview_view(self):
-        if not self.img_processed: return
-        if self.preview_data is not None: self.img_processed.setImage(self.preview_data.T); logger.debug("Preview view updated.")
-        else: self.img_processed.clear(); logger.debug("Preview view cleared.")
-
-    def accept(self):
-        params = self._get_current_parameters()
-        self._final_is_roi_applied_only = params.get('apply_roi_only', False)
-        logger.info(f"Dialog accepted. Finalizing '{self.operation_name}'. Apply ROI Only: {self._final_is_roi_applied_only}, Params: {params}")
-        try:
-            self._final_processed_data = self._apply_operation(self.original_data, params)
-            if self._final_processed_data is None: raise ValueError("Processing failed.")
-            if np.allclose(self._final_processed_data, self.original_data): logger.info("Data not modified."); self._final_processed_data = None; super().reject(); return
-            logger.info("Final processing calculated."); super().accept()
-        except Exception as e: logger.exception(f"Error final processing: {e}"); QMessageBox.critical(self, "Error", f"... {e}"); self._final_processed_data = None; self._final_is_roi_applied_only = False; super().reject()
-
-    def reject(self): logger.info(f"{self.operation_name} dialog rejected."); self._final_processed_data = None; super().reject()
-    def get_processed_data(self) -> Optional[np.ndarray]: return self._final_processed_data.copy() if self._final_processed_data is not None else None
-    def get_parameters(self) -> dict: return self._get_current_parameters()
-    def was_roi_applied_only(self) -> bool: return self._final_is_roi_applied_only
+        return self._apply_with_optional_roi(image, processed, apply_roi_only)
 
 
