@@ -450,6 +450,7 @@ class MainWindow(QMainWindow):
             else:
                 self.fft_analysis_panel_widget.update_substrate_real_space_display(params_dict)
                 self.statusBar().showMessage("Substrate real space parameters calculated.", 3000)
+        self._update_action_states()
 
     @pyqtSlot(int, dict) # set_index, params_dict
     def _on_adsorbate_real_space_params_updated(self, set_index: int, params_dict: dict):
@@ -463,6 +464,7 @@ class MainWindow(QMainWindow):
                 else:
                     self.fft_analysis_panel_widget.update_adsorbate_real_space_display(params_dict)
                     self.statusBar().showMessage(f"Adsorbate Set {set_index+1} real space parameters calculated.", 3000)
+        self._update_action_states()
     @pyqtSlot()
     def open_superstructure_periodicity_dialog(self):
         """Open the superstructure periodicity dialog via the coordinator."""
