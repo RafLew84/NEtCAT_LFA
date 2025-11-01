@@ -13,14 +13,12 @@ import uuid
 @dataclass
 class OriginalImageRecord:
     """
+    .. :no-index:
+
     Represents a single original STM image loaded into the session.
 
-    Attributes:
-        image_id (str): Unique identifier for this original image entry.
-        display_name (str): Human-readable label (e.g., "Original Image 1").
-        stm_image (STMImage): The STM image data and metadata.
-        source_path (Optional[str]): Filesystem path used when loading the image.
-        extra_metadata (Dict[str, Any]): Additional metadata preserved for UI use.
+    The dataclass fields mirror the metadata retained by the history manager;
+    consult the annotations for the precise schema.
     """
     image_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     display_name: str = "Original Image"
@@ -31,30 +29,13 @@ class OriginalImageRecord:
 @dataclass
 class STMImage:
     """
+    .. :no-index:
+
     Represents STM image data and associated metadata.
 
-    This class provides a standardized way to store and access STM image data
-    along with its metadata, including physical dimensions, scan parameters,
-    and image type information.
-
-    Attributes:
-        file_name (str): Path to the original data file.
-        raw_header (Dict): Dictionary holding the raw header information as read from the file.
-                           Excluded from standard repr.
-        data (np.ndarray): 2D NumPy array containing the image data (e.g., height, current).
-                           Excluded from standard repr.
-        pixels_x (int): Number of pixels along the x-axis.
-        pixels_y (int): Number of pixels along the y-axis.
-        size_nm_x (float): Physical size of the image along the x-axis in nanometers.
-        size_nm_y (float): Physical size of the image along the y-axis in nanometers.
-        offset_nm_x (float): Physical offset of the image center along the x-axis in nanometers.
-        offset_nm_y (float): Physical offset of the image center along the y-axis in nanometers.
-        scan_angle_deg (float): Scan angle in degrees relative to the physical x/y axes.
-        bias_v (float): Bias voltage applied during scanning, in Volts.
-        setpoint_a (float | None): Tunneling current setpoint in Amperes (if available).
-        scan_speed_nm_s (float | None): Scan speed in the fast direction in nm/s (if available).
-        z_nm_per_raw (float | None): Conversion factor for raw z-axis data to nm (if applicable, e.g., for S94 topography).
-        image_type (str): Type of the image data (e.g., "Topography", "Current", "Unknown").
+    Field descriptions are provided via type hints; refer to the dataclass
+    annotations for the full metadata schema, which covers physical dimensions,
+    scan parameters, offsets, and instrument settings.
     """
     file_name: str
     raw_header: Dict[str, Any] = field(repr=False) # Store original header for reference

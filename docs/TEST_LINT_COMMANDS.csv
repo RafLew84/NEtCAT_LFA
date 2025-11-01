@@ -1,0 +1,5 @@
+Name,Description,Command
+pytest,Run unit and integration tests,pytest
+ruff,Lint the codebase,ruff check .
+black,Verify code formatting,black --check lfa tests
+mypy,Static type checks,mypy lfa

@@ -55,6 +55,7 @@ from ..utils.display import (
     format_pair_with_sigma,
     format_value_with_sigma,
 )
+from .presenters import RealSpaceVisualizerPresenter
 
 logger = logging.getLogger(__name__)
 
@@ -115,6 +116,7 @@ class RealSpaceFFTVisualizerDialog(QDialog):
             self.setWindowTitle("Error")
             return
 
+        self._presenter = RealSpaceVisualizerPresenter(self.app_controller, logger=logger)
         self._offset_state = RealSpaceVisualizerState(self.app_controller, logger)
         self._pyvista_adapter = RealSpacePyVistaAdapter(logger=logger)
 
@@ -466,33 +468,31 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         """
         self.ads_set_combo_vis.blockSignals(True)
         self.ads_set_combo_vis.clear()
-        
+
         for i in reversed(range(self.adsorbate_sets_checkbox_layout.count())):
             widget_item = self.adsorbate_sets_checkbox_layout.itemAt(i)
             if widget_item and widget_item.widget():
                 widget_item.widget().deleteLater()
         self.adsorbate_set_checkboxes = []
 
-        if self.app_controller and self.app_controller.adsorbate_spot_sets:
-            num_sets = len(self.app_controller.adsorbate_spot_sets)
-            if num_sets == 0 and len(self.app_controller.corrected_adsorbate_spot_sets) > 0 :
-                 num_sets = len(self.app_controller.corrected_adsorbate_spot_sets)
+        summary = self._presenter.get_adsorbate_sets_summary()
+        for info in summary.sets:
+            self.ads_set_combo_vis.addItem(info.label, userData=info.index)
+            cb = QCheckBox(f"Adsorbate Set {info.index + 1} Real Lattice")
+            cb.setChecked(True)
+            cb.stateChanged.connect(self._trigger_redraw_all_visuals)
+            self.adsorbate_sets_checkbox_layout.addWidget(cb)
+            self.adsorbate_set_checkboxes.append(cb)
 
-            for i in range(num_sets):
-                self.ads_set_combo_vis.addItem(f"Set {i+1}", userData=i)
-                cb = QCheckBox(f"Adsorbate Set {i+1} Real Lattice")
-                cb.setChecked(True)
-                cb.stateChanged.connect(self._trigger_redraw_all_visuals)
-                self.adsorbate_sets_checkbox_layout.addWidget(cb)
-                self.adsorbate_set_checkboxes.append(cb)
-            
-            current_app_controller_set_idx = self.app_controller.current_adsorbate_set_index
-            if 0 <= current_app_controller_set_idx < self.ads_set_combo_vis.count():
-                 self.ads_set_combo_vis.setCurrentIndex(current_app_controller_set_idx)
-            elif self.ads_set_combo_vis.count() > 0: self.ads_set_combo_vis.setCurrentIndex(0)
-        
+        if summary.selected_index is not None:
+            combo_row = self.ads_set_combo_vis.findData(summary.selected_index)
+            if combo_row != -1:
+                self.ads_set_combo_vis.setCurrentIndex(combo_row)
+            elif self.ads_set_combo_vis.count() > 0:
+                self.ads_set_combo_vis.setCurrentIndex(0)
         self.ads_set_combo_vis.blockSignals(False)
-        if self.ads_set_combo_vis.count() > 0 :
+
+        if self.ads_set_combo_vis.count() > 0:
             self._on_selected_adsorbate_set_changed_in_vis(self.ads_set_combo_vis.currentIndex())
         else:
             self._update_offset_controls_from_state()
@@ -748,210 +748,28 @@ class RealSpaceFFTVisualizerDialog(QDialog):
                            pen=pg.mkPen(color=pen_color, style=Qt.PenStyle.DotLine, width=1))
 
 
-    def _estimate_sub_ads_angle_sigma_deg(
-        self,
-        substrate_params: Dict[str, Any],
-        adsorbate_params: Dict[str, Any],
-        *,
-        samples: int = 512,
-    ) -> Optional[float]:
-        """
-        Estimate the uncertainty (standard deviation in degrees) of the angle between
-        substrate and adsorbate a1 vectors using Monte Carlo sampling of their reciprocal
-        vector covariances.
-        """
-        try:
-            g1_s = np.asarray(substrate_params.get("g1_vec_nm_inv"), dtype=float)
-            g2_s = np.asarray(substrate_params.get("g2_vec_nm_inv"), dtype=float)
-            g1_a = np.asarray(adsorbate_params.get("g1_vec_nm_inv"), dtype=float)
-            g2_a = np.asarray(adsorbate_params.get("g2_vec_nm_inv"), dtype=float)
-        except (TypeError, ValueError):
-            return None
-
-        if g1_s.size != 2 or g2_s.size != 2 or g1_a.size != 2 or g2_a.size != 2:
-            return None
-
-        cov_g1_s = substrate_params.get("g1_vec_cov_nm_inv")
-        cov_g2_s = substrate_params.get("g2_vec_cov_nm_inv")
-        cov_g1_a = adsorbate_params.get("g1_vec_cov_nm_inv")
-        cov_g2_a = adsorbate_params.get("g2_vec_cov_nm_inv")
-
-        if cov_g1_s is None and cov_g2_s is None and cov_g1_a is None and cov_g2_a is None:
-            return 0.0
-
-        rng = np.random.default_rng()
-
-        def _sample(mean_vec: np.ndarray, covariance: Optional[Any]) -> np.ndarray:
-            if covariance is None:
-                return np.repeat(mean_vec[None, :], samples, axis=0)
-            cov_arr = np.asarray(covariance, dtype=float)
-            if cov_arr.shape != (2, 2):
-                return np.repeat(mean_vec[None, :], samples, axis=0)
-            cov_arr = (cov_arr + cov_arr.T) / 2.0
-            try:
-                return rng.multivariate_normal(mean_vec, cov_arr, size=samples)
-            except (ValueError, np.linalg.LinAlgError):  # pragma: no cover - defensive
-                return np.repeat(mean_vec[None, :], samples, axis=0)
-
-        g1_s_samples = _sample(g1_s, cov_g1_s)
-        g2_s_samples = _sample(g2_s, cov_g2_s)
-        g1_a_samples = _sample(g1_a, cov_g1_a)
-        g2_a_samples = _sample(g2_a, cov_g2_a)
-
-        angle_samples: List[float] = []
-        for g1_s_sample, g2_s_sample, g1_a_sample, g2_a_sample in zip(
-            g1_s_samples, g2_s_samples, g1_a_samples, g2_a_samples
-        ):
-            try:
-                a1_s_vec, _ = calculate_real_space_vectors_from_g(tuple(g1_s_sample), tuple(g2_s_sample))
-                a1_a_vec, _ = calculate_real_space_vectors_from_g(tuple(g1_a_sample), tuple(g2_a_sample))
-            except Exception:  # pragma: no cover - defensive
-                continue
-
-            a1_s_vec = np.asarray(a1_s_vec, dtype=float)
-            a1_a_vec = np.asarray(a1_a_vec, dtype=float)
-
-            norm_s = np.linalg.norm(a1_s_vec)
-            norm_a = np.linalg.norm(a1_a_vec)
-            if norm_s < 1e-9 or norm_a < 1e-9:
-                continue
-
-            cos_theta = np.clip(np.dot(a1_s_vec, a1_a_vec) / (norm_s * norm_a), -1.0, 1.0)
-            angle_rad = float(np.arccos(cos_theta))
-            angle_samples.append(np.degrees(angle_rad))
-
-        if len(angle_samples) < 2:
-            return 0.0 if angle_samples else None
-        return float(np.std(angle_samples, ddof=1))
-
     def _update_real_space_param_labels(self):
         """Update real space parameter labels with current values."""
         logger.debug("Visualizer: Updating real space parameter labels...")
 
-        def resolve_sigma_text(pair: Optional[Tuple[float, float]]) -> Optional[str]:
-            if not pair:
-                return None
-            sx = format_float(pair[0], 4)
-            sy = format_float(pair[1], 4)
-            if sx == "-" or sy == "-":
-                return None
-            return f"({sx}, {sy}) nm"
-
-        def set_label_with_sigma(
-            label: QLabel,
-            value: Optional[float],
-            sigma: Optional[float],
-            unit: str,
-            *,
-            value_precision: int,
-            sigma_precision: int,
-        ) -> None:
-            text = format_value_with_sigma(
-                value,
-                sigma,
-                unit,
-                value_precision=value_precision,
-                sigma_precision=sigma_precision,
-            )
-            label.setText(text)
-            label.setToolTip(text if text and not text.startswith("-") else "")
-
-        calibration_text = "- nm"
-        controller = self.app_controller
-
-        if controller and controller.substrate_real_space_results:
-            params = controller.substrate_real_space_results
-            set_label_with_sigma(
-                self.sub_real_a1_label,
-                params.get("a1_nm"),
-                params.get("a1_nm_sigma"),
-                "nm",
-                value_precision=3,
-                sigma_precision=3,
-            )
-            set_label_with_sigma(
-                self.sub_real_a2_label,
-                params.get("a2_nm"),
-                params.get("a2_nm_sigma"),
-                "nm",
-                value_precision=3,
-                sigma_precision=3,
-            )
-            set_label_with_sigma(
-                self.sub_real_alpha_label,
-                params.get("alpha_deg"),
-                params.get("alpha_deg_sigma"),
-                "deg",
-                value_precision=2,
-                sigma_precision=2,
-            )
-
-            formatted_sigma = resolve_sigma_text(params.get("pixel_calibration_sigma_nm"))
-            if formatted_sigma:
-                calibration_text = formatted_sigma
-        else:
-            self.sub_real_a1_label.setText("- nm")
-            self.sub_real_a1_label.setToolTip("")
-            self.sub_real_a2_label.setText("- nm")
-            self.sub_real_a2_label.setToolTip("")
-            self.sub_real_alpha_label.setText("- deg")
-            self.sub_real_alpha_label.setToolTip("")
+        def apply_display(label: QLabel, display) -> None:
+            label.setText(display.text)
+            label.setToolTip(display.tooltip)
 
         current_ads_set_idx_vis = self.ads_set_combo_vis.currentData()
+        bundle = self._presenter.build_real_space_label_bundle(current_ads_set_idx_vis)
 
-        if (
-            controller
-            and current_ads_set_idx_vis is not None
-            and current_ads_set_idx_vis in controller.adsorbate_real_space_results
-        ):
-            params = controller.adsorbate_real_space_results[current_ads_set_idx_vis]
-            set_label_with_sigma(
-                self.ads_real_a1_label,
-                params.get("a1_nm"),
-                params.get("a1_nm_sigma"),
-                "nm",
-                value_precision=3,
-                sigma_precision=3,
-            )
-            set_label_with_sigma(
-                self.ads_real_a2_label,
-                params.get("a2_nm"),
-                params.get("a2_nm_sigma"),
-                "nm",
-                value_precision=3,
-                sigma_precision=3,
-            )
-            set_label_with_sigma(
-                self.ads_real_alpha_label,
-                params.get("alpha_deg"),
-                params.get("alpha_deg_sigma"),
-                "deg",
-                value_precision=2,
-                sigma_precision=2,
-            )
+        apply_display(self.sub_real_a1_label, bundle.substrate_a1)
+        apply_display(self.sub_real_a2_label, bundle.substrate_a2)
+        apply_display(self.sub_real_alpha_label, bundle.substrate_alpha)
 
-            formatted_sigma = resolve_sigma_text(params.get("pixel_calibration_sigma_nm"))
-            if formatted_sigma and calibration_text == "- nm":
-                calibration_text = formatted_sigma
-        else:
-            self.ads_real_a1_label.setText("- nm")
-            self.ads_real_a1_label.setToolTip("")
-            self.ads_real_a2_label.setText("- nm")
-            self.ads_real_a2_label.setToolTip("")
-            self.ads_real_alpha_label.setText("- deg")
-            self.ads_real_alpha_label.setToolTip("")
+        apply_display(self.ads_real_a1_label, bundle.adsorbate_a1)
+        apply_display(self.ads_real_a2_label, bundle.adsorbate_a2)
+        apply_display(self.ads_real_alpha_label, bundle.adsorbate_alpha)
 
-        self.calibration_sigma_label.setText(calibration_text)
+        self.calibration_sigma_label.setText(bundle.calibration_text)
         self.angle_sub_ads_label.setText("- deg")
-        self.calculate_sub_ads_angle_button.setEnabled(
-            bool(
-                controller
-                and controller.substrate_real_space_results
-                and current_ads_set_idx_vis is not None
-                and current_ads_set_idx_vis in controller.adsorbate_real_space_results
-                and controller.adsorbate_real_space_results[current_ads_set_idx_vis]
-            )
-        )
+        self.calculate_sub_ads_angle_button.setEnabled(bundle.angle_button_enabled)
 
     @pyqtSlot()
     def _on_calculate_sub_ads_angle_clicked(self):
@@ -961,87 +779,32 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         2. Computes in the background the minimal angle needed for visual alignment.
         """
         logger.debug("Visualizer: Calculate Sub-Ads Angle button clicked.")
-        if not self.app_controller: return
+        if not self.app_controller:
+            return
 
         current_ads_set_idx_vis = self.ads_set_combo_vis.currentData()
         if current_ads_set_idx_vis is None:
             QMessageBox.information(self, "Info", "Please select an adsorbate set.")
             return
 
-        sub_params = self.app_controller.substrate_real_space_results
-        ads_params = self.app_controller.adsorbate_real_space_results.get(current_ads_set_idx_vis)
+        result = self._presenter.calculate_sub_ads_angle(current_ads_set_idx_vis)
+        self.angle_sub_ads_label.setText(result.display_text)
 
-        if not (sub_params and "a1_vec_nm" in sub_params and ads_params and "a1_vec_nm" in ads_params):
-            self.angle_sub_ads_label.setText("N/A (Params missing)")
+        if result.error_message:
+            QMessageBox.critical(self, "Calculation Error", f"Could not calculate angle: {result.error_message}")
             return
 
-        try:
-            a1_s_vec = np.array(sub_params["a1_vec_nm"])
-            a1_a_vec = np.array(ads_params["a1_vec_nm"])
-            a2_a_vec = np.array(ads_params["a2_vec_nm"])
-
-            norm_s = np.linalg.norm(a1_s_vec)
-            norm_a = np.linalg.norm(a1_a_vec)
-            if norm_s > 1e-9 and norm_a > 1e-9:
-                dot_product = np.dot(a1_s_vec, a1_a_vec)
-                cos_theta = np.clip(dot_product / (norm_s * norm_a), -1.0, 1.0)
-                angle_for_display_deg = np.degrees(np.arccos(cos_theta))
-                angle_sigma_deg = self._estimate_sub_ads_angle_sigma_deg(sub_params, ads_params)
-                angle_display = format_value_with_sigma(
-                    angle_for_display_deg,
-                    angle_sigma_deg,
-                    "deg",
-                    value_precision=3,
-                    sigma_precision=3,
-                )
-                self.angle_sub_ads_label.setText(angle_display)
+        if result.alignment_angle_rad is not None:
+            self.visual_alignment_angle_rad = result.alignment_angle_rad
+            if logger:
                 logger.info(
-                    "Displayed angle between default a1 vectors: %.3f deg (σ≈%s)",
-                    angle_for_display_deg,
-                    format_float(angle_sigma_deg, 3) if angle_sigma_deg is not None else "n/a",
+                    "Stored visual alignment angle (background): %.3fdeg",
+                    np.degrees(self.visual_alignment_angle_rad),
                 )
-            else:
-                self.angle_sub_ads_label.setText("N/A (Zero vector)")
-
-            y_axis_vector = np.array([0.0, 1.0])
-            
-            def find_most_vertical_vector(a1, a2):
-                candidate_vectors = [
-                    a1, a2, a1 + a2, a1 - a2, a2 - a1,
-                    2*a1 - a2, a1 - 2*a2, 2*a1 + a2, a1 + 2*a2
-                ]
-                best_vector, max_dot_product = None, -1
-                for vec in candidate_vectors:
-                    norm = np.linalg.norm(vec)
-                    if norm < 1e-9: continue
-                    dot_product = abs(np.dot(vec / norm, y_axis_vector))
-                    if dot_product > max_dot_product:
-                        max_dot_product, best_vector = dot_product, vec
-                return best_vector
-
-            vertical_sub_vec = find_most_vertical_vector(a1_s_vec, np.array(sub_params["a2_vec_nm"]))
-            vertical_ads_vec = find_most_vertical_vector(a1_a_vec, a2_a_vec)
-
-            if vertical_sub_vec is not None and vertical_ads_vec is not None:
-                angle_sub_rad = np.arctan2(vertical_sub_vec[1], vertical_sub_vec[0])
-                angle_ads_rad = np.arctan2(vertical_ads_vec[1], vertical_ads_vec[0])
-                alignment_angle_rad = angle_sub_rad - angle_ads_rad
-                
-                while alignment_angle_rad <= -np.pi: alignment_angle_rad += 2 * np.pi
-                while alignment_angle_rad > np.pi: alignment_angle_rad -= 2 * np.pi
-                
-                self.visual_alignment_angle_rad = alignment_angle_rad
-                logger.info(f"Stored visual alignment angle (background): {np.degrees(self.visual_alignment_angle_rad):.3f}deg")
-            else:
-                self.visual_alignment_angle_rad = 0.0
-            
             if self.cb_visual_align.isChecked():
                 self._trigger_redraw_all_visuals()
-
-        except Exception as e:
-            logger.error(f"Error calculating substrate-adsorbate angle: {e}")
-            self.angle_sub_ads_label.setText("Error")
-            QMessageBox.critical(self, "Calculation Error", f"Could not calculate angle: {e}")
+        else:
+            self.visual_alignment_angle_rad = 0.0
 
     def get_dialog_results(self) -> Dict[str, Any]: 
         return {}

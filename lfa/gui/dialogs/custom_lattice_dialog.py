@@ -201,11 +201,14 @@ class CustomLatticeDialog(QDialog):
         Returns the defined lattice dictionary, or None if not accepted.
         
         Returns:
-            Optional[Dict[str, Any]]: Dictionary containing:
-                - name: Lattice name
-                - type: Lattice type (hexagonal or square)
-                - a_surf: Surface constant in nanometers
-                - source: "User Defined"
-            Returns None if the dialog was not accepted
+            Optional[Dict[str, Any]]: Dictionary containing the custom lattice definition
+            with keys:
+
+            - ``name``: Lattice name.
+            - ``type``: Lattice type (hexagonal or square).
+            - ``a_surf`` or vector entries depending on mode.
+            - ``source``: Always ``"User Defined"``.
+
+            Returns ``None`` if the dialog was not accepted.
         """
         return self._lattice_definition

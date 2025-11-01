@@ -21,6 +21,9 @@ Metadata & Planning
    anything that cannot ship.
 #. Ensure sample datasets and reference sessions in ``data/`` are current and
    include the metadata used in tutorials.
+#. Decide which dependency profile to ship: install ``requirements-core.txt`` for the
+   base toolchain and ``requirements-optional.txt`` when 3D visualisation or ASE exports
+   are part of your publication.
 
 Automated Quality Gates
 =======================

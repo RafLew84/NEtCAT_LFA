@@ -9,6 +9,7 @@ pytest.importorskip("pyqtgraph", reason="pyqtgraph is required for real-space vi
 pytest.importorskip("pytestqt", reason="pytest-qt provides the qtbot fixture")
 
 from lfa.gui.dialogs.real_space_visualizer_dialog import RealSpaceFFTVisualizerDialog
+from lfa.gui.dialogs.presenters import AngleCalculationResult
 
 
 class _DummyController:
@@ -97,8 +98,12 @@ def test_calculate_sub_ads_angle_includes_sigma(qtbot):
         }
     }
 
-    dialog._estimate_sub_ads_angle_sigma_deg = lambda *args, **kwargs: 0.123  # type: ignore[attr-defined]
+    def fake_angle(_index: int) -> AngleCalculationResult:
+        return AngleCalculationResult(display_text="45.000 +/- 0.123 deg", alignment_angle_rad=0.0)
+
+    dialog._presenter.calculate_sub_ads_angle = fake_angle  # type: ignore[attr-defined]
     dialog._on_calculate_sub_ads_angle_clicked()
 
     label_text = dialog.angle_sub_ads_label.text()
     assert "+/- 0.123" in label_text
+    assert dialog.visual_alignment_angle_rad == 0.0

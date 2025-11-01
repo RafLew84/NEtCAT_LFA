@@ -52,9 +52,11 @@ from ..core.constants import (
 )
 from .utils.display import (
     format_float,
-    format_pair,
-    format_pair_with_sigma,
     format_value_with_sigma,
+)
+from .utils.formatters import (
+    format_fft_pair,
+    summarise_fft_metrics,
 )
 
 try:
@@ -522,9 +524,9 @@ class MainWindow(QMainWindow):
                     sigma_precision=2,
                 )
 
-                stretch_display = format_pair_with_sigma(
+                stretch_display = summarise_fft_metrics(
                     analysis.get("principal_stretches"),
-                    analysis.get("principal_stretches_sigma"),
+                    sigma=analysis.get("principal_stretches_sigma"),
                     precision=3,
                     sigma_precision=3,
                 )

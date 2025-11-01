@@ -19,10 +19,12 @@ except ImportError:  # pragma: no cover
 
 from ..utils.display import (
     format_float,
-    format_pair,
-    format_pair_with_sigma,
     format_ratio,
     format_value_with_sigma,
+)
+from ..utils.formatters import (
+    format_fft_pair,
+    summarise_fft_metrics,
 )
 from ...core.constants import (
     ADSORBATE_LATTICE_TYPE_HEXAGONAL,
@@ -271,9 +273,9 @@ class FFTAnalysisPanel(QWidget):
             )
             self.rotation_angle_label.setText(f"Rotation (M->I): {rotation_display}")
 
-            stretch_display = format_pair_with_sigma(
+            stretch_display = summarise_fft_metrics(
                 analysis_results.get('principal_stretches'),
-                analysis_results.get('principal_stretches_sigma'),
+                sigma=analysis_results.get('principal_stretches_sigma'),
                 precision=3,
                 sigma_precision=3,
             )

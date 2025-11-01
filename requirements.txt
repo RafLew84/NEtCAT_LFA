@@ -1,14 +1,4 @@
-numpy>=1.20  # Specify a minimum version if needed
-matplotlib>=3.0 # For testing and basic visualization
-PyQt6>=6.0
-pyqtgraph>=0.13
-scipy>=1.7     # Needed for Gaussian filter (or use scikit-image)
-scikit-image>=0.18 # Alternative/complement for image processing
-pytest>=7.0
-pytest-qt>=5.0
-pytest-mock>=3.10
-PyOpenGL
-pyvista
-pyvistaqt
-ase
-bm3d>=3.0
+# Core runtime/testing dependencies
+-r requirements-core.txt
+
+# Install `requirements-optional.txt` for 3D visualization and advanced denoising support.

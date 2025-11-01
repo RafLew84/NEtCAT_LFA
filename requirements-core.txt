@@ -1,0 +1,8 @@
+numpy>=1.20
+scipy>=1.7
+scikit-image>=0.18
+matplotlib>=3.0
+PyQt6>=6.0
+pytest>=7.0
+pytest-qt>=5.0
+pytest-mock>=3.10

@@ -78,9 +78,11 @@ from ...core.constants import (
 )
 from ..utils.display import (
     format_float,
-    format_pair,
-    format_pair_with_sigma,
     format_value_with_sigma,
+)
+from ..utils.formatters import (
+    format_fft_pair,
+    summarise_fft_metrics,
 )
 from .scenes import AdsorbateSpotScene, MarkerSpec
 from .presenters import (
@@ -852,7 +854,7 @@ class AdsorbateSpotSelectionDialog(QDialog):
             self._redraw_all_markers_in_dialog()
             self.status_label.setText(f"Adsorbate spot {len(self.state.raw_spots)} added.")
         else:
-            point_text = format_pair((ref_kx, ref_ky), precision=2)
+            point_text = format_fft_pair((ref_kx, ref_ky), precision=2)
             self.status_label.setText(f"Adsorbate spot {point_text} already selected.")
         self._clear_last_preview_gauss_fit()
         self._update_correction_button_state()
@@ -1015,11 +1017,12 @@ class AdsorbateSpotSelectionDialog(QDialog):
                 sigma_precision=2,
             )
 
-            stretch_display = format_pair_with_sigma(
+            stretches = analysis.get("principal_stretches")
+            stretches_sigma = analysis.get("principal_stretches_sigma")
+            stretch_display = summarise_fft_metrics(
                 analysis.get("principal_stretches"),
-                analysis.get("principal_stretches_sigma"),
+                sigma=analysis.get("principal_stretches_sigma"),
                 precision=3,
-                sigma_precision=3,
             )
 
             rmse_text = format_float(

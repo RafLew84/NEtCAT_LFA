@@ -49,14 +49,17 @@ PyQt6 interface.
 4. Install dependencies:
 
    ```bash
-   pip install -r requirements.txt
+   # Core runtime + analysis stack
+   pip install -r requirements-core.txt
+
+   # Optional 3D/advanced extras (PyVista, ASE, bm3d, ...)
+   pip install -r requirements-optional.txt
    ```
 
-The supplied `requirements.txt` includes both core and optional packages.
-Modules such as PyOpenGL, PyVista, ASE, and BM3D enable enhanced visualization
-or denoising features; if a heavy optional dependency is missing the
-corresponding tool will either be disabled or fall back to a simpler
-implementation.
+   A convenience `requirements.txt` aggregates the core file for users who prefer a
+   single install command. Leave the optional extra out if you do not need 3D
+   visualisation or heavy denoising; the UI will gracefully hide those tools when the
+   libraries are missing.
 
 ## Running the Application
 
@@ -74,6 +77,32 @@ explore the interface and analysis workflow.
 - Launch the interactive 3D lattice viewer from the real-space visualizer to inspect substrate and adsorbate supercells.
 - Use the layer offset controls (`dX`/`dY`) to nudge substrate or adsorbate atoms when layers render side-by-side.
 - These shifts are stored in the session, letting you fine-tune alignment before exporting screenshots or continuing analysis.
+
+## Optional Dependencies & Fallbacks
+
+`requirements-optional.txt` bundles the heavier packages that power the 3D viewer and
+high-end denoising toolchain:
+
+- `pyqtgraph` and `PyOpenGL` accelerate interactive plotting.
+- `pyvista`/`pyvistaqt` are used for the 3D lattice viewer; without them the menu entry is disabled.
+- `ase` enables crystallographic export/inspection of derived lattices.
+- `bm3d` provides state-of-the-art denoising; when absent the BM3D dialog is hidden and other filters remain available.
+
+Install them only on machines where the extra footprint is acceptable. LFA detects their presence at runtime and hides the associated UI when they are missing.
+
+## Reproducible Demo Assets
+
+- The `data/` folder ships with small STM samples (for example `8343.stp`) that back the automated tests and the walkthrough in the documentation.
+- `docs/source/publication_workflow.rst` lists the reference session and notebook expectations for publications. Store generated sessions/notebooks alongside your manuscripts so reviewers can replay the full workflow.
+- Use `python -m lfa.main --session <path>` to reload a saved `.lfa_proj` file and confirm that preprocessing history, uncertainty metadata, and visual offsets are preserved.
+
+## Publication Workflow & Citation
+
+- Follow the packaging/test checklist in `docs/source/publication_workflow.rst` before tagging a release. It references linting commands, distribution builds, and DOI archival steps.
+- `docs/LICENSE_AUDIT.md` summarises bundled third-party licences. Expand it with project-specific libraries or dataset attributions as needed.
+- Add release notes to `CHANGELOG.md` and archive tagged builds on Zenodo to mint a DOI. Once the DOI is available, quote it in this section and in the README header.
+- The contributing guide (`docs/CONTRIBUTING.md`) captures the submission workflow and links to the same checklist so the community can help reproduce publication artefacts.
+
 ## Typical Workflow
 
 1. **Load data**: Use `File > Open...` to import STM files. Each image is added
@@ -190,7 +219,9 @@ mirrors the layered architecture outlined in `context.md`.
 - Install development dependencies:
 
   ```bash
-  pip install -r requirements.txt -r requirements-dev.txt
+  pip install -r requirements-core.txt -r requirements-dev.txt
+  # Optional extras for 3D / denoising
+  pip install -r requirements-optional.txt
   ```
 
 - Format and lint the codebase:
@@ -232,6 +263,8 @@ mirrors the layered architecture outlined in `context.md`.
   manual QA pass.
 - **Reporting/exports tests** confirm that CSV/JSON summaries include uncertainties,
   calibration sigmas, and transform covariances introduced during milestones 3b.x.
+
+See `CHANGELOG.md` for a curated list of user-facing improvements in recent iterations.
 
 ## License
 

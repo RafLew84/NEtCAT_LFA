@@ -521,7 +521,7 @@ class VisualizationManager(QObject):
     def _handle_fft_view_mouse_click(self, event):
         """
         Internal slot handling mouse clicks on the FFT image.
-        Maps the click coordinates and emits the `fft_view_clicked` signal.
+        Maps the click coordinates and emits the ``fft_view_clicked`` signal.
         """
         if not self._is_initialized_correctly or not self.image_item or not event or not hasattr(event, 'button'):
             if hasattr(event, 'ignore'): event.ignore() # pragma: no cover
