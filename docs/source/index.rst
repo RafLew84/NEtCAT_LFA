@@ -41,8 +41,8 @@ What You Can Calculate
 
 LFA allows you to quantify several physical properties of your sample:
 
-* **Lattice Vectors and Constants**: Determine the real-space lattice vectors ($a_1, a_2$), their magnitudes ($|a_1|, |a_2|$), and the angle ($\alpha$) between them for both the substrate and any adsorbate layers.
-* **Drift and Distortion Parameters**: Quantify instrumental drift and sample distortion through the affine transformation matrix ($F$). This includes:
+* **Lattice Vectors and Constants**: Determine the real-space lattice vectors (:math:`a_1`, :math:`a_2`), their magnitudes (:math:`|a_1|`, :math:`|a_2|`), and the angle (:math:`\\alpha`) between them for both the substrate and any adsorbate layers.
+* **Drift and Distortion Parameters**: Quantify instrumental drift and sample distortion through the affine transformation matrix (:math:`F`). This includes:
     * **Rotation Angle**: The angle of rotation of the measured lattice relative to the ideal one.
     * **Principal Stretches**: The amount of stretching or compression along the principal axes of distortion.
     * **Fit Quality**: The Root Mean Square Error (RMSE) of the transformation fit, indicating how well the measured spots match an ideal lattice.
@@ -96,6 +96,12 @@ The project ships with an opinionated quality bar that can be reproduced locally
   controller layers; the CI pipeline enforces ``--cov-fail-under=80``.
 - **Documentation**: build with ``sphinx-build -b html docs/source docs/build/html``; warnings are
   treated as errors to prevent stale references.
+
+.. toctree::
+   :maxdepth: 1
+   :caption: Guides
+
+   migration_notes
 
 .. toctree::
    :maxdepth: 2
