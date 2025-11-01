@@ -1,4 +1,4 @@
-﻿# Lattice Fourier Analyzer (LFA)
+# Lattice Fourier Analyzer (LFA)
 
 Lattice Fourier Analyzer (LFA) is a Python desktop application for the scientific
 analysis of scanning tunneling microscopy (STM) images. It guides the user from
@@ -138,6 +138,12 @@ scripts/                 Utility scripts and helpers
 
 ## Development Notes
 
+### Quality Gates
+- GUI smoke tests: run pytest tests/gui/smoke --maxfail=1 (uses pytest-qt; safe for CI headless runs).
+- Coverage threshold: run pytest --cov (fail under 80&#37; across lfa + tests).
+- CI configuration uses pytest.ini to enforce --cov-fail-under=80.
+
+
 - Install development dependencies:
 
   ```bash
@@ -173,3 +179,5 @@ scripts/                 Utility scripts and helpers
 
 This project is distributed under the terms of the MIT License. See `LICENSE`
 for details.
+
+
