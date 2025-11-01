@@ -49,6 +49,54 @@ LFA allows you to quantify several physical properties of your sample:
 * **Superstructure Periodicity**: By analyzing the splitting of satellite peaks from main Bragg peaks, you can calculate the real-space periodicity of surface superstructures.
 * **Autocorrelation Map**: Generate a Patterson map from the FFT to visualize real-space periodicities and vector relationships.
 
+Architecture Overview
+---------------------
+
+The refactor completed in 2025 reorganised LFA into explicit layers:
+
+- **Domain foundations** (``lfa.core``, ``lfa.preprocessing``, ``lfa.analysis``) keep
+  immutable STM data models, preprocessing operators, FFT/spot-fitting math, and
+  uncertainty propagation helpers. They are UI-agnostic and unit-tested.
+- **Application services** (``lfa.logic.services``) provide focused responsibilities:
+  ``HistoryOrchestrator`` mutates the history tree, ``SpotSetService`` manages substrate and
+  adsorbate selections, ``AnalysisExecutor`` drives FFT/superstructure/real-space jobs, and
+  ``SessionService`` handles migrations plus persistence. The thin ``AppController`` composes
+  these services for the GUI.
+- **Presentation coordinators** (``lfa.gui.controllers`` and ``lfa.gui.actions``) translate
+  Qt events into controller calls. ``DialogCoordinator`` centralises dialog wiring,
+  ``ProcessingDialogLauncher`` binds preprocessing menus to the shared base dialog,
+  ``HistoryViewHandler`` keeps the history dock in sync, and ``UIStateBinder`` toggles actions
+  based on the active node.
+- **Dialogs and visualisers** (``lfa.gui.dialogs`` / ``lfa.gui.visualizers``) expose
+  viewmodel-style APIs. ``BasePreprocessingDialog`` houses the live-preview/ROI logic used by
+  all preprocessing tools, while the real-space visualiser consumes uncertainty-enriched data
+  supplied by the services layer.
+- **History & session pipeline** (``lfa.logic.history_manager``, ``lfa.logic.session_state``)
+  manages a non-linear tree of analysis states. Session files are versioned and upgraded when
+  older projects are opened.
+
+This structure improves testability and isolates future enhancements such as non-linear drift
+correction and additional import formats.
+
+Testing and Quality Gates
+-------------------------
+
+The project ships with an opinionated quality bar that can be reproduced locally:
+
+- **Unit tests** (``pytest``) cover uncertainty propagation, service orchestration, and the
+  math helpers in ``lfa.analysis``.
+- **Widget/controller tests** (``pytest-qt``) target the dialog viewmodels and controllers,
+  including ``UIStateBinder`` enablement logic.
+- **GUI smoke tests** (``pytest tests/gui/smoke``) open each preprocessing dialog through
+  ``ProcessingDialogLauncher`` to verify shared base behaviour, while
+  ``tests/gui/test_main_window_workflow.py`` exercises the primary load → FFT → substrate/adsorbate
+  analysis → visualisation flow.
+- **Static analysis**: ``ruff``, ``black``, and ``mypy`` run in CI (see ``requirements-dev.txt``).
+- **Coverage**: ``pytest --cov=lfa --cov-report=term-missing`` must stay above 80% for logic and
+  controller layers; the CI pipeline enforces ``--cov-fail-under=80``.
+- **Documentation**: build with ``sphinx-build -b html docs/source docs/build/html``; warnings are
+  treated as errors to prevent stale references.
+
 .. toctree::
    :maxdepth: 2
    :caption: API Reference:

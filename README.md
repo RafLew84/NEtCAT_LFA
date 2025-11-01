@@ -127,22 +127,65 @@ lfa/                     Core application package
   io/                    STM readers and writers
   preprocessing/         Image processing operators and pipelines
   analysis/              FFT, lattice math, drift, and domain tools
-  gui/                   PyQt6 widgets, dialogs, and main window
-  logic/                 Application controller and history management
+  logic/                 Application controller, session state, and services
+    services/            History orchestration, spot management, analysis runners, session IO
+  gui/                   PyQt6 presentation layer
+    actions/             Menu helpers and dialog launchers
+    controllers/         UI coordinators (DialogCoordinator, HistoryViewHandler, UIStateBinder)
+    dialogs/             Interactive tools (spot selection, preprocessing, FFT, reports)
+    panels/              Dock widgets embedded in the main window
+    visualizers/         2D/3D canvas management
+    widgets/             Reusable input components and metadata views
   visualization/         Rendering helpers and overlay logic
+  utils/                 Shared helpers (formatting, math, configuration)
 tests/                   PyTest-based unit and widget tests
 docs/                    Sphinx documentation (source and build targets)
 data/                    Sample STM datasets
 scripts/                 Utility scripts and helpers
 ```
 
+## Architecture Overview
+
+LFA now follows a service-oriented layering that separates data handling, business
+logic, and presentation concerns:
+
+- **Domain foundations** (`lfa.core`, `lfa.preprocessing`, `lfa.analysis`): hold immutable
+  data models (`STMImage`, history nodes), image processing operators, FFT/spot fitting
+  math, and uncertainty propagation helpers. These modules remain UI-agnostic and are
+  exercised directly by unit tests.
+- **Application services** (`lfa.logic.services`): consolidate controller workloads into
+  narrow classes. `HistoryOrchestrator` wraps HistoryManager mutations, `SpotSetService`
+  coordinates substrate/adsorbate selections and affine fits, `AnalysisExecutor` funnels
+  heavy calculations (FFT, superstructure, reconstructions), and `SessionService` handles
+  migrations plus persistence. The top-level `AppController` acts as a lightweight facade
+  that wires the services together and exposes signals/state for the GUI.
+- **Presentation controllers** (`lfa.gui.controllers` and `lfa.gui.actions`): the main
+  window delegates menu and dialog orchestration to `DialogCoordinator`,
+  `ProcessingDialogLauncher`, `HistoryViewHandler`, and `UIStateBinder`. They translate
+  Qt events into controller calls, keep docks/actions enabled in sync with history state,
+  and encapsulate dialog wiring so the window class focuses on layout.
+- **Dialogs and visualizers** (`lfa.gui.dialogs`, `lfa.gui.visualizers`): each dialog now
+  exposes a viewmodel-style API. Shared preprocessing behaviour lives in
+  `BasePreprocessingDialog`, while the real-space visualizer reuses controller services to
+  retrieve lattice parameters, uncertainties, and overlays.
+- **History & session pipeline** (`lfa.logic.history_manager`, `lfa.logic.session_state`):
+  maintain a non-linear tree of analysis states with full uncertainty metadata. Session
+  files are versioned and upgraded on load; migrations capture schema changes introduced
+  during refactors.
+
+This decomposition reduces the responsibilities of the Qt layer, simplifies testing, and
+mirrors the layered architecture outlined in `context.md`.
+
 ## Development Notes
 
 ### Quality Gates
-- GUI smoke tests: run pytest tests/gui/smoke --maxfail=1 (uses pytest-qt; safe for CI headless runs).
-- Coverage threshold: run pytest --cov (fail under 80&#37; across lfa + tests).
-- CI configuration uses pytest.ini to enforce --cov-fail-under=80.
+- GUI smoke tests: `pytest tests/gui/smoke --maxfail=1` (covers aggregated preprocessing dialogs, FFT workflow, and key viewmodels; runs with pytest-qt under xvfb/Windows headless).
+- Controller and service coverage: `pytest --cov=lfa --cov-report=term-missing` (CI fails under 80% combined coverage for `lfa` and `tests`).
+- Lint/type gates: `ruff check .`, `black --check lfa tests`, `mypy lfa` (enabled in CI via pre-commit hooks and GitHub Actions).
+- Documentation build: `sphinx-build -b html docs/source docs/build/html` (warnings are treated as errors in CI).
+- Smoke GUI sanity: `pytest tests/gui/test_main_window_workflow.py` exercises load → FFT → substrate/adsorbate analysis → real-space visualization.
 
+### Development Environment
 
 - Install development dependencies:
 
@@ -174,6 +217,18 @@ scripts/                 Utility scripts and helpers
   comments, and documentation in English for consistency.
 - Avoid modifying sample data in `data/` unless you intend to provide updated
   reference datasets.
+
+### Testing Suite Overview
+
+- **Unit tests** guard math-heavy modules (`lfa.analysis`, `lfa.logic.services`), history
+  orchestration, uncertainty propagation, and session serialization.
+- **Widget/controller tests** (pytest-qt) validate individual dialogs, presenters, and the
+  `UIStateBinder` enablement logic.
+- **Smoke tests** simulate end-to-end GUI flows for preprocessing dialogs and the
+  main-window workflow, ensuring signal wiring survives refactors without demanding a full
+  manual QA pass.
+- **Reporting/exports tests** confirm that CSV/JSON summaries include uncertainties,
+  calibration sigmas, and transform covariances introduced during milestones 3b.x.
 
 ## License
 
