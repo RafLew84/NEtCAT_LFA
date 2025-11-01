@@ -1,0 +1,10 @@
+[run]
+omit =
+    lfa/gui/*
+    lfa/main.py
+    lfa/visualization/*
+    lfa/io/*_reader.py
+    tests/utils/qt.py
+
+[report]
+show_missing = True

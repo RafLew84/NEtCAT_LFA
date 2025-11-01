@@ -1,6 +1,8 @@
 from pathlib import Path
 import sys
+
 import numpy as np
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
@@ -22,6 +24,19 @@ def test_numeric_jacobian_linear_map():
     np.testing.assert_allclose(jac, expected, atol=1e-8)
 
 
+def test_numeric_jacobian_forward_and_invalid_method():
+    def fn(v):
+        return np.array([v[0] ** 2, v[1] ** 2])
+
+    x = np.array([0.3, -0.7])
+    jac_forward = numeric_jacobian(fn, x, method="forward")
+    jac_central = numeric_jacobian(fn, x, method="central")
+    np.testing.assert_allclose(jac_forward, jac_central, atol=1e-6)
+
+    with pytest.raises(ValueError):
+        numeric_jacobian(fn, x, method="unsupported")
+
+
 def test_propagate_linear_matches_manual():
     def fn(v):
         return np.array([v[0] + 2 * v[1]])
@@ -35,6 +50,18 @@ def test_propagate_linear_matches_manual():
 
     np.testing.assert_allclose(result.mean, expected_mean, atol=1e-9)
     np.testing.assert_allclose(result.covariance, expected_cov, atol=1e-9)
+
+
+def test_propagate_linear_validates_covariance():
+    def fn(v):
+        return v
+
+    x = np.array([1.0, 2.0])
+    diag_cov = np.array([0.1, 0.2])
+    propagate_linear(fn, x, diag_cov)  # diagonal path succeeds
+
+    with pytest.raises(ValueError):
+        propagate_linear(fn, x, np.array([0.1]))  # wrong length
 
 
 def test_propagate_monte_carlo_reproduces_statistics():
@@ -51,3 +78,20 @@ def test_propagate_monte_carlo_reproduces_statistics():
 
     np.testing.assert_allclose(mc_result.mean, lin_result.mean, atol=5e-3)
     np.testing.assert_allclose(mc_result.covariance, lin_result.covariance, atol=2e-2)
+
+
+def test_propagate_monte_carlo_validations():
+    def fn(v):
+        return np.array([v.sum()])
+
+    x = np.array([0.0, 0.0])
+    cov_x = np.array([[1.0, 0.5], [0.5, 0.25]])
+
+    with pytest.raises(ValueError):
+        propagate_monte_carlo(fn, x, cov_x, samples=0)
+
+    # Singular covariance triggers eigenvalue fallback path
+    semi_def = np.array([[1.0, 1.0], [1.0, 1.0]])
+    result = propagate_monte_carlo(fn, x, semi_def, samples=256, rng=42)
+    assert result.mean.shape == (1,)
+    assert result.covariance.shape == (1, 1)

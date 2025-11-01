@@ -1,5 +1,6 @@
 import pytest
-from PyQt6.QtWidgets import QAction, QWidget
+from PyQt6.QtGui import QAction
+from PyQt6.QtWidgets import QWidget
 
 pytest.importorskip("PyQt6", reason="PyQt6 is required for UIStateBinder tests")
 pytest.importorskip("pytestqt", reason="pytest-qt provides the qtbot fixture")
