@@ -1,9 +1,0 @@
-*** Begin Patch
-*** Update File: lfa/logic/app_controller.py
-@@
- except ImportError: 
-     logging.error("AppController: Could not import lattice analysis functions.")
-     LATTICE_ANALYSIS_FUNCTIONS_AVAILABLE = False
-     def get_real_space_lattice_parameters(*args, **kwargs): return None
-+    def augment_covariance_with_calibration(*args, **kwargs): return None
-*** End Patch
