@@ -102,6 +102,7 @@ The project ships with an opinionated quality bar that can be reproduced locally
    :caption: Guides
 
    migration_notes
+   release_checklist
 
 .. toctree::
    :maxdepth: 2

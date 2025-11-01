@@ -217,6 +217,9 @@ mirrors the layered architecture outlined in `context.md`.
   comments, and documentation in English for consistency.
 - Avoid modifying sample data in `data/` unless you intend to provide updated
   reference datasets.
+- When preparing a tagged release, consult ``docs/source/release_checklist.rst``
+  (also available in the generated HTML docs under Guides) for a full run-down
+  of required QA and packaging steps.
 
 ### Testing Suite Overview
 
