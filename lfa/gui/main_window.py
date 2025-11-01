@@ -56,8 +56,14 @@ from .utils.display import (
 )
 
 try:
-    from lfa.gui.dialogs.preprocessing_dialogs import (GaussianBlurDialog, PlaneLevelingDialog, 
-    MedianFilterDialog, NLMeansDialog, BM3DDialog, GaussianSharpeningDialog)
+    from lfa.gui.dialogs.preprocessing import (
+        GaussianBlurDialog,
+        PlaneLevelingDialog,
+        MedianFilterDialog,
+        NLMeansDialog,
+        BM3DDialog,
+        GaussianSharpeningDialog,
+    )
     from lfa.gui.dialogs.fft_dialog import FFTDialog
     DIALOG_CLASSES_EXIST = True
 except ImportError:
