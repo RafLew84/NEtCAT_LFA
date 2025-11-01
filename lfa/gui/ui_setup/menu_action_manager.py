@@ -117,7 +117,6 @@ class MenuActionManager:
             action = self._create_action(text, tip, slot, enabled=enabled)
             self.preprocessing_actions[name] = action
             preprocessing_menu.addAction(action)
-            setattr(self.main_window, f"{name}_action", action)
 
 
     def _create_analysis_menu(self):
@@ -131,7 +130,6 @@ class MenuActionManager:
             enabled=False
         )
         analysis_menu.addAction(self.analysis_actions["fft"])
-        self.main_window.fft_action = self.analysis_actions["fft"]
 
         analysis_menu.addSeparator()
 
@@ -142,7 +140,7 @@ class MenuActionManager:
             enabled=False
         )
         analysis_menu.addAction(sel_subs_action)
-        self.main_window.select_substrate_spots_action = sel_subs_action
+        self.analysis_actions["select_substrate_spots"] = sel_subs_action
 
         sel_ads_action = self._create_action(
             text="Select &Adsorbate Spots...",
@@ -151,7 +149,7 @@ class MenuActionManager:
             enabled=False
         )
         analysis_menu.addAction(sel_ads_action)
-        self.main_window.select_adsorbate_spots_action = sel_ads_action
+        self.analysis_actions["select_adsorbate_spots"] = sel_ads_action
 
         analysis_menu.addSeparator()
         superstructure_action = self._create_action(
@@ -162,7 +160,6 @@ class MenuActionManager:
         )
         analysis_menu.addAction(superstructure_action)
         self.analysis_actions["superstructure_periodicity"] = superstructure_action
-        setattr(self.main_window, "superstructure_periodicity_action", superstructure_action)
 
 
         analysis_menu.addSeparator()
@@ -173,8 +170,7 @@ class MenuActionManager:
             enabled=False
         )
         analysis_menu.addAction(vis_action)
-        self.main_window.visualize_real_space_action = vis_action
-        # analysis_menu.addSeparator()
+        self.analysis_actions["visualize_real_space"] = vis_action
         reconstruction_action = self._create_action(
             text="Real Space Reconstruction...",
             status_tip="Reconstruct real space image from masked FFT",
@@ -182,7 +178,7 @@ class MenuActionManager:
             enabled=False 
         )
         analysis_menu.addAction(reconstruction_action)
-        setattr(self.main_window, "real_space_reconstruction_action", reconstruction_action)
+        self.analysis_actions["real_space_reconstruction"] = reconstruction_action
 
         stm_transform_action = self._create_action(
             text="STM Transform...",
@@ -191,7 +187,7 @@ class MenuActionManager:
             enabled=False
         )
         analysis_menu.addAction(stm_transform_action)
-        setattr(self.main_window, "stm_transform_action", stm_transform_action)
+        self.analysis_actions["stm_transform"] = stm_transform_action
 
 
     def _create_view_menu(self):
@@ -231,3 +227,22 @@ class MenuActionManager:
             "help": self.help_actions,
         }
         return menu_map.get(menu_key, {}).get(action_key)
+
+    def action_map_for_ui_state(self) -> dict[str, QAction | None]:
+        """Return the subset of actions needed by UIStateBinder."""
+        return {
+            "load_metadata": self.file_actions.get("load_metadata"),
+            "gaussian_blur": self.preprocessing_actions.get("gaussian_blur"),
+            "gaussian_sharpen": self.preprocessing_actions.get("gaussian_sharpen"),
+            "plane_level": self.preprocessing_actions.get("plane_level"),
+            "median_filter": self.preprocessing_actions.get("median_filter"),
+            "nlmeans": self.preprocessing_actions.get("nlmeans"),
+            "bm3d": self.preprocessing_actions.get("bm3d"),
+            "fft": self.analysis_actions.get("fft"),
+            "select_substrate_spots": self.analysis_actions.get("select_substrate_spots"),
+            "select_adsorbate_spots": self.analysis_actions.get("select_adsorbate_spots"),
+            "superstructure_periodicity": self.analysis_actions.get("superstructure_periodicity"),
+            "stm_transform": self.analysis_actions.get("stm_transform"),
+            "visualize_real_space": self.analysis_actions.get("visualize_real_space"),
+            "real_space_reconstruction": self.analysis_actions.get("real_space_reconstruction"),
+        }
