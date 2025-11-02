@@ -24,7 +24,7 @@ I(kx, ky) = A * exp(-0.5 * p^T * C^-1 * p) + B,  p = [kx - mux, ky - muy]^T,
 using `scipy.optimize.curve_fit`. The returned parameter covariance `Sigma_theta` contains the variances for `mux` and `muy`, which we store as `sigma_x^2` and `sigma_y^2`. If the fit fails, a Monte Carlo fallback synthesises noisy ROIs (based on the estimated background noise) and estimates the spread of `(mux, muy)`.
 
 ### 1.4 `REFINEMENT_PARABOLA_3X3`
-We approximate the peak with a quadratic Taylor expansion on a `3x3` neighbourhood and solve `grad I = 0`. The helper returns the sub-pixel maximum along with uncertainties derived from the local Hessian of the quadratic surface.
+We approximate the peak with a quadratic Taylor expansion on a `3x3` neighbourhood and solve `grad I = 0`. The helper returns the sub‑pixel maximum; positional uncertainties are estimated via Monte‑Carlo resampling of the `3x3` patch (default ≈128 runs), taking the empirical standard deviations of the re‑estimated offsets.
 
 ### 1.5 `REFINEMENT_LOCAL_DFT`
 A square ROI of size `m x n` is upsampled by zero-padding its discrete Fourier transform:
