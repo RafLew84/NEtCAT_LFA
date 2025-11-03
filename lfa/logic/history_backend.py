@@ -3,10 +3,10 @@ from __future__ import annotations
 import logging
 import uuid
 from dataclasses import dataclass, field
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Dict, Iterable, List, Optional
 
-from ..core.history import HistoryNode
 from ..core.data_models import OriginalImageRecord
+from ..core.history import HistoryNode
 
 logger = logging.getLogger(__name__)
 

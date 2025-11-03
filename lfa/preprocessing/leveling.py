@@ -4,8 +4,9 @@ Functions for plane fitting and subtraction for image leveling.
 Adapted from user-provided code, using SciPy for fitting and NumPy.
 """
 import logging
+from typing import List, Optional, Tuple
+
 import numpy as np
-from typing import Optional, Tuple, List
 
 try:
     from scipy.optimize import least_squares

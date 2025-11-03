@@ -2,9 +2,9 @@
 """
 Unit tests for plane leveling functions in lfa.preprocessing.leveling.
 """
+
 import numpy as np
 import pytest
-from typing import Optional, Tuple, List # For type hints if needed
 
 # Import functions to test
 try:

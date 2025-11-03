@@ -3,8 +3,8 @@ from __future__ import annotations
 import logging
 from typing import Any, Optional, Tuple
 
-from ...core.history import HistoryNode
 from ...core.data_models import OriginalImageRecord
+from ...core.history import HistoryNode
 from ..history_manager import HistoryManager
 
 logger = logging.getLogger(__name__)

@@ -6,10 +6,11 @@ Includes a function to match measured points to ideal points
 using the Hungarian algorithm before fitting the transformation.
 """
 import logging
+from typing import Any, Dict, List, Optional, Sequence, Tuple
+
 import numpy as np
 from scipy.linalg import polar
 from scipy.optimize import linear_sum_assignment
-from typing import List, Tuple, Dict, Optional, Any, Sequence
 
 from .uncertainty import propagate_linear
 

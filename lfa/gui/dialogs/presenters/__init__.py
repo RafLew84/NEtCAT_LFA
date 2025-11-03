@@ -1,11 +1,5 @@
 """Presenter helpers for GUI dialogs."""
 
-from .substrate_spot_presenter import (
-    SubstrateSpotPresenter,
-    SubstrateSpotState,
-    TransformComputation,
-    TransformComputationError,
-)
 from .adsorbate_spot_presenter import (
     AdsorbateSpotPresenter,
     AdsorbateSpotPresenterError,
@@ -19,6 +13,12 @@ from .real_space_visualizer_presenter import (
     RealSpaceLabelBundle,
     RealSpaceVisualizerPresenter,
     ValueDisplay,
+)
+from .substrate_spot_presenter import (
+    SubstrateSpotPresenter,
+    SubstrateSpotState,
+    TransformComputation,
+    TransformComputationError,
 )
 
 __all__ = [

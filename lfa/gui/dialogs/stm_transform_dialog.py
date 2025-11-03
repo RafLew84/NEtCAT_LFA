@@ -1,20 +1,28 @@
 # lfa/gui/dialogs/stm_transform_dialog.py
 import logging
-import numpy as np
 import os
-from scipy.linalg import polar
-from typing import Optional, Dict, Any
-from scipy.ndimage import affine_transform
+from typing import Optional
 
-from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QDialogButtonBox, QWidget,
-    QGroupBox, QCheckBox, QSplitter, QPushButton, QMessageBox, QFileDialog
-)
-from PyQt6.QtCore import pyqtSlot, Qt
-from PyQt6.QtGui import QTransform, QImage
+import numpy as np
 import pyqtgraph as pg
 import pyqtgraph.exporters
-from PIL import Image
+from PyQt6.QtCore import Qt, pyqtSlot
+from PyQt6.QtGui import QImage, QTransform
+from PyQt6.QtWidgets import (
+    QCheckBox,
+    QDialog,
+    QFileDialog,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QMessageBox,
+    QPushButton,
+    QSplitter,
+    QVBoxLayout,
+    QWidget,
+)
+from scipy.linalg import polar
+from scipy.ndimage import affine_transform
 
 from ...core.history import HistoryNode
 from ...io.write_stp import write_STP_file

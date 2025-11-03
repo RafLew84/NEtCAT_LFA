@@ -1,23 +1,23 @@
 import pickle
-from pathlib import Path
 import sys
+from pathlib import Path
 
 import numpy as np
 import pytest
+
 pytest.importorskip("PyQt6", reason="PyQt6 is required for session persistence tests")
 pytest.importorskip("pytestqt", reason="pytest-qt is required for qtbot fixture")
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from PyQt6.QtWidgets import QListWidget, QMessageBox, QFileDialog
+from PyQt6.QtWidgets import QFileDialog, QListWidget, QMessageBox
 
-from lfa.logic.history_manager import HistoryManager
+from lfa.core.data_models import OriginalImageRecord
+from lfa.core.history import HistoryNode
 from lfa.logic.app_controller import AppController
+from lfa.logic.history_manager import HistoryManager
 from lfa.logic.session_migrations import CURRENT_SESSION_VERSION, migrate_payload
 from lfa.logic.session_serializer import SessionSerializer
-from lfa.core.history import HistoryNode
-from lfa.core.data_models import OriginalImageRecord
-
 
 
 def _create_controller_with_images(qtbot) -> tuple[AppController, OriginalImageRecord, OriginalImageRecord]:

@@ -1,17 +1,31 @@
 # lfa/gui/dialogs/real_space_visualizer_dialog.py
-import logging
-import numpy as np
-from typing import Optional, List, Dict, Any, Tuple
+from __future__ import annotations
 
+import logging
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+
+import numpy as np
+from PyQt6.QtCore import Qt, pyqtSlot
 from PyQt6.QtWidgets import (
-    QDialog, QHBoxLayout, QVBoxLayout, QWidget, QGroupBox, QSpinBox, QDoubleSpinBox, QScrollArea,
-    QFormLayout, QCheckBox, QLabel, QComboBox, QPushButton, QSplitter, QMessageBox
+    QCheckBox,
+    QDialog,
+    QLabel,
+    QMessageBox,
+    QVBoxLayout,
 )
-from PyQt6.QtCore import Qt, pyqtSlot, QPointF
 
 try:
     import pyqtgraph as pg
-    from pyqtgraph import GraphicsLayoutWidget, ImageItem, PlotWidget, PlotItem, ViewBox, ScatterPlotItem, ArrowItem, TextItem
+    from pyqtgraph import (
+        ArrowItem,
+        GraphicsLayoutWidget,
+        ImageItem,
+        PlotItem,
+        PlotWidget,
+        ScatterPlotItem,
+        TextItem,
+        ViewBox,
+    )
     PYQTGRAPH_AVAILABLE = True
 except ImportError:
     pg = None
@@ -26,34 +40,21 @@ except ImportError:
     PYQTGRAPH_AVAILABLE = False
     logging.error("RealSpaceFFTVisualizerDialog: PyQtGraph not found.")
 
-try:
+if TYPE_CHECKING:
+    from ...core.history import HistoryNode
     from ...logic.app_controller import AppController
     from ...logic.history_manager import HistoryManager
-    from ...core.history import HistoryNode
-    from ...analysis.drift_correction import apply_affine_transform
-    from ...analysis.lattice import (
-        LATTICE_TYPE_HEXAGONAL,
-        LATTICE_TYPE_SQUARE,
-        calculate_real_space_vectors_from_g,
-    )
-except ImportError as e:
-    AppController = None
-    HistoryManager = None
-    HistoryNode = None
-    apply_affine_transform = None
-    logging.error(f"RealSpaceFFTVisualizerDialog: Error importing project modules: {e}")
 
-from ..visualizers.real_space_state import RealSpaceVisualizerState
+from ..utils.display import (
+    format_float,
+    format_pair_with_sigma,
+    format_value_with_sigma,
+)
 from ..visualizers.real_space_pyvista_adapter import RealSpacePyVistaAdapter, RealSpaceSceneConfig
+from ..visualizers.real_space_state import RealSpaceVisualizerState
 from ..visualizers.real_space_view import (
     RealSpaceVisualizerWidgets,
     build_real_space_visualizer_ui,
-)
-from ..utils.display import (
-    format_float,
-    format_pair,
-    format_pair_with_sigma,
-    format_value_with_sigma,
 )
 from .presenters import RealSpaceVisualizerPresenter
 

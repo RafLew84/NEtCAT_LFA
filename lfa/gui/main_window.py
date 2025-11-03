@@ -5,17 +5,22 @@ Defines the main window for the Lattice Fourier Analyzer (LFA) application.
 
 import logging
 import os
-import numpy as np
-from typing import Optional, Dict, Any, Tuple, List, Union
-import time
+from typing import Any, Dict, Optional
 
+from PyQt6.QtCore import QPointF, Qt, pyqtSlot
 from PyQt6.QtWidgets import (
-    QMainWindow, QVBoxLayout, QWidget, QFileDialog, QMessageBox, QApplication, 
-    QDialog, QHBoxLayout, QSplitter, QListWidget, QListWidgetItem, QDockWidget
+    QApplication,
+    QDialog,
+    QFileDialog,
+    QHBoxLayout,
+    QListWidget,
+    QListWidgetItem,
+    QMainWindow,
+    QMessageBox,
+    QSplitter,
+    QVBoxLayout,
+    QWidget,
 )
-from PyQt6.QtGui import QAction, QIcon
-from PyQt6.QtCore import Qt, pyqtSlot, QPointF
-from PIL import Image
 
 try:
     import pyqtgraph as pg
@@ -23,52 +28,46 @@ except ImportError:
     logging.error("PyQtGraph not found. Please install it: pip install pyqtgraph")
     pg = None
 
-from .widgets.metadata_widget import MetadataWidget
-from ..logic.history_manager import HistoryManager
-from .panels.fft_analysis_panel import FFTAnalysisPanel
-from .visualization_manager import VisualizationManager
-from ..logic.app_controller import AppController, LATTICE_ANALYSIS_FUNCTIONS_AVAILABLE
-from ..core.history import HistoryNode
-from .ui_setup.menu_action_manager import MenuActionManager
-from .ui_setup.dock_panel_manager import DockPanelManager
-from .ui_setup.history_context_menu import HistoryContextMenu
-from .controllers.ui_state_binder import UIStateBinder
-from .controllers.overlay_visibility_binder import OverlayVisibilityBinder
-from .controllers.dialog_coordinator import DialogCoordinator
-from .controllers.history_view_handler import HistoryViewHandler
-from .actions.processing import ProcessingDialogLauncher
 from ..core.constants import (
     ADSORBATE_LATTICE_TYPE_UNKNOWN,
-    LATTICE_TYPE_CUSTOM,
-    LATTICE_TYPE_HEXAGONAL,
-    LATTICE_TYPE_SQUARE,
-    PREDEFINED_SUBSTRATE_CUSTOM,
     PREDEFINED_SUBSTRATE_NONE,
-    REFINEMENT_DIRECT_CLICK,
-    REFINEMENT_MAX_PIXEL,
     REFINEMENT_GAUSSIAN_FIT,
-    REFINEMENT_PARABOLA_3X3,
     REFINEMENT_LOCAL_DFT,
+    REFINEMENT_MAX_PIXEL,
+    REFINEMENT_PARABOLA_3X3,
 )
+from ..core.history import HistoryNode
+from ..logic.app_controller import LATTICE_ANALYSIS_FUNCTIONS_AVAILABLE, AppController
+from ..logic.history_manager import HistoryManager
+from .actions.processing import ProcessingDialogLauncher
+from .controllers.dialog_coordinator import DialogCoordinator
+from .controllers.history_view_handler import HistoryViewHandler
+from .controllers.overlay_visibility_binder import OverlayVisibilityBinder
+from .controllers.ui_state_binder import UIStateBinder
+from .panels.fft_analysis_panel import FFTAnalysisPanel
+from .ui_setup.dock_panel_manager import DockPanelManager
+from .ui_setup.history_context_menu import HistoryContextMenu
+from .ui_setup.menu_action_manager import MenuActionManager
 from .utils.display import (
     format_float,
     format_value_with_sigma,
 )
 from .utils.formatters import (
-    format_fft_pair,
     summarise_fft_metrics,
 )
+from .visualization_manager import VisualizationManager
+from .widgets.metadata_widget import MetadataWidget
 
 try:
+    from lfa.gui.dialogs.fft_dialog import FFTDialog
     from lfa.gui.dialogs.preprocessing import (
+        BM3DDialog,
         GaussianBlurDialog,
-        PlaneLevelingDialog,
+        GaussianSharpeningDialog,
         MedianFilterDialog,
         NLMeansDialog,
-        BM3DDialog,
-        GaussianSharpeningDialog,
+        PlaneLevelingDialog,
     )
-    from lfa.gui.dialogs.fft_dialog import FFTDialog
     DIALOG_CLASSES_EXIST = True
 except ImportError:
     GaussianBlurDialog = None
@@ -85,8 +84,8 @@ try:
     from ..analysis.peak_fitting import (
         find_max_pixel_in_roi,
         fit_2d_gaussian_in_roi,
-        refine_peak_parabola_3x3,
         refine_peak_local_dft,
+        refine_peak_parabola_3x3,
     )
     PEAK_FITTING_AVAILABLE = True
 except ImportError:
@@ -114,8 +113,8 @@ except ImportError as e:
     logging.warning(f"Could not import RealSpaceReconstructionDialog: {e}")
 
 try:
-    from .dialogs.substrate_spot_dialog import SubstrateSpotSelectionDialog
     from .dialogs.adsorbate_spot_dialog import AdsorbateSpotSelectionDialog
+    from .dialogs.substrate_spot_dialog import SubstrateSpotSelectionDialog
     SPOT_SELECTION_DIALOGS_AVAILABLE = True
 except ImportError:
     logging.warning("Could not import spot selection dialogs. Spot selection from menu will not work.")
@@ -135,8 +134,9 @@ logger = logging.getLogger(__name__)
 
 
 try:
-    from ..analysis.lattice import get_reciprocal_points, KNOWN_LATTICES
     from lfa.gui.dialogs.custom_lattice_dialog import CustomLatticeDialog
+
+    from ..analysis.lattice import KNOWN_LATTICES, get_reciprocal_points
     LATTICE_ANALYSIS_AVAILABLE = True
 except ImportError:
     logging.error("Could not import lattice analysis functions.")

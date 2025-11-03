@@ -1,5 +1,4 @@
 import numpy as np
-import pytest
 
 from lfa.gui.dialogs.presenters.adsorbate_spot_presenter import (
     AdsorbateSpotPresenter,

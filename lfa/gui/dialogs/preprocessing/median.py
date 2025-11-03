@@ -7,6 +7,7 @@ import numpy as np
 
 from .base import (
     BasePreprocessingDialog,
+    ImageItem,
     QCheckBox,
     QComboBox,
     QDialogButtonBox,
@@ -14,14 +15,12 @@ from .base import (
     QFrame,
     QHBoxLayout,
     QLabel,
-    QSlider,
     QSpinBox,
+    Qt,
     QVBoxLayout,
     QWidget,
-    Qt,
     RectROI,
     pg,
-    ImageItem,
 )
 from .config import PREPROCESSING_CONFIG
 

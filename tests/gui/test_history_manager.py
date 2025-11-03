@@ -1,17 +1,16 @@
 # tests/gui/test_history_manager.py
-import pytest
-import logging
+
 import numpy as np
-from PyQt6.QtWidgets import QListWidget, QListWidgetItem
-from PyQt6.QtCore import Qt, pyqtSignal, pyqtSlot
-# from PyQt6.QtCore import QSignalSpy # Do testowania sygnałów
+import pytest
+from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QListWidget
 
 # Import klas do testowania i pomocniczych
 # Dostosuj ścieżki importu, jeśli HistoryManager jest w innym miejscu (np. lfa.logic)
 try:
-    from lfa.logic.history_manager import HistoryManager
-    from lfa.core.history import HistoryNode
     from lfa.core.data_models import OriginalImageRecord
+    from lfa.core.history import HistoryNode
+    from lfa.logic.history_manager import HistoryManager
 except ImportError as e:
     pytest.fail(f"Could not import HistoryManager or HistoryNode: {e}", pytrace=False)
 

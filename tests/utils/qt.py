@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, Iterable, List, Optional
+from typing import Any, Callable, List, Optional
 
 
 class FakeSignal:

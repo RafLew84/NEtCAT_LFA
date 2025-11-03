@@ -7,17 +7,17 @@ pytest.importorskip("pytestqt", reason="pytest-qt provides the qtbot fixture")
 from PyQt6.QtWidgets import QListWidget
 
 from lfa.core.constants import (
-    LATTICE_TYPE_HEXAGONAL,
     LATTICE_TYPE_CUSTOM,
+    LATTICE_TYPE_HEXAGONAL,
 )
 from lfa.core.data_models import OriginalImageRecord
 from lfa.core.history import HistoryNode
-from lfa.logic.history_manager import HistoryManager
 from lfa.gui.dialogs.presenters.substrate_spot_presenter import (
     SubstrateSpotPresenter,
     SubstrateSpotState,
     TransformComputationError,
 )
+from lfa.logic.history_manager import HistoryManager
 
 
 def _make_presenter(qtbot, *, lattice_type=LATTICE_TYPE_HEXAGONAL, custom_a=None):

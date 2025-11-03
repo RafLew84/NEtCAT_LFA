@@ -6,11 +6,11 @@ pytest.importorskip("PyQt6", reason="PyQt6 is required for preprocessing dialog 
 pytest.importorskip("pytestqt", reason="pytest-qt is required for qtbot fixture")
 
 from lfa.gui.dialogs.preprocessing import (
-    GaussianBlurDialog,
-    NLMeansDialog,
     BM3DDialog,
-    PlaneLevelingDialog,
+    GaussianBlurDialog,
     MedianFilterDialog,
+    NLMeansDialog,
+    PlaneLevelingDialog,
 )
 from lfa.gui.dialogs.preprocessing.config import PREPROCESSING_CONFIG
 

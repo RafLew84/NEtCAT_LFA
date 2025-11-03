@@ -1,8 +1,10 @@
+import sys
 from pathlib import Path
 from types import SimpleNamespace
-import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+
+import numpy as np
 
 from lfa.core.constants import (
     ADSORBATE_LATTICE_TYPE_UNKNOWN,
@@ -11,7 +13,6 @@ from lfa.core.constants import (
 )
 from lfa.core.history import HistoryNode
 from lfa.logic.services import AnalysisExecutor
-import numpy as np
 
 
 class DummyHistoryManager:

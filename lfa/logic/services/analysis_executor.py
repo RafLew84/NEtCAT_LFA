@@ -4,14 +4,7 @@ from __future__ import annotations
 
 from typing import Optional, Sequence
 
-import numpy as np
 
-from ...analysis.drift_correction import (
-    analyze_affine_transform,
-    apply_affine_transform,
-    match_and_fit_transform,
-)
-from ...analysis.lattice import get_nearest_reciprocal_points
 from ...core.constants import (
     LATTICE_TYPE_CUSTOM,
     LATTICE_TYPE_HEXAGONAL,

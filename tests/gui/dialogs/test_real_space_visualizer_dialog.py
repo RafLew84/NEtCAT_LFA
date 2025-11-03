@@ -1,5 +1,6 @@
-from pathlib import Path
 import sys
+from pathlib import Path
+
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
@@ -8,8 +9,8 @@ pytest.importorskip("PyQt6", reason="PyQt6 is required for real-space visualizer
 pytest.importorskip("pyqtgraph", reason="pyqtgraph is required for real-space visualizer tests")
 pytest.importorskip("pytestqt", reason="pytest-qt provides the qtbot fixture")
 
-from lfa.gui.dialogs.real_space_visualizer_dialog import RealSpaceFFTVisualizerDialog
 from lfa.gui.dialogs.presenters import AngleCalculationResult
+from lfa.gui.dialogs.real_space_visualizer_dialog import RealSpaceFFTVisualizerDialog
 
 
 class _DummyController:

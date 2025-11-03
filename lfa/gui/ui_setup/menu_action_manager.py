@@ -1,7 +1,8 @@
 # lfa/gui/ui_setup/menu_action_manager.py
 import logging
-from PyQt6.QtWidgets import QMainWindow, QMenuBar
+
 from PyQt6.QtGui import QAction
+from PyQt6.QtWidgets import QMainWindow, QMenuBar
 
 logger = logging.getLogger(__name__)
 

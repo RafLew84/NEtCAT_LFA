@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Iterable, Optional, SupportsFloat, Tuple, Union
+from typing import Optional, SupportsFloat, Tuple, Union
 
 import numpy as np
 

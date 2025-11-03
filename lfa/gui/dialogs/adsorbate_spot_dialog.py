@@ -9,16 +9,31 @@ This module provides functionality for:
 """
 import logging
 import math
-from typing import List, Tuple, Optional, Dict, Any
-import numpy as np
+from typing import Any, Dict, List, Optional, Tuple
 
+import numpy as np
+from PyQt6.QtCore import Qt, pyqtSlot
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QDialogButtonBox,
-    QLabel, QListWidget, QListWidgetItem, QAbstractItemView, QWidget, QGroupBox,
-    QFormLayout, QRadioButton, QSpinBox, QCheckBox, QMessageBox, QComboBox,
-    QGridLayout, QSplitter
+    QAbstractItemView,
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QFormLayout,
+    QGridLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QListWidget,
+    QListWidgetItem,
+    QMessageBox,
+    QPushButton,
+    QRadioButton,
+    QSpinBox,
+    QSplitter,
+    QVBoxLayout,
+    QWidget,
 )
-from PyQt6.QtCore import Qt, pyqtSlot 
 
 try:
     import pyqtgraph as pg
@@ -43,16 +58,15 @@ except ImportError: # pragma: no cover
     def scipy_curve_fit(*args, **kwargs): raise ImportError("scipy.optimize.curve_fit is not available")
 
 try:
+    from ...analysis.lattice import KNOWN_LATTICES
     from ...analysis.peak_fitting import (
+        SCIPY_AVAILABLE,
+        _gaussian_2d,
         find_max_pixel_in_roi,
         fit_2d_gaussian_in_roi,
-        refine_peak_parabola_3x3,
         refine_peak_local_dft,
-        _gaussian_2d,
-        SCIPY_AVAILABLE,
+        refine_peak_parabola_3x3,
     )
-    from ...analysis.lattice import KNOWN_LATTICES, get_reciprocal_points
-    from ...core.history import HistoryNode
     from ...logic.history_manager import HistoryManager
     PEAK_FITTING_MODULE_AVAILABLE = True
 except ImportError:
@@ -72,9 +86,9 @@ from ...core.constants import (
     ADSORBATE_LATTICE_TYPE_UNKNOWN,
     REFINEMENT_DIRECT_CLICK,
     REFINEMENT_GAUSSIAN_FIT,
+    REFINEMENT_LOCAL_DFT,
     REFINEMENT_MAX_PIXEL,
     REFINEMENT_PARABOLA_3X3,
-    REFINEMENT_LOCAL_DFT,
 )
 from ..utils.display import (
     format_float,
@@ -84,13 +98,13 @@ from ..utils.formatters import (
     format_fft_pair,
     summarise_fft_metrics,
 )
-from .scenes import AdsorbateSpotScene, MarkerSpec
 from .presenters import (
     AdsorbateSpotPresenter,
     AdsorbateSpotPresenterError,
     AdsorbateSpotState,
     MissingTransformError,
 )
+from .scenes import AdsorbateSpotScene, MarkerSpec
 
 logger = logging.getLogger(__name__)
 

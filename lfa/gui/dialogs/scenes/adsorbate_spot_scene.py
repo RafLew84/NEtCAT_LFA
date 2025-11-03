@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Iterable, Optional, Tuple
+from typing import Iterable, Tuple
 
 try:  # pragma: no cover
     import pyqtgraph as pg

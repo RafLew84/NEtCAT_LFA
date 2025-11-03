@@ -1,7 +1,8 @@
+import sys
 from pathlib import Path
+
 import numpy as np
 import pytest
-import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
@@ -10,15 +11,10 @@ pytest.importorskip("pytestqt", reason="pytest-qt is required for qtbot fixture"
 
 from PyQt6.QtWidgets import QListWidget
 
-from lfa.gui.dialogs.substrate_spot_dialog import (
-    SubstrateSpotSelectionDialog,
-    REFINEMENT_MAX_PIXEL
-)
-from lfa.gui.dialogs.adsorbate_spot_dialog import (
-    AdsorbateSpotSelectionDialog,
-    REFINEMENT_MAX_PIXEL as ADS_REFINEMENT_MAX_PIXEL
-)
+from lfa.gui.dialogs.adsorbate_spot_dialog import REFINEMENT_MAX_PIXEL as ADS_REFINEMENT_MAX_PIXEL
+from lfa.gui.dialogs.adsorbate_spot_dialog import AdsorbateSpotSelectionDialog
 from lfa.gui.dialogs.presenters.substrate_spot_presenter import TransformComputation
+from lfa.gui.dialogs.substrate_spot_dialog import REFINEMENT_MAX_PIXEL, SubstrateSpotSelectionDialog
 from lfa.logic.history_manager import HistoryManager
 
 

@@ -2,20 +2,26 @@
 """
 Unit tests for image denoising functions in lfa.preprocessing.denoising.
 """
-import numpy as np
-import pytest
+from importlib import util
 from typing import Tuple
 
-# Import the function to test
-try:
-    import bm3d
-    from lfa.preprocessing.denoising import denoise_nlmeans_skimage, denoise_bm3d_lfa
+import numpy as np
+import pytest
+
+# Import the functions to test
+if util.find_spec("bm3d") is not None:
+    from lfa.preprocessing.denoising import denoise_bm3d_lfa, denoise_nlmeans_skimage
     bm3d_installed = True
-except ImportError:
+else:
     bm3d_installed = False
-    def denoise_bm3d_lfa(image, sigma_psd): return image
-    try: from lfa.preprocessing.denoising import denoise_nlmeans_skimage
-    except ImportError: pytest.fail("Could not import denoise_nlmeans_skimage", pytrace=False)
+
+    def denoise_bm3d_lfa(image, sigma_psd):
+        return image
+
+    try:
+        from lfa.preprocessing.denoising import denoise_nlmeans_skimage
+    except ImportError:  # pragma: no cover - hard failure in test env
+        pytest.fail("Could not import denoise_nlmeans_skimage", pytrace=False)
 
 # --- Fixtures ---
 

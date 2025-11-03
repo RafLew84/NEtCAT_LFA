@@ -7,8 +7,8 @@ import numpy as np
 
 from .base import (
     BasePreprocessingDialog,
+    ImageItem,
     QCheckBox,
-    QComboBox,
     QDialogButtonBox,
     QDoubleSpinBox,
     QFrame,
@@ -17,18 +17,17 @@ from .base import (
     QMessageBox,
     QPushButton,
     QSpinBox,
+    Qt,
     QVBoxLayout,
     QWidget,
-    Qt,
-    pyqtSlot,
     RectROI,
     pg,
-    ImageItem,
+    pyqtSlot,
 )
 from .config import PREPROCESSING_CONFIG
 
 try:
-    from lfa.preprocessing.denoising import denoise_nlmeans_skimage, denoise_bm3d_lfa
+    from lfa.preprocessing.denoising import denoise_bm3d_lfa, denoise_nlmeans_skimage
 except ImportError:  # pragma: no cover - import fallback
     logging.error("Could not import denoising functions (NLMeans/BM3D).")
 

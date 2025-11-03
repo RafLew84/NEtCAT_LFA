@@ -17,9 +17,9 @@ except ImportError:  # pragma: no cover - during partial imports
 
 try:  # pragma: no cover - optional dependency import
     from .real_space_pyvista_adapter import (
+        PYVISTA_AVAILABLE,
         RealSpacePyVistaAdapter,
         RealSpaceSceneConfig,
-        PYVISTA_AVAILABLE,
     )
 except ImportError:  # pragma: no cover - during partial imports
     # Adapter is optional; expose sentinel if available.

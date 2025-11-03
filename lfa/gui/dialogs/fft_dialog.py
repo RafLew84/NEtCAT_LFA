@@ -11,24 +11,35 @@ Features include:
 - Support for different magnitude scaling methods (log, linear, power, sqrt)
 """
 import logging
+from typing import Any, Dict, Optional, Tuple
+
 import numpy as np
-from typing import Optional, Tuple, Dict, Any
 
 try:
-    from PyQt6.QtWidgets import (
-        QDialog, QVBoxLayout, QHBoxLayout, QCheckBox, QComboBox,
-        QDialogButtonBox, QWidget, QSizePolicy, QSpacerItem, QFrame, QMessageBox,
-        QLabel, QPushButton, QGroupBox, QRadioButton, QSplitter
-    )
-    from PyQt6.QtCore import Qt, pyqtSlot, pyqtSignal
     import pyqtgraph as pg
-    from pyqtgraph import PlotItem, RectROI, ROI, ImageItem, ImageView
+    from PyQt6.QtCore import Qt, pyqtSignal, pyqtSlot
+    from PyQt6.QtWidgets import (
+        QCheckBox,
+        QComboBox,
+        QDialog,
+        QDialogButtonBox,
+        QFrame,
+        QGroupBox,
+        QHBoxLayout,
+        QLabel,
+        QMessageBox,
+        QRadioButton,
+        QSplitter,
+        QVBoxLayout,
+        QWidget,
+    )
+    from pyqtgraph import ImageItem, ImageView, RectROI
 except ImportError as e:
     logging.critical(f"Failed to import necessary Qt or pyqtgraph modules: {e}")
     raise 
 
 try:
-    from lfa.analysis.fft_engine import calculate_fft, AVAILABLE_WINDOWS
+    from lfa.analysis.fft_engine import AVAILABLE_WINDOWS, calculate_fft
 except ImportError:
     logging.error("Could not import calculate_fft function from lfa.analysis.fft_engine.")
     def calculate_fft(image_data, apply_window=True, window_type='hann') -> Optional[np.ndarray]:

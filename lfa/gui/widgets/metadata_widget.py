@@ -3,11 +3,11 @@
 QWidget for displaying metadata associated with a HistoryNode.
 """
 import logging
-from typing import Optional, Dict, Any
+from typing import Dict, Optional
 
 try:
-    from PyQt6.QtWidgets import QWidget, QFormLayout, QLabel
     from PyQt6.QtCore import Qt
+    from PyQt6.QtWidgets import QFormLayout, QLabel, QWidget
 except ImportError:
     logging.critical("Failed to import necessary PyQt6 modules for MetadataWidget.")
     class QWidget: pass
@@ -16,7 +16,7 @@ except ImportError:
     Qt = None
 
 try:
-    from ...core.history import HistoryNode 
+    from ...core.history import HistoryNode
 except ImportError:
     logging.error("Could not import HistoryNode in metadata_widget. Metadata display might fail.")
     HistoryNode = None

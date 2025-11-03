@@ -1,35 +1,35 @@
 """Shared base dialog infrastructure for preprocessing operations."""
 
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
 
 try:
+    import pyqtgraph as pg
+    from PyQt6.QtCore import Qt, pyqtSlot
+    from PyQt6.QtGui import QIntValidator
     from PyQt6.QtWidgets import (
         QCheckBox,
+        QComboBox,
         QDialog,
         QDialogButtonBox,
+        QDoubleSpinBox,
         QFrame,
+        QGroupBox,
+        QHBoxLayout,
         QLabel,
         QMessageBox,
         QPushButton,
         QRadioButton,
         QSizePolicy,
+        QSlider,
         QSpacerItem,
         QSpinBox,
-        QDoubleSpinBox,
-        QSlider,
         QVBoxLayout,
-        QHBoxLayout,
         QWidget,
-        QGroupBox,
-        QComboBox,
     )
-    from PyQt6.QtGui import QIntValidator
-    from PyQt6.QtCore import Qt, pyqtSlot
-    import pyqtgraph as pg
-    from pyqtgraph import ImageItem, PlotItem, RectROI, ROI
+    from pyqtgraph import ROI, ImageItem, RectROI
 except ImportError as exc:  # pragma: no cover
     logging.critical("Failed to import required Qt/pyqtgraph modules: %s", exc)
     raise

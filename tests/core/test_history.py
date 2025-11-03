@@ -2,9 +2,10 @@
 """
 Unit tests for the HistoryNode class in lfa.core.history.
 """
-import numpy as np
-import pytest # Import pytest
 import time
+
+import numpy as np
+import pytest  # Import pytest
 
 # Import the class to be tested
 try:
@@ -50,8 +51,6 @@ def test_history_node_custom_initialization():
 def test_history_node_unique_ids():
     """Test if subsequently created nodes have unique IDs."""
     node1 = HistoryNode()
-    # Sleep briefly to ensure timestamp difference if uuid relies on it (unlikely for uuid4)
-    # time.sleep(0.01)
     node2 = HistoryNode()
     assert node1.node_id != node2.node_id, "Node IDs are not unique"
 

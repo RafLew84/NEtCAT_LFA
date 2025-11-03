@@ -3,17 +3,21 @@
 Unit tests for image filtering functions in lfa.preprocessing.filtering.
 """
 
-import numpy as np
-import pytest # Import pytest
 import logging
 from typing import Tuple
-from scipy.ndimage import gaussian_filter as scipy_gaussian_filter # For comparison if needed
+
+import numpy as np
+import pytest  # Import pytest
 
 logger = logging.getLogger(__name__)
 
 # Import the function to be tested
 try:
-    from lfa.preprocessing.filtering import gaussian_blur, median_filter_lfa, gaussian_sharpen_unsharp_mask
+    from lfa.preprocessing.filtering import (
+        gaussian_blur,
+        gaussian_sharpen_unsharp_mask,
+        median_filter_lfa,
+    )
 except ImportError:
     pytest.fail("Could not import gaussian_blur from lfa.preprocessing.filtering", pytrace=False)
     gaussian_sharpen_unsharp_mask = None
@@ -208,9 +212,6 @@ def test_sharpen_invalid_inputs(original_image_nl):
     """Test invalid inputs for gaussian_sharpen_unsharp_mask."""
     assert gaussian_sharpen_unsharp_mask(None, radius=1.0, amount=1.0) is None, "None image"
     assert gaussian_sharpen_unsharp_mask(np.zeros(5), radius=1.0, amount=1.0) is None, "1D image"
-    # Function clamps negative values, so these should not return None but run with 0
-    # assert gaussian_sharpen_unsharp_mask(original_image_nl, radius=-1.0, amount=1.0) is None, "negative radius"
-    # assert gaussian_sharpen_unsharp_mask(original_image_nl, radius=1.0, amount=-1.0) is None, "negative amount"
     sharpened_neg_r = gaussian_sharpen_unsharp_mask(original_image_nl, radius=-1.0, amount=1.0)
     assert sharpened_neg_r is not None # Should run with radius=0
     assert np.allclose(sharpened_neg_r, original_image_nl, atol=1e-6) # Should be like radius=0

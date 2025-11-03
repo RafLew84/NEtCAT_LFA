@@ -1,9 +1,9 @@
 # lfa/io/write_stp.py
-import struct
-import numpy as np
 import logging
-from typing import Dict, Any
-from collections import OrderedDict
+import struct
+from typing import Any, Dict
+
+import numpy as np
 
 logger = logging.getLogger(__name__)
 

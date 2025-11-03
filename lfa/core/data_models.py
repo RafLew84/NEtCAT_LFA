@@ -5,10 +5,12 @@ This module provides the STMImage class which encapsulates both the image data
 and its associated metadata in a standardized format.
 """
 
-import numpy as np
-from dataclasses import dataclass, field
-from typing import Dict, Any, Optional
 import uuid
+from dataclasses import dataclass, field
+from typing import Any, Dict, Optional
+
+import numpy as np
+
 
 @dataclass
 class OriginalImageRecord:

@@ -2,10 +2,10 @@ import numpy as np
 import pytest
 from PyQt6.QtWidgets import QListWidget
 
-from lfa.logic.history_manager import HistoryManager
-from lfa.logic.app_controller import AppController
-from lfa.core.history import HistoryNode
 from lfa.core.data_models import OriginalImageRecord
+from lfa.core.history import HistoryNode
+from lfa.logic.app_controller import AppController
+from lfa.logic.history_manager import HistoryManager
 
 
 @pytest.fixture

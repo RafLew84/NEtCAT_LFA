@@ -7,13 +7,13 @@ by detecting the format based on the file extension and dispatching
 to the appropriate reader implementation.
 """
 
-import os
 import logging
+import os
 from typing import Callable, Dict, Optional
 
-from .stp_reader import read_stp_file
+from ..core.data_models import STMImage  # Import the data model
 from .s94_reader import read_s94_file
-from ..core.data_models import STMImage # Import the data model
+from .stp_reader import read_stp_file
 
 logger = logging.getLogger(__name__)
 

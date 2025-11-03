@@ -1,6 +1,6 @@
 # lfa/io/s94_reader.py
 
-""" .s94 metadata
+r""" .s94 metadata
 /*
 Converter was created thanks to the courtesy of Gerald Gmachmeir and Krzysztof Wasielewski
 s94MetaDataDisplay: display metadata of .s94 STM image files.
@@ -41,9 +41,11 @@ and subsequent binary image data (int16) of .s94 files. It converts
 the raw data to physical units (nm for topography, nA for current)
 based on information found in the header (like z_gain).
 """
-import struct
-import numpy as np
 import logging
+import struct
+
+import numpy as np
+
 from ..core.data_models import STMImage
 
 logger = logging.getLogger(__name__)
@@ -138,16 +140,8 @@ def read_s94_file(file_path: str) -> STMImage | None:
 
             elif image_mode_raw == 1: # S94_CURRENT
                 image_type = "Current"
-                # Convert current data (int16) to nA
-                # Formula based on original code comment: current = (20 * raw_value) / 65536
-                # This implies a fixed range of +/- 10 nA for the int16 range.
                 current_nA_per_raw = 20.0 / 65536.0
                 data_array = image_data_raw.astype(np.float32) * current_nA_per_raw
-                # Convert nA to base unit Amperes for consistency, if desired:
-                # data_array = data_array * 1e-9 # Now in Amperes
-                # logger.debug(f"Converted raw current data to nA (factor {current_nA_per_raw}).")
-                # For now, let's keep it in nA as indicated by original formula context
-                # data_array = np.rot90(data_array, k=2)
 
             else:
                 logger.warning(f"Unknown image mode: {image_mode_raw}. Treating data as raw int16 (scaled to float32).")
@@ -181,24 +175,21 @@ def read_s94_file(file_path: str) -> STMImage | None:
                 file_name=file_path,
                 raw_header=raw_header,
                 data=data_array,
-                pixels_x=pixels_x_final, # Use potentially swapped dimensions
+                pixels_x=pixels_x_final,
                 pixels_y=pixels_y_final,
-                size_nm_x=size_nm_x_final, # Use potentially swapped dimensions
+                size_nm_x=size_nm_x_final,
                 size_nm_y=size_nm_y_final,
-                offset_nm_x=x_offset_nm, # Assume offset doesn't swap
+                offset_nm_x=x_offset_nm,  # Assume offset doesn't swap
                 offset_nm_y=y_offset_nm,
                 scan_angle_deg=scan_angle_deg,
                 bias_v=bias_mv / 1000.0, # Convert mV to V
                 scan_speed_nm_s=scan_speed_nm_s,
                 z_nm_per_raw=z_nm_per_raw, # Store conversion factor if calculated
                 image_type=image_type
-                # Setpoint current 'It' is read but its unit/meaning might need clarification
-                # setpoint_a = It * some_factor # Add if conversion is known
             )
             logger.info(f"S94 file read successfully: {file_path}")
             return stm_image
 
-    # Exception handling remains the same
     except FileNotFoundError: logger.error(f"File not found: {file_path}"); raise
     except struct.error as e: logger.error(f"Error unpacking binary data in '{file_path}': {e}"); raise ValueError(f"Error unpacking binary data: {e}") from e
     except ValueError as e: logger.error(f"Value error reading file '{file_path}': {e}"); raise

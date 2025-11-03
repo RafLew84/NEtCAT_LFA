@@ -7,6 +7,7 @@ import numpy as np
 
 from .base import (
     BasePreprocessingDialog,
+    ImageItem,
     QCheckBox,
     QDialogButtonBox,
     QFrame,
@@ -16,13 +17,12 @@ from .base import (
     QMessageBox,
     QPushButton,
     QRadioButton,
+    Qt,
     QVBoxLayout,
     QWidget,
-    Qt,
-    pyqtSlot,
     RectROI,
     pg,
-    ImageItem,
+    pyqtSlot,
 )
 
 try:

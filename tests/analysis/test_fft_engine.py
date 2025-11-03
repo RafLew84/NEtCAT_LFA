@@ -2,23 +2,21 @@
 """
 Unit tests for FFT engine functions in lfa.analysis.fft_engine.
 """
+import logging
+from importlib import util
+from typing import Tuple
+
 import numpy as np
 import pytest
-import logging
-from typing import Tuple
 
 logger = logging.getLogger(__name__)
 
 # Sprawdź, czy SciPy jest dostępne dla funkcji okien
-try:
-    import scipy.signal.windows
-    scipy_available = True
-except ImportError:
-    scipy_available = False
+scipy_available = util.find_spec("scipy.signal.windows") is not None
 
 # Importuj funkcję do testowania
 try:
-    from lfa.analysis.fft_engine import calculate_fft, AVAILABLE_WINDOWS
+    from lfa.analysis.fft_engine import calculate_fft
 except ImportError:
     pytest.fail("Could not import calculate_fft from lfa.analysis.fft_engine", pytrace=False)
 

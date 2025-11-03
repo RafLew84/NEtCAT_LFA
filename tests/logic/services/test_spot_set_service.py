@@ -1,11 +1,11 @@
+import sys
 from pathlib import Path
 from types import SimpleNamespace
-import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
-import pytest
 import numpy as np
+import pytest
 
 from lfa.core.constants import (
     ADSORBATE_LATTICE_TYPE_HEXAGONAL,

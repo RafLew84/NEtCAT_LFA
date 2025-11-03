@@ -3,12 +3,12 @@
 Functions for image denoising operations.
 """
 import logging
-import numpy as np
 from typing import Optional
+
+import numpy as np
 
 try:
     from skimage.restoration import denoise_nl_means
-    # from skimage.util import img_as_float # denoise_nl_means does this internally
 except ImportError:
     logging.critical("Scikit-image not found. Please install it: pip install scikit-image")
     # Dummy function if skimage is not available

@@ -1,13 +1,21 @@
 # lfa/gui/panels/fft_analysis_panel.py
 import logging
-import numpy as np
-from typing import Optional, Dict, Any, Tuple
-from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QGroupBox, QFormLayout, QComboBox, QTextEdit,
-    QCheckBox, QRadioButton, QSpinBox, QPushButton, QHBoxLayout, QLabel
-)
-from PyQt6.QtCore import pyqtSignal, Qt, pyqtSlot
+from typing import Any, Dict, Optional, Tuple
 
+import numpy as np
+from PyQt6.QtCore import Qt, pyqtSignal, pyqtSlot
+from PyQt6.QtWidgets import (
+    QCheckBox,
+    QComboBox,
+    QFormLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QRadioButton,
+    QVBoxLayout,
+    QWidget,
+)
 
 try:
     from lfa.analysis.lattice import KNOWN_LATTICES
@@ -17,19 +25,18 @@ except ImportError:  # pragma: no cover
     )
     KNOWN_LATTICES = {"Placeholder (Error)": {}}
 
+from ...core.constants import (
+    ADSORBATE_LATTICE_TYPE_HEXAGONAL,
+    ADSORBATE_LATTICE_TYPE_SQUARE,
+    ADSORBATE_LATTICE_TYPE_UNKNOWN,
+)
 from ..utils.display import (
     format_float,
     format_ratio,
     format_value_with_sigma,
 )
 from ..utils.formatters import (
-    format_fft_pair,
     summarise_fft_metrics,
-)
-from ...core.constants import (
-    ADSORBATE_LATTICE_TYPE_HEXAGONAL,
-    ADSORBATE_LATTICE_TYPE_SQUARE,
-    ADSORBATE_LATTICE_TYPE_UNKNOWN,
 )
 
 logger = logging.getLogger(__name__)

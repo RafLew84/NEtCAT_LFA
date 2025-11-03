@@ -1,8 +1,9 @@
 # lfa/gui/visualization_manager.py
 import logging
+from typing import Any, Dict, List, Optional, Tuple, Union
+
 import numpy as np
-from typing import Optional, List, Tuple, Union, Dict, Any
-from PyQt6.QtCore import QObject, pyqtSignal, QPointF, Qt 
+from PyQt6.QtCore import QObject, QPointF, Qt, pyqtSignal
 
 from .utils.display import sanitize_numeric_array
 
@@ -13,9 +14,9 @@ except ImportError:
     logging.critical("VisualizationManager: PyQtGraph is not available! Visualizations will not work.")
 
 try:
+    from ..analysis.lattice import KNOWN_LATTICES, get_reciprocal_points
     from ..core.history import HistoryNode
     from ..logic.history_manager import HistoryManager
-    from ..analysis.lattice import get_reciprocal_points, KNOWN_LATTICES
 except ImportError as e: 
     logging.error(f"VisualizationManager: Error importing project modules: {e}")
     HistoryNode = None

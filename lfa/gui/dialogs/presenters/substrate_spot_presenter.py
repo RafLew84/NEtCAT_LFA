@@ -6,11 +6,11 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
-from ....analysis.lattice import get_nearest_reciprocal_points
 from ....analysis.drift_correction import (
-    match_and_fit_transform,
     apply_affine_transform,
+    match_and_fit_transform,
 )
+from ....analysis.lattice import get_nearest_reciprocal_points
 from ....core.constants import (
     LATTICE_TYPE_CUSTOM,
     LATTICE_TYPE_HEXAGONAL,

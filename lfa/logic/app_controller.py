@@ -8,15 +8,13 @@ import json
 import logging
 import os
 from dataclasses import dataclass
-from typing import Optional, List, Tuple, Dict, Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import numpy as np
-from PyQt6.QtCore import QObject, Qt, pyqtSignal
+from PyQt6.QtCore import QObject, pyqtSignal
 from PyQt6.QtWidgets import QApplication, QFileDialog, QMessageBox
 
 from ..core.constants import (
-    ADSORBATE_LATTICE_TYPE_HEXAGONAL,
-    ADSORBATE_LATTICE_TYPE_SQUARE,
     ADSORBATE_LATTICE_TYPE_UNKNOWN,
     LATTICE_TYPE_CUSTOM,
     LATTICE_TYPE_HEXAGONAL,
@@ -39,8 +37,8 @@ from .reporting import (
     build_real_space_records,
     build_real_space_summary,
 )
-from .session_serializer import SessionSerializer
 from .services import AnalysisExecutor, HistoryOrchestrator, SessionService, SpotSetService
+from .session_serializer import SessionSerializer
 
 if TYPE_CHECKING:  # pragma: no cover
     from .session_state import ControllerState
@@ -62,12 +60,12 @@ class FFTPanelState:
 
 try:
     from ..analysis.lattice import (
-        get_real_space_lattice_parameters,
-        calculate_real_space_vectors_from_g,
-        convert_g_vector_px_to_nm_inv,
-        select_adsorbate_reciprocal_basis_vectors_px,
-        compute_real_space_metric_uncertainty,
         augment_covariance_with_calibration,
+        calculate_real_space_vectors_from_g,
+        compute_real_space_metric_uncertainty,
+        convert_g_vector_px_to_nm_inv,
+        get_real_space_lattice_parameters,
+        select_adsorbate_reciprocal_basis_vectors_px,
     )
     LATTICE_ANALYSIS_FUNCTIONS_AVAILABLE = True
 except ImportError: 

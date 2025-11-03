@@ -3,9 +3,10 @@
 Unit tests for the MetadataWidget using pytest-qt.
 """
 
-import pytest
+from typing import Dict, Tuple
+
 import numpy as np
-from typing import Dict, Optional, Tuple
+import pytest
 
 # Import the widget and the data structure it uses
 try:

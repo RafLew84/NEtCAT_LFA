@@ -13,10 +13,9 @@ estimated covariance matrix in the output space.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, Optional, Tuple
+from typing import Callable, Optional
 
 import numpy as np
-
 
 ArrayLike = np.ndarray
 Function = Callable[[ArrayLike], ArrayLike]

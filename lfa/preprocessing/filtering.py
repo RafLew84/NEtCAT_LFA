@@ -3,8 +3,10 @@
 Functions for image filtering operations.
 """
 import logging
-import numpy as np
 from typing import Optional
+
+import numpy as np
+
 try:
     from scipy.ndimage import gaussian_filter, median_filter
 except ImportError:

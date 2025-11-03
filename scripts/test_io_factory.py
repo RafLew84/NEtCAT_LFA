@@ -8,11 +8,12 @@ It verifies format detection, reader dispatching, metadata extraction,
 and displays the loaded images using matplotlib.
 """
 
-import numpy as np
-import matplotlib.pyplot as plt
 import logging
 import os
 import sys
+
+import matplotlib.pyplot as plt
+import numpy as np
 
 # --- Path Setup ---
 # Ensure the main 'lfa' package is importable by adding the project root to sys.path
@@ -24,8 +25,8 @@ if project_root not in sys.path:
 # --- Imports from LFA package ---
 try:
     # Import the factory function and the data model
-    from lfa.io.factory import load_stm_file
     from lfa.core.data_models import STMImage
+    from lfa.io.factory import load_stm_file
 except ImportError as e:
     print(f"Import Error: {e}")
     print("Please ensure the 'lfa' package is correctly structured (directories, __init__.py files) and accessible.")

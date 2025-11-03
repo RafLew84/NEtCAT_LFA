@@ -6,8 +6,8 @@ Initializes the QApplication, creates the main window, and starts the event loop
 Also configures basic logging for the application.
 """
 
-import sys
 import logging
+import sys
 
 try:
     from PyQt6.QtWidgets import QApplication

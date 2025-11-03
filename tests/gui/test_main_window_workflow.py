@@ -1,15 +1,16 @@
 import sys
+
 import numpy as np
 import pytest
 
 pytest.importorskip("PyQt6", reason="PyQt6 is required for GUI workflow tests")
 pytest.importorskip("pytestqt", reason="pytest-qt is required for qtbot fixture")
 
-from lfa.gui.main_window import MainWindow
+from lfa.core.constants import LATTICE_TYPE_HEXAGONAL
 from lfa.core.data_models import STMImage
 from lfa.core.history import HistoryNode
+from lfa.gui.main_window import MainWindow
 from lfa.logic.services.session_service import OriginalImageRecord
-from lfa.core.constants import LATTICE_TYPE_HEXAGONAL
 
 
 def _register_original_image(window: MainWindow, data: np.ndarray) -> HistoryNode:

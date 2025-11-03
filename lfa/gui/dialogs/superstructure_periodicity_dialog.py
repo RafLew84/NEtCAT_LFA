@@ -1,31 +1,41 @@
 # lfa/gui/dialogs/superstructure_periodicity_dialog.py
 import logging
-from typing import List, Tuple, Optional, Dict, Any
-import numpy as np
+from typing import Any, Dict, Optional, Tuple
 
+import numpy as np
+from PyQt6.QtCore import Qt, QTimer, pyqtSlot
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QDialogButtonBox,
-    QLabel, QListWidget, QAbstractItemView, QWidget, QGroupBox,
-    QFormLayout, QSpinBox, QCheckBox, QMessageBox,
-    QGridLayout, QSplitter, QLineEdit
+    QCheckBox,
+    QDialog,
+    QDialogButtonBox,
+    QFormLayout,
+    QGridLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QMessageBox,
+    QPushButton,
+    QSpinBox,
+    QSplitter,
+    QVBoxLayout,
+    QWidget,
 )
 
+from ...analysis.drift_correction import apply_affine_transform
+from ...analysis.lattice import (
+    calculate_d_spacing_from_ideal_spot,
+    calculate_superstructure_periodicity_parameters,
+)
 from ..utils.display import (
     format_float,
-    format_pair,
     format_pair_with_sigma,
     format_ratio,
     format_value_with_sigma,
 )
-from PyQt6.QtCore import Qt, pyqtSlot, QTimer 
-
-from ...analysis.drift_correction import apply_affine_transform
-from ...analysis.lattice import convert_g_vector_px_to_nm_inv
-from ...analysis.lattice import calculate_d_spacing_from_ideal_spot, calculate_superstructure_periodicity_parameters
 
 try:
     import pyqtgraph as pg
-    from pyqtgraph import GraphicsLayoutWidget, ImageItem, ViewBox, RectROI, ScatterPlotItem
+    from pyqtgraph import GraphicsLayoutWidget, ImageItem, RectROI, ScatterPlotItem, ViewBox
     PYQTGRAPH_AVAILABLE = True
 except ImportError:
     pg = None
@@ -43,9 +53,13 @@ except ImportError:
     AppController = None
 
 try:
-    from ...analysis.peak_fitting import find_max_pixel_in_roi, fit_2d_gaussian_in_roi_with_all_data, _gaussian_2d, SCIPY_AVAILABLE
-    from ...analysis.lattice import KNOWN_LATTICES, get_reciprocal_points
-    from ...core.history import HistoryNode
+    from ...analysis.lattice import KNOWN_LATTICES
+    from ...analysis.peak_fitting import (
+        SCIPY_AVAILABLE,
+        _gaussian_2d,
+        find_max_pixel_in_roi,
+        fit_2d_gaussian_in_roi_with_all_data,
+    )
     from ...logic.history_manager import HistoryManager
     PEAK_FITTING_MODULE_AVAILABLE = True
 except ImportError:

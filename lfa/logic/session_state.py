@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import uuid
 import math
+import uuid
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterable, List, Optional, Tuple, TypeVar, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Tuple, TypeVar
 
 import numpy as np
 

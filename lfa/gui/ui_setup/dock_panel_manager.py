@@ -1,11 +1,12 @@
 # lfa/gui/ui_setup/dock_panel_manager.py
 import logging
-from PyQt6.QtWidgets import QMainWindow, QDockWidget, QWidget, QListWidget
+
 from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QDockWidget, QListWidget, QMainWindow, QWidget
 
 try:
-    from ..widgets.metadata_widget import MetadataWidget
     from ..panels.fft_analysis_panel import FFTAnalysisPanel
+    from ..widgets.metadata_widget import MetadataWidget
 except ImportError as e:
     logging.error(f"DockPanelManager: Could not import panel/widget classes: {e}")
     MetadataWidget = None

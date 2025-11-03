@@ -2,17 +2,22 @@
 """
 Unit tests for peak fitting functions in lfa.analysis.peak_fitting.
 """
+import sys
 from pathlib import Path
+
 import numpy as np
 import pytest
-import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import logging
 
 # Importuj funkcje do testowania
 try:
-    from lfa.analysis.peak_fitting import find_max_pixel_in_roi, fit_2d_gaussian_in_roi, SCIPY_AVAILABLE
+    from lfa.analysis.peak_fitting import (
+        SCIPY_AVAILABLE,
+        find_max_pixel_in_roi,
+        fit_2d_gaussian_in_roi,
+    )
 except ImportError:
     pytest.fail("Could not import from lfa.analysis.peak_fitting", pytrace=False)
 
@@ -117,14 +122,7 @@ def test_find_max_pixel_invalid_input(simple_peak_image):
     """Test invalid inputs."""
     assert find_max_pixel_in_roi(None, (1,1), 1) == (1,1) # Should return original click
     assert find_max_pixel_in_roi(np.zeros(5), (1,1), 1) == (1,1) # 1D image
-    # Zero size ROI (radius 0 might imply 1x1, radius -1 is invalid)
-    # Our implementation calculates y_start = max(0, center_y - roi_radius), so negative radius will make ROI larger.
-    # Let's assume roi_radius is expected to be non-negative in the calling code for sensible ROI.
-    # If ROI is completely outside, or radius is too small that patch is empty:
-    # refined_y, refined_x = find_max_pixel_in_roi(simple_peak_image, (0,0), roi_radius=0) # ROI 1x1 at (0,0)
-    # assert (refined_y, refined_x) == (0,0)
-    # roi_radius = 0: y_start=center_y, y_end=center_y+1, x_start=center_x, x_end=center_x+1
-    # this forms a 1x1 ROI.
+    # radius=0 produces a 1×1 ROI centred on the click
     refined_y, refined_x = find_max_pixel_in_roi(simple_peak_image, (0,0), roi_radius=0)
     assert (refined_y, refined_x) == (0,0)
 
@@ -210,10 +208,7 @@ def test_fit_gaussian_small_roi_on_peak(gaussian_peak_image):
     # For now, check it returns something, or None if it fails robustly.
     if fit_result is not None:
         logger.info(f"Small ROI fit result: {fit_result.center}. True: ({y0_true}, {x0_true})")
-        # Don't be too strict on accuracy for very small ROIs on broad peaks
-        # y0_fit, x0_fit = fit_result
-        # assert np.isclose(y0_fit, y0_true, atol=1.0) # Wider tolerance
-        # assert np.isclose(x0_fit, x0_true, atol=1.0)
+        # Accuracy expectations are intentionally loose for this exploratory case.
     else:
         # This is also an acceptable outcome if the fit fails due to insufficient data
         logger.info("Small ROI fit returned None, indicating robust failure or poor fit quality.")
@@ -223,7 +218,7 @@ def test_internal_gaussian_2d_function():
     """Test the _gaussian_2d helper function directly (optional)."""
     # This is usually not necessary if `fit_2d_gaussian_in_roi` is well-tested,
     # but can be useful for debugging the model function itself.
-    from lfa.analysis.peak_fitting import _gaussian_2d # Import locally for this test
+    from lfa.analysis.peak_fitting import _gaussian_2d  # Import locally for this test
 
     y, x = np.mgrid[0:5, 0:5]
     xy_tuple = (y, x)

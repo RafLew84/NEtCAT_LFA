@@ -1,18 +1,28 @@
 # lfa/gui/dialogs/real_space_reconstruction_dialog.py
 import logging
-from typing import Optional, Dict, Any, List, Tuple
+from typing import List, Optional, Tuple
 
 import numpy as np
 from PyQt6.QtCore import Qt, pyqtSlot
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout,
-    QLabel, QWidget, QGroupBox, QMessageBox, QSpinBox,
-    QFormLayout, QRadioButton, QSplitter, QDialogButtonBox, QPushButton, QCheckBox, QComboBox
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QFormLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QMessageBox,
+    QPushButton,
+    QRadioButton,
+    QSpinBox,
+    QSplitter,
+    QVBoxLayout,
 )
 
 try:
     import pyqtgraph as pg
-    from pyqtgraph import GraphicsLayoutWidget, ImageItem, ViewBox, RectROI, ScatterPlotItem
+    from pyqtgraph import GraphicsLayoutWidget, ImageItem, RectROI, ScatterPlotItem, ViewBox
     PYQTGRAPH_AVAILABLE = True
 except ImportError:
     pg = None
@@ -24,8 +34,6 @@ except ImportError:
     PYQTGRAPH_AVAILABLE = False
     logging.error("RealSpaceReconstructionDialog: PyQtGraph not found.")
 
-from ...core.history import HistoryNode
-from ...analysis.fft_engine import calculate_fft
 from ...analysis.peak_fitting import _gaussian_2d, fit_2d_gaussian_in_roi_with_all_data
 
 logger = logging.getLogger(__name__)

@@ -1,16 +1,33 @@
 # lfa/gui/dialogs/substrate_spot_dialog.py
 import logging
 import math
-from typing import List, Tuple, Optional, Dict, Any
-import numpy as np
+from typing import Any, Dict, List, Optional, Tuple
 
+import numpy as np
+from PyQt6.QtCore import Qt, pyqtSlot
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QDialogButtonBox,
-    QLabel, QListWidget, QListWidgetItem, QAbstractItemView, QWidget, QSplitter, QGroupBox,
-    QFormLayout, QRadioButton, QSpinBox, QComboBox, QCheckBox, QMessageBox,
-    QGridLayout, QDoubleSpinBox, QApplication, QDockWidget
+    QAbstractItemView,
+    QApplication,
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QDoubleSpinBox,
+    QFormLayout,
+    QGridLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QListWidget,
+    QListWidgetItem,
+    QMessageBox,
+    QPushButton,
+    QRadioButton,
+    QSpinBox,
+    QSplitter,
+    QVBoxLayout,
+    QWidget,
 )
-from PyQt6.QtCore import Qt, pyqtSlot, QPointF
 
 from ..utils.display import (
     format_float,
@@ -18,12 +35,12 @@ from ..utils.display import (
     format_pair_with_sigma,
     format_value_with_sigma,
 )
-from .scenes import SubstrateSpotScene, MarkerSpec
 from .presenters.substrate_spot_presenter import (
     SubstrateSpotPresenter,
     SubstrateSpotState,
     TransformComputationError,
 )
+from .scenes import MarkerSpec, SubstrateSpotScene
 
 try:
     import pyqtgraph as pg
@@ -47,7 +64,7 @@ except ImportError:
     logging.error("SubstrateSpotSelectionDialog: PyQtGraph or pyqtgraph.opengl not found.")
 
 try:
-    from scipy.optimize import curve_fit as scipy_curve_fit 
+    from scipy.optimize import curve_fit as scipy_curve_fit
     SCIPY_OPTIMIZE_AVAILABLE = True
 except ImportError:
     logging.error("SubstrateSpotSelectionDialog: SciPy (for curve_fit) not found.")
@@ -56,34 +73,31 @@ except ImportError:
 
 
 try:
-    from ...analysis.peak_fitting import (
-        find_max_pixel_in_roi,
-        fit_2d_gaussian_in_roi,
-        refine_peak_parabola_3x3,
-        refine_peak_local_dft,
-        _gaussian_2d,
-        SCIPY_AVAILABLE,
-    )
     from ...analysis.lattice import (
         KNOWN_LATTICES,
-        get_reciprocal_points,
         get_nearest_reciprocal_points,
         get_real_space_lattice_parameters,
+    )
+    from ...analysis.peak_fitting import (
+        SCIPY_AVAILABLE,
+        _gaussian_2d,
+        find_max_pixel_in_roi,
+        fit_2d_gaussian_in_roi,
+        refine_peak_local_dft,
+        refine_peak_parabola_3x3,
     )
     from ...core.constants import (
         LATTICE_TYPE_CUSTOM,
         LATTICE_TYPE_HEXAGONAL,
         LATTICE_TYPE_SQUARE,
         PREDEFINED_SUBSTRATE_CUSTOM,
-        PREDEFINED_SUBSTRATE_FROM_SELECTION,
         PREDEFINED_SUBSTRATE_NONE,
         REFINEMENT_DIRECT_CLICK,
         REFINEMENT_GAUSSIAN_FIT,
+        REFINEMENT_LOCAL_DFT,
         REFINEMENT_MAX_PIXEL,
         REFINEMENT_PARABOLA_3X3,
-        REFINEMENT_LOCAL_DFT,
     )
-    from ...core.history import HistoryNode
     from ...logic.history_manager import HistoryManager
     PEAK_FITTING_MODULE_AVAILABLE = True
 except ImportError: # pragma: no cover

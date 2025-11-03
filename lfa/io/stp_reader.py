@@ -1,9 +1,10 @@
 # lfa/io/stp_reader.py
-import struct
-import numpy as np
 import logging
 import re
 from collections import OrderedDict
+
+import numpy as np
+
 from ..core.data_models import STMImage
 
 logger = logging.getLogger(__name__)

@@ -5,24 +5,22 @@ Provides functionality for analyzing crystal structures, calculating reciprocal 
 and determining real-space parameters from FFT data.
 """
 import logging
-import numpy as np
-from typing import Dict, Tuple, List, Optional, Union, Any
+from typing import Any, Dict, List, Optional, Tuple, Union
 
+import numpy as np
 from ase import Atoms
 from ase.build import make_supercell
 
-from .uncertainty import (
-    propagate_linear,
-    propagate_monte_carlo,
-    PropagationResult,
-)
 from ..core.constants import (
-    ADSORBATE_LATTICE_TYPE_HEXAGONAL,
-    ADSORBATE_LATTICE_TYPE_SQUARE,
     ADSORBATE_LATTICE_TYPE_UNKNOWN,
     LATTICE_TYPE_CUSTOM,
     LATTICE_TYPE_HEXAGONAL,
     LATTICE_TYPE_SQUARE,
+)
+from .uncertainty import (
+    PropagationResult,
+    propagate_linear,
+    propagate_monte_carlo,
 )
 
 LATTICE_TYPE_UNKNOWN = "Unknown"
@@ -114,7 +112,6 @@ KNOWN_LATTICES: Dict[str, Dict] = {
         "a_surf": 0.408 / np.sqrt(2),  # ~0.288 nm
         "source": "Approx. bulk value"
     },
-    # Platinum (Pt) - FCC
     "Pt(111)": {
         "type": LATTICE_TYPE_HEXAGONAL,
         "a_bulk": 0.392,  # nm
@@ -127,7 +124,6 @@ KNOWN_LATTICES: Dict[str, Dict] = {
         "a_surf": 0.392 / np.sqrt(2),  # ~0.277 nm
         "source": "Approx. bulk value"
     },
-    # Nickel (Ni) - FCC
     "Ni(111)": {
         "type": LATTICE_TYPE_HEXAGONAL,
         "a_bulk": 0.352,  # nm

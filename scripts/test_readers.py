@@ -9,11 +9,12 @@ in lfa.io are functioning correctly and that the basic data
 structure (STMImage) is populated as expected.
 """
 
-import numpy as np
-import matplotlib.pyplot as plt
 import logging
 import os
 import sys
+
+import matplotlib.pyplot as plt
+import numpy as np
 
 # --- Path Setup ---
 # Ensure the main 'lfa' package is importable
@@ -22,13 +23,12 @@ import sys
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
-    # logger.debug(f"Added project root to sys.path: {project_root}") # Optional debug log
 
 # --- Imports from LFA package ---
 try:
-    from lfa.io.stp_reader import read_stp_file
-    from lfa.io.s94_reader import read_s94_file
     from lfa.core.data_models import STMImage
+    from lfa.io.s94_reader import read_s94_file
+    from lfa.io.stp_reader import read_stp_file
 except ImportError as e:
     print(f"Import Error: {e}")
     print("Please ensure the 'lfa' package is correctly structured and accessible.")
@@ -126,8 +126,6 @@ def main():
                 print(f"  Bias Voltage (V): {stm_image_stp.bias_v:.3f}")
                 print(f"  Setpoint Current (A): {stm_image_stp.setpoint_a}") # May be None
                 print(f"  Scan Angle (deg): {stm_image_stp.scan_angle_deg}")
-                # Optionally print the raw header for more details:
-                # print("  Raw Header Snippet:", dict(list(stm_image_stp.raw_header.items())[:5]))
 
                 # Scale the data for display
                 scaled_data_stp = scale_to_grayscale(stm_image_stp.data)
@@ -170,8 +168,6 @@ def main():
                 print(f"  Scan Speed (nm/s): {stm_image_s94.scan_speed_nm_s}") # May be None
                 print(f"  Scan Angle (deg): {stm_image_s94.scan_angle_deg}")
                 print(f"  Z Conversion (nm/raw): {stm_image_s94.z_nm_per_raw}") # May be None
-                # Optionally print the raw header:
-                # print("  Raw Header Snippet:", dict(list(stm_image_s94.raw_header.items())[:5]))
 
                 # Scale the data for display
                 scaled_data_s94 = scale_to_grayscale(stm_image_s94.data)

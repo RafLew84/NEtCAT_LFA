@@ -2,9 +2,10 @@
 """
 Shared fixtures for preprocessing tests.
 """
-import pytest
+
 import numpy as np
-from typing import Tuple 
+import pytest
+
 
 @pytest.fixture(scope="module") 
 def original_image_nl() -> np.ndarray:

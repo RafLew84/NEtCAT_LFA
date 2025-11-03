@@ -8,12 +8,19 @@ users to specify the surface constant (a_surf) in nanometers.
 """
 import logging
 import math
-from typing import Optional, Dict, Any
+from typing import Any, Dict, Optional
 
 try:
     from PyQt6.QtWidgets import (
-        QDialog, QVBoxLayout, QFormLayout, QLabel, QLineEdit,
-        QComboBox, QDialogButtonBox, QDoubleSpinBox, QMessageBox
+        QComboBox,
+        QDialog,
+        QDialogButtonBox,
+        QDoubleSpinBox,
+        QFormLayout,
+        QLabel,
+        QLineEdit,
+        QMessageBox,
+        QVBoxLayout,
     )
 except ImportError:
     logging.critical("Failed to import necessary PyQt6 modules for CustomLatticeDialog.")

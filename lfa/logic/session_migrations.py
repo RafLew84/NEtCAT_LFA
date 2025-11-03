@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from copy import deepcopy
 import math
+from copy import deepcopy
 from typing import Any, Dict
 
 CURRENT_SESSION_VERSION = "2.0"

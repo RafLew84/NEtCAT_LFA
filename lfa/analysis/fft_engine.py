@@ -4,8 +4,10 @@ Fast Fourier Transform (FFT) analysis engine for LFA.
 Provides functions for calculating 2D FFT with optional windowing and zero-padding.
 """
 import logging
+from typing import Optional, Tuple
+
 import numpy as np
-from typing import Optional, Tuple, Dict, Callable
+
 try:
     from scipy.signal import windows
 except ImportError:

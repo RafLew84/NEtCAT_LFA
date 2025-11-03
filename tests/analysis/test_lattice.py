@@ -3,24 +3,24 @@
 Unit tests for lattice definition and reciprocal/real space calculations
 in lfa.analysis.lattice.
 """
-import pytest
-import numpy as np
-from typing import Dict, List, Tuple, Optional, Union
 from unittest.mock import patch
+
+import numpy as np
+import pytest
 
 # Import functions and data to test
 try:
     from lfa.analysis.lattice import (
         KNOWN_LATTICES,
-        get_reciprocal_vectors,
-        get_reciprocal_points,
+        LATTICE_TYPE_HEXAGONAL,  # Stała typu
+        LATTICE_TYPE_SQUARE,  # Stała typu
+        calculate_real_space_vectors_from_g,  # Nowa do testowania
+        convert_g_vector_px_to_nm_inv,  # Nowa do testowania
         get_nearest_reciprocal_points,
-        select_reciprocal_lattice_basis_vectors, # Nowa do testowania
-        convert_g_vector_px_to_nm_inv,         # Nowa do testowania
-        calculate_real_space_vectors_from_g,   # Nowa do testowania
-        get_real_space_lattice_parameters,     # Nowa do testowania
-        LATTICE_TYPE_HEXAGONAL,                # Stała typu
-        LATTICE_TYPE_SQUARE                  # Stała typu
+        get_real_space_lattice_parameters,  # Nowa do testowania
+        get_reciprocal_points,
+        get_reciprocal_vectors,
+        select_reciprocal_lattice_basis_vectors,  # Nowa do testowania
     )
     LATTICE_MODULE_AVAILABLE = True
 except ImportError as e: # pragma: no cover
@@ -121,8 +121,7 @@ class TestLatticeCalculations:
         # fft_cols_kx, fft_rows_ky - nie są używane w tej funkcji, ale przekazywane
         # do get_real_space_lattice_parameters
         
-        # Wzór: g_nm_inv = g_px / L_nm
-        expected_g_nm_inv = (50.0 / 100.0, 25.0 / 50.0) # (0.5, 0.5)
+        expected_g_nm_inv = (50.0 / 100.0, 25.0 / 50.0)  # (0.5, 0.5) = g_px / L_nm
         
         result = convert_g_vector_px_to_nm_inv(g_px, Lx_nm, Ly_nm, 256, 256) # Kształt FFT nieistotny dla tej funkcji
         assert result is not None

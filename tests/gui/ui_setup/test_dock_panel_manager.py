@@ -1,17 +1,15 @@
 # tests/gui/ui_setup/test_dock_panel_manager.py
-import pytest
-import logging
-from unittest.mock import MagicMock, call
 
-from PyQt6.QtWidgets import QMainWindow, QMenu, QWidget, QListWidget, QDockWidget
-from PyQt6.QtCore import Qt
+import pytest
+from PyQt6.QtWidgets import QDockWidget, QListWidget, QMainWindow, QMenu
 
 # Import testowanej klasy
 try:
+    from lfa.gui.panels.fft_analysis_panel import FFTAnalysisPanel
     from lfa.gui.ui_setup.dock_panel_manager import DockPanelManager
+
     # Importuj klasy widgetów, które są przekazywane do DockPanelManager
     from lfa.gui.widgets.metadata_widget import MetadataWidget
-    from lfa.gui.panels.fft_analysis_panel import FFTAnalysisPanel
 except ImportError as e:
     pytest.fail(f"Could not import DockPanelManager or its dependencies: {e}", pytrace=False)
 
