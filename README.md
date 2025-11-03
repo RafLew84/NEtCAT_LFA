@@ -231,7 +231,19 @@ mirrors the layered architecture outlined in `context.md`.
   ruff check .
   ```
 
+  To auto-fix import ordering (required by CI), run:
+
+  ```bash
+  python -m ruff check --select I --fix .
+  ```
+
 - Run static type checks:
+
+  To auto-fix import ordering (required by CI), run:
+
+  `ash
+  python -m ruff check --select I --fix .
+  `
 
   ```bash
   mypy lfa
