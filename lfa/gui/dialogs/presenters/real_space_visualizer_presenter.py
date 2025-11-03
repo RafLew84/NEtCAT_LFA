@@ -157,7 +157,7 @@ class RealSpaceVisualizerPresenter:
                 )
 
             return AngleCalculationResult(display_text=display, alignment_angle_rad=alignment_angle_rad)
-        except Exception as exc:  # pragma: no cover - defensive
+        except Exception as exc:  # pragma: no cover
             if self._logger:
                 self._logger.exception("Error calculating substrate-adsorbate angle: {0}", exc)
             return AngleCalculationResult(display_text="Error", alignment_angle_rad=None, error_message=str(exc))
@@ -253,7 +253,6 @@ class RealSpaceVisualizerPresenter:
         if None in (a1_sub_sigma, a2_sub_sigma, alpha_sub_sigma, a1_ads_sigma, a2_ads_sigma, alpha_ads_sigma):
             return None
 
-        # Simplified propagation assuming independence; replicate original behaviour.
         sigma_components = [
             float(a1_sub_sigma) if a1_sub_sigma is not None else 0.0,
             float(a2_sub_sigma) if a2_sub_sigma is not None else 0.0,

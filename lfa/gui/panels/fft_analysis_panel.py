@@ -476,7 +476,7 @@ class FFTAnalysisPanel(QWidget):
         idx = self.adsorbate_set_combo.findText(current_set_text)
         if idx != -1:
             self.adsorbate_set_combo.setCurrentIndex(idx)
-        elif set_names: # If current_set_text is not found, but there are others, set the first
+        elif set_names:
              self.adsorbate_set_combo.setCurrentIndex(0)
         self.adsorbate_set_combo.blockSignals(False)
 
@@ -567,7 +567,7 @@ class FFTAnalysisPanel(QWidget):
                 self.expected_adsorbate_type_combo.setCurrentIndex(idx)
             else: # pragma: no cover
                 logger.warning(f"FFTAnalysisPanel: Could not find text '{type_name}' in expected_adsorbate_type_combo.")
-                self.expected_adsorbate_type_combo.setCurrentText(ADSORBATE_LATTICE_TYPE_UNKNOWN) # Fallback
+                self.expected_adsorbate_type_combo.setCurrentText(ADSORBATE_LATTICE_TYPE_UNKNOWN)
             self.expected_adsorbate_type_combo.blockSignals(False)
             self.current_selected_expected_adsorbate_type = self.expected_adsorbate_type_combo.currentText()
 

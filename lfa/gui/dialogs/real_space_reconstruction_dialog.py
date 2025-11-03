@@ -20,11 +20,10 @@ except ImportError:
     ImageItem = None
     ViewBox = None
     RectROI = None
-    ScatterPlotItem = None # Add missing import for clarity
+    ScatterPlotItem = None
     PYQTGRAPH_AVAILABLE = False
     logging.error("RealSpaceReconstructionDialog: PyQtGraph not found.")
 
-# Import necessary backend functions and data structures
 from ...core.history import HistoryNode
 from ...analysis.fft_engine import calculate_fft
 from ...analysis.peak_fitting import _gaussian_2d, fit_2d_gaussian_in_roi_with_all_data
@@ -80,7 +79,7 @@ class RealSpaceReconstructionDialog(QDialog):
         self._init_ui()
         self._connect_signals()
         
-        self._on_mode_changed() # Set initial visibility of controls
+        self._on_mode_changed()
         if self.original_fft_item:
             self.original_fft_item.setImage(self.magnitude_fft_data.T)
 
@@ -115,7 +114,7 @@ class RealSpaceReconstructionDialog(QDialog):
         
         self.refinement_roi = RectROI(pos=(0, 0), size=(7, 7), pen=pg.mkPen('y', width=2), movable=True, resizable=False)
         self.fft_plot.addItem(self.refinement_roi)
-        self.refinement_roi.setVisible(False)  # Hidden by default
+        self.refinement_roi.setVisible(False)
 
         display_splitter.addWidget(fft_widget)
         display_splitter.addWidget(mask_widget)
@@ -151,7 +150,7 @@ class RealSpaceReconstructionDialog(QDialog):
         autocorr_layout.addRow(self.remove_dc_checkbox)
         autocorr_layout.addRow("Display Scale:", self.scaling_combo)
         layout.addWidget(autocorr_options_group)
-        self.autocorr_options_group = autocorr_options_group # Store reference
+        self.autocorr_options_group = autocorr_options_group
 
         # --- Actions Group ---
         action_group = QGroupBox("Actions")
@@ -214,7 +213,7 @@ class RealSpaceReconstructionDialog(QDialog):
                 self.refinement_roi.setVisible(True)
                 event.accept()
         else:
-            event.ignore()  # Ignore clicks in other modes
+            event.ignore()
 
     @pyqtSlot()
     def _on_mode_changed(self):
@@ -257,7 +256,7 @@ class RealSpaceReconstructionDialog(QDialog):
         self.roi_items.append(new_roi)
         self.fft_plot.addItem(new_roi)
         new_roi.sigRegionChanged.connect(self._update_mask_from_rois)
-        self._update_mask_from_rois() # Update mask immediately
+        self._update_mask_from_rois()
 
     @pyqtSlot()
     def _on_add_spot_clicked(self):
@@ -322,7 +321,7 @@ class RealSpaceReconstructionDialog(QDialog):
             mask += gauss_flat.reshape(h, w)
             
         if mask.max() > 0:
-            mask /= mask.max()  # Normalize mask to range [0, 1]
+            mask /= mask.max()
             
         self.mask_array = mask
         self.mask_item.setImage(self.mask_array.T, autoLevels=True)

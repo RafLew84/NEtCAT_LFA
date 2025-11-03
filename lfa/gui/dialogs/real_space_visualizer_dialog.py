@@ -504,7 +504,7 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         and vectors to corrected adsorbate peak positions.
         """
         logger.debug("Visualizer: Redrawing FFT overlays...")
-        plot_item = self.fft_view_box # Use the view box directly
+        plot_item = self.fft_view_box
 
         for item in self.g_substrate_vector_lines: plot_item.removeItem(item)
         self.g_substrate_vector_lines.clear()

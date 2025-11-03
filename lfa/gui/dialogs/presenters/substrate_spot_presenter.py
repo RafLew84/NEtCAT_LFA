@@ -53,7 +53,7 @@ class TransformComputationError(Exception):
         super().__init__(user_message)
         self.user_message = user_message
         self.status_message = status_message
-        self.severity = severity  # "warning" | "critical"
+        self.severity = severity
 
 
 class SubstrateSpotPresenter:
@@ -211,7 +211,6 @@ class SubstrateSpotPresenter:
         transformed_measured = apply_affine_transform(matched_measured, F, t)
         fitted_spots = [tuple(pt) for pt in transformed_measured] if transformed_measured is not None else []
 
-        # Update internal state
         self.state.transform_matrix_F = F
         self.state.transform_translation_t = t
         self.state.transform_analysis = analysis

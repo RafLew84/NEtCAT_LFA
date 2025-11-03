@@ -67,9 +67,6 @@ def augment_covariance_with_calibration(
         return None
     return cov
 
-# Lattice Definitions
-# Store real-space lattice constant 'a' (nearest neighbor or conventional cell param) in nm.
-# Store type ('hexagonal', 'square') to determine reciprocal lattice calculation.
 KNOWN_LATTICES: Dict[str, Dict] = {
     "Au(111)": {
         "type": LATTICE_TYPE_HEXAGONAL,
@@ -145,8 +142,6 @@ KNOWN_LATTICES: Dict[str, Dict] = {
     },
     # Add more lattices here
 }
-
-# --- Reciprocal Lattice Calculation ---
 
 def _compute_reciprocal_from_direct_vectors(
     a_vec_nm: np.ndarray,
@@ -273,7 +268,7 @@ def get_reciprocal_points(lattice_name_or_info: Union[str, Dict],
         logger.error("Invalid argument for lattice_name_or_info. Must be str or dict.")
         return None
 
-    if not lattice_info: # Dodatkowe sprawdzenie
+    if not lattice_info:
         logger.error(f"Lattice info is empty for '{display_name}'.")
         return None
 
@@ -294,8 +289,8 @@ def get_reciprocal_points(lattice_name_or_info: Union[str, Dict],
 
 def get_nearest_reciprocal_points(
     lattice_name_or_info: Union[str, Dict],
-    num_points_hex: int = 6, # Default 6 for hexagonal
-    num_points_square: int = 4 # Default 4 for square
+    num_points_hex: int = 6,
+    num_points_square: int = 4
 ) -> Optional[List[Tuple[float, float]]]:
     """
     Generates a specific number of nearest non-zero reciprocal lattice points
@@ -312,7 +307,7 @@ def get_nearest_reciprocal_points(
                                              distance from origin, or None on error.
     """
     lattice_info_dict: Optional[Dict] = None
-    display_name = "" # Dla logowania
+    display_name = ""
 
     if isinstance(lattice_name_or_info, str):
         display_name = lattice_name_or_info
@@ -450,9 +445,8 @@ def select_reciprocal_lattice_basis_vectors(
     elif lattice_type == LATTICE_TYPE_SQUARE:
         if len(g_vectors_relative_px) < 4:
             logger.warning(f"Square lattice: expected 4 spots for reliable basis vector selection, got {len(g_vectors_relative_px)}.")
-            if len(g_vectors_relative_px) >= 2: # Simple fallback
+            if len(g_vectors_relative_px) >= 2:
                  logger.warning("Fallback: Taking first two available spots for square basis, may be incorrect.")
-                 # If available, check whether the first two vectors are roughly orthogonal
                  v1 = np.array(g_vectors_relative_px[0])
                  v2 = np.array(g_vectors_relative_px[1])
                  norm_v1, norm_v2 = np.linalg.norm(v1), np.linalg.norm(v2)
@@ -469,7 +463,6 @@ def select_reciprocal_lattice_basis_vectors(
                         return g1_tuple, g2_tuple
             return None
 
-        # Average the lengths of the first four candidate vectors
         indexed_vectors = [(idx, np.array(vec, dtype=float)) for idx, vec in enumerate(g_vectors_relative_px[:4])]
         lengths = [np.linalg.norm(vec) for _, vec in indexed_vectors]
         if not lengths or any(l < 1e-6 for l in lengths):
@@ -477,14 +470,6 @@ def select_reciprocal_lattice_basis_vectors(
             return None
         avg_len_px = np.mean(lengths)
 
-        # Select two orthogonal vectors with the averaged length.
-        # We assume one aligns roughly with the kx axis and the other with the ky axis.
-        # This is an approximation; a more robust approach would search over vector pairs.
-        # It also assumes the ideal spots are already oriented sensibly
-        # (e.g. produced by get_nearest_reciprocal_points) so the first two can form a basis.
-        
-        # Find the vectors closest to the kx and ky axes
-        # Vector closest to the kx axis (large |x|, small |y|)
         sorted_by_angle_to_x = sorted(
             indexed_vectors,
             key=lambda item: abs(np.arctan2(item[1][1], item[1][0]))
@@ -497,7 +482,6 @@ def select_reciprocal_lattice_basis_vectors(
         g1_scale = avg_len_px / g1_len
         g1_vec = g1_candidate_dir * g1_scale
 
-        # Choose the vector that is most orthogonal to g1_vec
         g2_candidate_dir = None
         min_dot_product_abs = float('inf')
         g2_index = None
@@ -521,11 +505,9 @@ def select_reciprocal_lattice_basis_vectors(
         g2_scale = avg_len_px / g2_len
         g2_vec = g2_candidate_dir * g2_scale
         
-        # Final orthogonality check (within tolerance)
         cos_angle_g1_g2 = np.dot(g1_vec, g2_vec) / (np.linalg.norm(g1_vec) * np.linalg.norm(g2_vec))
         if abs(cos_angle_g1_g2) > 0.2: # Larger than ~cos(80 deg) or cos(100 deg) -> not very perpendicular
             logger.warning(f"Selected square basis vectors are not orthogonal enough (cos_angle={cos_angle_g1_g2:.2f}). Fallback.")
-            # Fallback: rotate g1 by 90 degrees to synthesize g2
             rotation_matrix = np.array([[0.0, -1.0], [1.0, 0.0]], dtype=float)
             g2_vec = rotation_matrix @ g1_vec
             details_g2 = {
@@ -604,7 +586,6 @@ def convert_g_vector_px_to_nm_inv(
 
     g_kx_px, g_ky_px = g_vector_px
 
-    # Convert pixel coordinates to physical units (nm^-1)
     g_kx_nm_inv = g_kx_px * (1.0 / Lx_nm)
     g_ky_nm_inv = g_ky_px * (1.0 / Ly_nm)
     
@@ -629,19 +610,12 @@ def calculate_real_space_vectors_from_g(
     g1x, g1y = g1_star_nm_inv
     g2x, g2y = g2_star_nm_inv
 
-    # Calculate determinant D = g1x*g2y - g1y*g2x
-    # This is equivalent to |g1* x g2*|_z / (2pi)^2 if 2pi was included,
-    # or Area_reciprocal_cell / (2pi)^2.
-    # Without 2pi, D is Area_reciprocal_cell.
     determinant = g1x * g2y - g1y * g2x
 
-    if abs(determinant) < 1e-9: # Check for collinearity (determinant is zero)
+    if abs(determinant) < 1e-9: 
         logger.error("Reciprocal vectors are collinear; cannot calculate real space vectors.")
         return None
-
-    # Calculate real space basis vectors (without 2pi factor in formulas):
-    # a1 = (1/D) * [g2y, -g2x]
-    # a2 = (1/D) * [-g1y, g1x]
+    
     a1_nm = ( (1.0 / determinant) * g2y,
               (1.0 / determinant) * (-g2x) )
     
@@ -722,17 +696,17 @@ def compute_real_space_metric_uncertainty(
                 cov,
                 samples=monte_carlo_samples,
             )
-        except Exception as exc:  # pragma: no cover - defensive
+        except Exception as exc:  # pragma: no cover
             logger.warning("Monte Carlo propagation failed: %s", exc)
             return None
 
 def get_real_space_lattice_parameters(
     selected_g_vectors_relative_px: List[Tuple[float, float]],
     lattice_type: str,
-    Lx_nm: float,                 # Real-space size corresponding to kx-direction (FFT columns)
-    Ly_nm: float,                 # Real-space size corresponding to ky-direction (FFT rows)
-    fft_shape_cols_kx: int,       # Total columns in FFT (N_kx)
-    fft_shape_rows_ky: int,       # Total rows in FFT (N_ky)
+    Lx_nm: float,                 
+    Ly_nm: float,                 
+    fft_shape_cols_kx: int,       
+    fft_shape_rows_ky: int,       
     selected_g_vector_covariances_px: Optional[List[Optional[np.ndarray]]] = None,
     Lx_sigma_nm: float = 0.0,
     Ly_sigma_nm: float = 0.0,
@@ -815,7 +789,6 @@ def get_real_space_lattice_parameters(
             if g2_index is not None and 0 <= g2_index < len(cov_list):
                 g2_cov_px = cov_list[g2_index]
 
-    # 2. Convert basis g-vectors to physical units (nm^-1)
     g1_s_nm_inv = convert_g_vector_px_to_nm_inv(g1_s_px, Lx_nm, Ly_nm, fft_shape_cols_kx, fft_shape_rows_ky)
     g2_s_nm_inv = convert_g_vector_px_to_nm_inv(g2_s_px, Lx_nm, Ly_nm, fft_shape_cols_kx, fft_shape_rows_ky)
 
@@ -823,14 +796,12 @@ def get_real_space_lattice_parameters(
         logger.error("Failed to convert basis g-vectors to physical units.")
         return None
 
-    # 3. Calculate real-space vectors (a1_nm, a2_nm)
     real_space_vecs = calculate_real_space_vectors_from_g(g1_s_nm_inv, g2_s_nm_inv)
     if real_space_vecs is None:
         logger.error("Failed to calculate real space vectors (g-vectors might be collinear).")
         return None
     a1_s_vec_nm, a2_s_vec_nm = real_space_vecs
 
-    # 4. Calculate magnitudes and angle
     a1_s_mag_nm = np.linalg.norm(a1_s_vec_nm)
     a2_s_mag_nm = np.linalg.norm(a2_s_vec_nm)
 
@@ -838,10 +809,9 @@ def get_real_space_lattice_parameters(
         logger.error("Calculated real space vectors have zero or near-zero magnitude.")
         return None
         
-    # Calculate angle between vectors
     dot_product = np.dot(a1_s_vec_nm, a2_s_vec_nm)
     cos_alpha_s = dot_product / (a1_s_mag_nm * a2_s_mag_nm)
-    cos_alpha_s = np.clip(cos_alpha_s, -1.0, 1.0) # Ensure value is in arccos domain
+    cos_alpha_s = np.clip(cos_alpha_s, -1.0, 1.0)
     alpha_s_rad = np.arccos(cos_alpha_s)
     alpha_s_deg = np.degrees(alpha_s_rad)
 
@@ -884,18 +854,18 @@ def get_real_space_lattice_parameters(
                 g2_s_nm_inv,
                 combined_covariance,
             )
-        except ValueError as exc:  # pragma: no cover - defensive
+        except ValueError as exc:  # pragma: no cover
             logger.warning("Unable to propagate lattice parameter uncertainties: %s", exc)
 
     results = {
         "a1_nm": a1_s_mag_nm,
         "a2_nm": a2_s_mag_nm,
         "alpha_deg": alpha_s_deg,
-        "a1_vec_nm": a1_s_vec_nm, # Tuple (ax, ay)
-        "a2_vec_nm": a2_s_vec_nm, # Tuple (ax, ay)
-        "g1_vec_px": g1_s_px,     # Tuple (gkx, gky) in pixels
+        "a1_vec_nm": a1_s_vec_nm,
+        "a2_vec_nm": a2_s_vec_nm,
+        "g1_vec_px": g1_s_px,    
         "g2_vec_px": g2_s_px,
-        "g1_vec_nm_inv": g1_s_nm_inv, # Tuple (gkx, gky) in nm^-1
+        "g1_vec_nm_inv": g1_s_nm_inv,
         "g2_vec_nm_inv": g2_s_nm_inv,
     }
     if g1_cov_px is not None:
@@ -943,71 +913,57 @@ def select_adsorbate_reciprocal_basis_vectors_px(
         logger.warning("Not enough adsorbate g-vectors provided (need at least 2) to define a basis.")
         return None
 
-    # Scenario 1: User selected exactly 2 spots (treated as g1* and g2*)
     if num_spots_selected == 2:
         g1_px = corrected_g_vectors_relative_px[0]
         g2_px = corrected_g_vectors_relative_px[1]
         
-        # Check if vectors are non-zero and non-collinear
         norm_g1 = np.linalg.norm(g1_px)
         norm_g2 = np.linalg.norm(g2_px)
         if norm_g1 < 1e-6 or norm_g2 < 1e-6:
             logger.warning("Adsorbate (2 spots): One or both selected g-vectors are zero length.")
             return None
         
-        # Cross product (z-component) to check collinearity
         cross_product_z = g1_px[0] * g2_px[1] - g1_px[1] * g2_px[0]
-        if abs(cross_product_z) / (norm_g1 * norm_g2) < 1e-3: # Check sine of angle
+        if abs(cross_product_z) / (norm_g1 * norm_g2) < 1e-3:
             logger.warning("Adsorbate (2 spots): Selected g-vectors are collinear.")
             return None
             
         logger.info(f"Adsorbate (2 spots defined): Using g1*={g1_px}, g2*={g2_px}")
         return g1_px, g2_px
 
-    # Scenario 2: Expected type "Hexagonal"
-    elif expected_lattice_type == LATTICE_TYPE_HEXAGONAL.capitalize(): # Compare with capital letter as in ComboBox
-        if num_spots_selected < 2: # Need at least 2 to define, ideal is 6
+    elif expected_lattice_type == LATTICE_TYPE_HEXAGONAL.capitalize():
+        if num_spots_selected < 2: 
              logger.warning(f"Hexagonal Adsorbate: Not enough spots (need >= 2, got {num_spots_selected}).")
              return None
         if num_spots_selected < 6:
             logger.warning(f"Hexagonal Adsorbate: {num_spots_selected} spots provided, less than ideal 6. "
                            "Attempting to find basis. Result may be less accurate.")
         
-        # Sort vectors by length (shortest first) - assume first-order peaks are strongest/nearest
-        # Then by angle for consistency
         sorted_g_vecs_by_len = sorted(corrected_g_vectors_relative_px, key=lambda v: np.linalg.norm(v))
         
-        # Take 'num_to_consider' shortest vectors (e.g., 6 if available, or all)
         num_to_consider = min(num_spots_selected, 6)
         candidate_vecs = sorted_g_vecs_by_len[:num_to_consider]
         
-        # If we have 6 spots, apply averaging method for anisotropy
         if num_spots_selected >= 6: # Use >= 6 to handle case when user clicked more
-            # Sort 6 shortest by angle
             sorted_angularly = sorted(candidate_vecs, key=lambda v: np.arctan2(v[1], v[0]))
 
-            # Axis vectors (averaging opposite pairs)
-            # Assume sorted_angularly[0] and sorted_angularly[3] are a pair, etc.
             d1 = (np.array(sorted_angularly[0]) - np.array(sorted_angularly[3])) / 2.0
             d2 = (np.array(sorted_angularly[1]) - np.array(sorted_angularly[4])) / 2.0
             d3 = (np.array(sorted_angularly[2]) - np.array(sorted_angularly[5])) / 2.0
             
-            # List of non-zero axis vectors
             axis_vectors = [v for v in [d1, d2, d3] if np.linalg.norm(v) > 1e-6]
             if len(axis_vectors) < 2:
                 logger.warning("Hexagonal Adsorbate (6 spots): Could not determine at least two distinct axes.")
                 return None
             
-            # Choose d1 as g1_A* (first non-zero axis vector)
             g1_px = tuple(axis_vectors[0])
             
-            # Choose as g2_A* the axis vector that forms angle closest to 60 degrees with g1_px
             best_g2_candidate = None
             min_angle_diff_to_60 = float('inf')
-            target_angle_rad = np.pi / 3 # 60 degrees
+            target_angle_rad = np.pi / 3
             norm_g1 = np.linalg.norm(g1_px)
 
-            for v_cand_np in axis_vectors[1:]: # Check remaining axis vectors
+            for v_cand_np in axis_vectors[1:]:
                 norm_v_cand = np.linalg.norm(v_cand_np)
                 if norm_v_cand < 1e-6: continue
 
@@ -1015,10 +971,7 @@ def select_adsorbate_reciprocal_basis_vectors_px(
                 cos_theta = np.clip(dot_product / (norm_g1 * norm_v_cand), -1.0, 1.0)
                 angle_rad = np.arccos(cos_theta)
                 
-                angle_diff = abs(angle_rad - target_angle_rad) # Difference from 60 degrees
-                # Could also check difference from 120 degrees if that makes sense for basis selection
-                # angle_diff_120 = abs(angle_rad - 2*target_angle_rad) 
-                # current_min_diff = min(angle_diff, angle_diff_120)
+                angle_diff = abs(angle_rad - target_angle_rad)
 
                 if angle_diff < min_angle_diff_to_60:
                     min_angle_diff_to_60 = angle_diff
@@ -1032,14 +985,12 @@ def select_adsorbate_reciprocal_basis_vectors_px(
                 logger.warning("Adsorbate Hexagonal (6 spots aniso): Could not determine a suitable second basis vector from axes.")
                 return None
 
-        elif num_spots_selected >= 2: # Less than 6, but at least 2 for Hexagonal
+        elif num_spots_selected >= 2:
             logger.warning("Hexagonal Adsorbate: Less than 6 spots.")
-            # Use logic for "Unknown" - find two shortest, linearly independent vectors
             return None
 
-    # Scenario 3: Expected type "Square"
     elif expected_lattice_type == LATTICE_TYPE_SQUARE.capitalize():
-        if num_spots_selected < 2: # Need at least 2, ideal is 4
+        if num_spots_selected < 2:
             logger.warning(f"Square Adsorbate: Not enough spots (need >= 2, got {num_spots_selected}).")
             return None
         if num_spots_selected < 4:
@@ -1050,10 +1001,8 @@ def select_adsorbate_reciprocal_basis_vectors_px(
         num_to_consider = min(num_spots_selected, 4)
         candidate_vecs = sorted_g_vecs_by_len[:num_to_consider]
 
-        if num_spots_selected >= 4: # Use >= 4
-            # Sort 4 shortest by angle
+        if num_spots_selected >= 4: 
             sorted_angularly = sorted(candidate_vecs, key=lambda v: np.arctan2(v[1], v[0]))
-            # Axis vectors
             d1 = (np.array(sorted_angularly[0]) - np.array(sorted_angularly[2])) / 2.0
             d2 = (np.array(sorted_angularly[1]) - np.array(sorted_angularly[3])) / 2.0
 
@@ -1062,26 +1011,20 @@ def select_adsorbate_reciprocal_basis_vectors_px(
                 logger.warning("Square Adsorbate (4 spots): Axis vectors have zero length.")
                 return None
 
-            # Check perpendicularity of d1 and d2
             cos_angle_d1_d2 = np.dot(d1, d2) / (norm_d1 * norm_d2)
-            if abs(cos_angle_d1_d2) > 0.2: # Angle significantly different from 90 degrees (cos(90)=0, cos(78)~0.2)
+            if abs(cos_angle_d1_d2) > 0.2:
                 logger.warning(f"Square Adsorbate (4 spots): Axis vectors d1, d2 are not orthogonal (cos_angle={cos_angle_d1_d2:.2f}). "
                                "Consider re-selecting spots or using 'Unknown' type.")
-                # Could try selecting different pair or return error, or fall back to "Unknown" logic
-                # For now, if not perpendicular, use them anyway to describe parallelogram
             
             g1_px = tuple(d1)
             g2_px = tuple(d2)
             logger.info(f"Adsorbate Square/Rect (4 spots): Basis g1*={g1_px}, g2*={g2_px}")
             return g1_px, g2_px
 
-    # Scenario 4: Expected type "Unknown" (or fallback from other types)
-    elif expected_lattice_type == ADSORBATE_LATTICE_TYPE_UNKNOWN: # num_spots_selected >=2 already checked at start
-        # Find two shortest, linearly independent vectors
+    elif expected_lattice_type == ADSORBATE_LATTICE_TYPE_UNKNOWN:
         if len(corrected_g_vectors_relative_px) < 2:
              return None 
         
-        # Sort all available vectors by length
         sorted_g_vecs_by_len = sorted(corrected_g_vectors_relative_px, key=lambda v: np.linalg.norm(v))
         
         g1_px_cand = np.array(sorted_g_vecs_by_len[0])
@@ -1092,12 +1035,10 @@ def select_adsorbate_reciprocal_basis_vectors_px(
         g2_px_cand = None
         for i in range(1, len(sorted_g_vecs_by_len)):
             current_g2_cand = np.array(sorted_g_vecs_by_len[i])
-            if np.linalg.norm(current_g2_cand) < 1e-6: continue # Skip zero vectors
+            if np.linalg.norm(current_g2_cand) < 1e-6: continue
 
-            # Check collinearity with g1_px_cand
             cross_product_z = g1_px_cand[0] * current_g2_cand[1] - g1_px_cand[1] * current_g2_cand[0]
-            # Check sine of angle to avoid normalization issues for very short vectors
-            if abs(cross_product_z) / (np.linalg.norm(g1_px_cand) * np.linalg.norm(current_g2_cand) + 1e-9) > 1e-3: # Not collinear
+            if abs(cross_product_z) / (np.linalg.norm(g1_px_cand) * np.linalg.norm(current_g2_cand) + 1e-9) > 1e-3:
                 g2_px_cand = current_g2_cand
                 break
         
@@ -1175,7 +1116,6 @@ def calculate_superstructure_periodicity_parameters(
         A dictionary with calculated parameters, or None on error.
     """
     try:
-        # Validate input data
         required_keys = ['corrected', 'intensity', 'amplitude', 'max_value']
         if not all(k in main_peak_data and main_peak_data[k] is not None for k in required_keys) or \
            not all(k in satellite_peak_data and satellite_peak_data[k] is not None for k in required_keys):
@@ -1185,18 +1125,15 @@ def calculate_superstructure_periodicity_parameters(
         main_corr_px = main_peak_data['corrected']
         sat_corr_px = satellite_peak_data['corrected']
 
-        # Calculate difference vector
         delta_g_vec_ideal_px = (sat_corr_px[0] - main_corr_px[0], sat_corr_px[1] - main_corr_px[1])
         dist_fft_px = np.linalg.norm(delta_g_vec_ideal_px)
         
-        # Convert and calculate distance
         fft_rows_ky, fft_cols_kx = fft_shape
         delta_g_vec_nm_inv = convert_g_vector_px_to_nm_inv(delta_g_vec_ideal_px, lx_nm, ly_nm, fft_cols_kx, fft_rows_ky)
         if delta_g_vec_nm_inv is None: raise ValueError("k-space conversion failed for delta_g.")
         dist_nm_inv = np.linalg.norm(delta_g_vec_nm_inv)
         periodicity_nm = 1.0 / dist_nm_inv if dist_nm_inv > 1e-9 else float('inf')
         
-        # Calculate ratios
         intensity_ratio = satellite_peak_data['intensity'] / main_peak_data['intensity'] if main_peak_data['intensity'] > 1e-9 else float('inf')
         amplitude_ratio = satellite_peak_data['amplitude'] / main_peak_data['amplitude'] if main_peak_data['amplitude'] > 1e-9 else float('inf')
         max_value_ratio = satellite_peak_data['max_value'] / main_peak_data['max_value'] if main_peak_data['max_value'] > 1e-9 else float('inf')
@@ -1213,7 +1150,6 @@ def calculate_superstructure_periodicity_parameters(
         logger.error(f"Error in calculate_superstructure_periodicity_parameters: {e}")
         return None
 
-# Backward compatibility alias; remove once legacy code is updated.
 calculate_domain_wall_parameters = calculate_superstructure_periodicity_parameters
     
 def create_ase_supercell_from_2d_vectors(
@@ -1241,29 +1177,23 @@ def create_ase_supercell_from_2d_vectors(
         return None
 
     try:
-        # Lift 2D vectors into 3D by adding a zero z-component
         a1_3d = np.append(a1_vec_nm, 0)
         a2_3d = np.append(a2_vec_nm, 0)
 
-        # Define a third vector perpendicular to the plane to introduce vacuum (2 nm ~ 20 Angstrom)
         a3_3d = np.array([0, 0, 2.0])
 
-        # Assemble the unit cell matrix
         cell_3d = np.array([a1_3d, a2_3d, a3_3d])
 
         cell_height_nm = cell_3d[2, 2]
         z_fractional = z_height_nm / cell_height_nm
 
-        # Create a primitive cell with a single atom placed mid-vacuum (z=0.5)
         primitive_cell = Atoms(
             symbols=[atom_symbol],
             scaled_positions=[(offset_fractional[0], offset_fractional[1], z_fractional)],
             cell=cell_3d,
-            pbc=[True, True, False]  # Periodic only within the XY plane
+            pbc=[True, True, False]
         )
 
-        # Build the supercell by repeating the primitive cell
-        # Transformation matrix P for the supercell replication
         P = np.array([[size[0], 0, 0],
                       [0, size[1], 0],
                       [0, 0, 1]])

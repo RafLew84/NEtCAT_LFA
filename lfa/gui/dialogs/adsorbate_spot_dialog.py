@@ -443,7 +443,7 @@ class AdsorbateSpotSelectionDialog(QDialog):
         """Update internal state after expected type change."""
         try:
             self.presenter.set_expected_type(new_type)
-        except ValueError as exc:  # pragma: no cover - UI guarded by combo entries
+        except ValueError as exc:  # pragma: no cover
             logger.warning("Rejected invalid expected type '%s': %s", new_type, exc)
             self.expected_type_combo.setCurrentText(self.state.expected_type)
         else:
@@ -611,7 +611,7 @@ class AdsorbateSpotSelectionDialog(QDialog):
                         else:
                             self._clear_last_preview_gauss_fit()
                             fitted_gauss_2d_for_preview = roi_patch
-                    except Exception as e:  # pragma: no cover - defensive
+                    except Exception as e:  # pragma: no cover
                         logger.warning("Adsorbate GaussFit Preview failed: %s", e)
                         self._clear_last_preview_gauss_fit()
                         fitted_gauss_2d_for_preview = roi_patch
@@ -1066,7 +1066,7 @@ class AdsorbateSpotSelectionDialog(QDialog):
             logger.error("Error applying substrate correction: %s", exc)
             QMessageBox.critical(self, "Correction Error", str(exc))
             return
-        except Exception as exc:  # pragma: no cover - defensive
+        except Exception as exc:  # pragma: no cover
             logger.exception("Unexpected error during substrate correction.")
             QMessageBox.critical(self, "Correction Error", str(exc))
             return

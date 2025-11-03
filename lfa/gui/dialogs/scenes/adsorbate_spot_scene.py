@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Iterable, Optional, Tuple
 
-try:  # pragma: no cover - guarded import
+try:  # pragma: no cover
     import pyqtgraph as pg
 except ImportError:  # pragma: no cover
     pg = None  # type: ignore

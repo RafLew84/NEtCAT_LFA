@@ -41,8 +41,6 @@ def fit_affine_measured_to_ideal(
         return None, None, None
 
     num_points = measured_pts.shape[0]
-    # Build design matrix for linear least squares.
-    # For each point we create two equations (x' and y').
     design = np.zeros((num_points * 2, 6), dtype=float)
     target = np.zeros(num_points * 2, dtype=float)
     for idx, ((mx, my), (ix, iy)) in enumerate(zip(measured_pts, ideal_pts)):
@@ -82,7 +80,6 @@ def fit_affine_measured_to_ideal(
     )
     t_vector = np.array([params[4], params[5]], dtype=float)
 
-    # Compute residual information and parameter covariance if possible.
     fitted = design @ params
     residual_vector = target - fitted
     rss = residuals[0] if residuals.size else float(np.dot(residual_vector, residual_vector))
@@ -171,33 +168,14 @@ def analyze_affine_transform(F: np.ndarray) -> Optional[Dict[str, Any]]:
         return None
 
     try:
-        # Polar decomposition: F = R @ U
-        # R is unitary (orthogonal for real matrices), U is positive semi-definite Hermitian (symmetric for real F)
         R, U = polar(F) # R: rotation, U: right stretch matrix (symmetric positive-definite)
-
-        # Linearized strain tensor (small deformation theory approximation)
-        # strain_tensor_linearized = 0.5 * (F + F.T) - np.eye(2)
-        # The user's original code might have a slight variation or convention, let's re-check
-        # Original: strain_lin = 0.5*(F + F.T) - I. This is a common definition.
-        # F.dot(F.T) gives left Cauchy-Green tensor C. U.dot(U) also gives C if F=RU.
-        # U is the right stretch tensor sqrt(F.T @ F).
-        # For small strains, U approx I + epsilon, where epsilon is small strain tensor.
-        # F = R @ U.
-        # If using Green-Lagrange strain E = 0.5 * (F.T @ F - I) = 0.5 * (U @ U - I)
-        # The user's code uses: linearized_strain = 0.5*(F + F.T) - I. This is different from above.
-        # Let's stick to the user's definition for now.
         linearized_strain = 0.5 * (F + F.T) - np.eye(2)
 
-
-        # Rotation angle from rotation matrix R
-        # R = [[cos(O), -sin(O)], [sin(O), cos(O)]]
-        # So, R[0,0] = cos(O), R[1,0] = sin(O)
         cos_O = R[0, 0]
         sin_O = R[1, 0]
         rotation_angle_rad = np.arctan2(sin_O, cos_O)
         rotation_angle_deg = np.degrees(rotation_angle_rad)
 
-        # Principal stretches and directions (from eigenvalues/vectors of U)
         eigenvalues_U, eigenvectors_U = np.linalg.eig(U)
 
         logger.info(f"Transform analysis: Angle={rotation_angle_deg:.2f} deg, Stretch evals={eigenvalues_U}")
@@ -251,7 +229,7 @@ def match_and_fit_transform(
         )
         return None, None, None, None, None
 
-    # Normalise covariance inputs (if provided) before any reordering.
+    # Normalise covariance inputs before any reordering.
     ordered_input_covariances: Optional[List[Optional[np.ndarray]]] = None
     if measured_covariances_px is not None:
         ordered_input_covariances = []
@@ -277,7 +255,7 @@ def match_and_fit_transform(
             num_expected_matches,
         )
         target_ideal_pts_px = ideal_pts_pool_px[:num_expected_matches]
-    else:  # pragma: no cover - defensive
+    else:  # pragma: no cover
         target_ideal_pts_px = ideal_pts_pool_px
 
     cost_matrix = np.sum(
@@ -289,7 +267,7 @@ def match_and_fit_transform(
         measured_indices, ideal_indices = linear_sum_assignment(cost_matrix)
         min_cost = cost_matrix[measured_indices, ideal_indices].sum()
         logger.info("Hungarian assignment successful. Min cost: %.2f", min_cost)
-    except Exception as exc:  # pragma: no cover - defensive
+    except Exception as exc:  # pragma: no cover
         logger.exception("Error during Hungarian assignment: %s", exc)
         return None, None, None, None, None
 
@@ -357,7 +335,7 @@ def match_and_fit_transform(
                             float(np.sqrt(diag_entries[1])),
                         )
                         analysis_results["principal_stretches_covariance"] = stretches_covariance
-            except Exception as exc:  # pragma: no cover - defensive
+            except Exception as exc:  # pragma: no cover
                 logger.debug("Failed to propagate affine transform uncertainties: %s", exc)
 
     try:
@@ -369,7 +347,7 @@ def match_and_fit_transform(
             logger.info("RMSE of fit: %.4f pixels", rmse)
         else:
             analysis_results["rmse"] = None
-    except Exception as exc:  # pragma: no cover - defensive
+    except Exception as exc:  # pragma: no cover
         logger.exception("Error calculating RMSE: %s", exc)
         analysis_results["rmse"] = None
 
@@ -382,7 +360,7 @@ def match_and_fit_transform(
             else:
                 try:
                     transformed_covariances.append(F @ cov @ F.T)
-                except Exception as exc:  # pragma: no cover - defensive
+                except Exception as exc:  # pragma: no cover
                     logger.warning("Failed to propagate covariance through affine transform: %s", exc)
                     transformed_covariances.append(None)
         analysis_results["matched_measured_covariances_px"] = matched_covariances

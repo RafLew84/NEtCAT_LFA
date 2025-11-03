@@ -31,10 +31,9 @@ try:
     from lfa.analysis.fft_engine import calculate_fft, AVAILABLE_WINDOWS
 except ImportError:
     logging.error("Could not import calculate_fft function from lfa.analysis.fft_engine.")
-    # Define a dummy function to allow the UI to load, but calculations will fail
     def calculate_fft(image_data, apply_window=True, window_type='hann') -> Optional[np.ndarray]:
         logging.error("calculate_fft backend function is missing!")
-        return None # Return None to indicate failure
+        return None
     AVAILABLE_WINDOWS = {'none': None} # Placeholder
 
 logger = logging.getLogger(__name__)
@@ -108,7 +107,7 @@ class FFTDialog(QDialog):
         splitter.addWidget(left_widget)
         self.fft_image_view = ImageView(self)
         self.fft_image_view.ui.menuBtn.hide(); self.fft_image_view.ui.roiBtn.hide()
-        self.fft_image_view.getView().invertY(False) # No Y inversion for FFT
+        self.fft_image_view.getView().invertY(False)
         splitter.addWidget(self.fft_image_view)
         top_layout.addWidget(splitter, stretch=3)
 
@@ -117,7 +116,7 @@ class FFTDialog(QDialog):
         self.plot_input.addItem(self.roi)
 
         controls_panel = QWidget(); controls_panel.setMaximumWidth(250); controls_panel.setLayout(controls_area_layout)
-        self._create_parameter_controls(controls_area_layout) # Populate controls
+        self._create_parameter_controls(controls_area_layout)
         controls_area_layout.addStretch()
         top_layout.addWidget(controls_panel, stretch=1)
 
@@ -393,7 +392,7 @@ class FFTDialog(QDialog):
         Updates the Input image view with the current input data.
         """
         if self.input_data is not None and hasattr(self, 'img_input') and self.img_input:
-             self.img_input.setImage(self.input_data.T) # Transpose for STM view
+             self.img_input.setImage(self.input_data.T)
              self.plot_input.autoRange()
 
     def update_fft_view(self):

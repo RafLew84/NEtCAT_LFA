@@ -6,12 +6,11 @@ Provides functions for calculating 2D FFT with optional windowing and zero-paddi
 import logging
 import numpy as np
 from typing import Optional, Tuple, Dict, Callable
-# Use SciPy windows as it has more options than NumPy
 try:
     from scipy.signal import windows
 except ImportError:
     logging.warning("SciPy not found. Window functions will not be available.")
-    windows = None # Set to None if import fails
+    windows = None
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +59,7 @@ def calculate_fft(image_data: np.ndarray, apply_window: bool = True,
             c_offset = (target_cols - cols) // 2
             padded_data[r_offset:r_offset+rows, c_offset:c_offset+cols] = processed_data
             processed_data = padded_data
-            rows, cols = target_rows, target_cols # Update shape for windowing
+            rows, cols = target_rows, target_cols
             logger.debug(f"Data padded. New shape: {processed_data.shape}")
 
     # Windowing section
@@ -69,20 +68,16 @@ def calculate_fft(image_data: np.ndarray, apply_window: bool = True,
         if window_func is None:
             if window_type.lower() == 'none':
                 logger.debug("FFT: Windowing explicitly disabled ('none').")
-                # No action needed, processed_data remains unchanged
             elif windows is None:
                  logger.error("FFT: Cannot apply window. SciPy is not available.")
-                 return None # Treat as error if windowing requested but unavailable
+                 return None
             else:
                  logger.warning(f"FFT: Unsupported window type '{window_type}'. No window applied.")
-                 # No action needed, processed_data remains unchanged
         else:
-            # Apply the selected window
             try:
                 logger.debug(f"Applying 2D '{window_type}' window to shape {(rows, cols)}...")
                 win_y = windows.get_window(window_type, rows)
                 win_x = windows.get_window(window_type, cols)
-                # Create 2D window using outer product and apply
                 win_2d = np.outer(win_y, win_x)
                 processed_data *= win_2d.astype(np.float32)
             except Exception as e:
@@ -100,7 +95,6 @@ def calculate_fft(image_data: np.ndarray, apply_window: bool = True,
         shifted_fft = np.fft.fftshift(fft_result)
 
         logger.info("Complex FFT calculation successful.")
-        # Return the complex result directly
         return shifted_fft # Type will be complex64 or complex128
 
     except Exception as e:

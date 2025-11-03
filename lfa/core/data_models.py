@@ -41,7 +41,6 @@ class STMImage:
     raw_header: Dict[str, Any] = field(repr=False) # Store original header for reference
     data: np.ndarray = field(repr=False) # The actual image data (e.g., height, current)
 
-    # Standardized metadata fields
     pixels_x: int = 0
     pixels_y: int = 0
     size_nm_x: float = 0.0
@@ -49,11 +48,11 @@ class STMImage:
     offset_nm_x: float = 0.0
     offset_nm_y: float = 0.0
     scan_angle_deg: float = 0.0
-    bias_v: float = 0.0 # Bias Voltage in Volts
-    setpoint_a: float | None = None # Setpoint current in Amperes (if available)
-    scan_speed_nm_s: float | None = None # Scan speed in nm/s (if available)
-    z_nm_per_raw: float | None = None # Conversion factor for z-axis (if applicable)
-    image_type: str = "Unknown" # e.g., "Topography", "Current"
+    bias_v: float = 0.0 
+    setpoint_a: float | None = None
+    scan_speed_nm_s: float | None = None
+    z_nm_per_raw: float | None = None
+    image_type: str = "Unknown"
 
     def __post_init__(self):
         """
@@ -66,18 +65,16 @@ class STMImage:
         """
         if self.data is not None:
             if self.pixels_y == 0 and self.pixels_x == 0:
-                 # Assume shape is (rows, columns) -> (y, x)
                  self.pixels_y, self.pixels_x = self.data.shape
-            elif self.pixels_x == 0: # Only y is set
-                 # This case is less common, might indicate swapped dimensions earlier
+            elif self.pixels_x == 0: 
                  if self.data.shape[0] == self.pixels_y:
                       self.pixels_x = self.data.shape[1]
-                 elif self.data.shape[1] == self.pixels_y: # Check if shape seems transposed
+                 elif self.data.shape[1] == self.pixels_y:
                       self.pixels_x = self.data.shape[0]
-            elif self.pixels_y == 0: # Only x is set
+            elif self.pixels_y == 0: 
                  if self.data.shape[1] == self.pixels_x:
                       self.pixels_y = self.data.shape[0]
-                 elif self.data.shape[0] == self.pixels_x: # Check if shape seems transposed
+                 elif self.data.shape[0] == self.pixels_x: 
                       self.pixels_y = self.data.shape[1]
 
 

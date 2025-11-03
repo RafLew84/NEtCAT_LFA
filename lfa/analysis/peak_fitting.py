@@ -14,12 +14,12 @@ from typing import Any, Callable, Dict, Optional, Tuple
 
 import numpy as np
 
-try:  # pragma: no cover - SciPy may be absent in limited environments
+try:  # pragma: no cover
     from scipy.optimize import curve_fit
 
     SCIPY_AVAILABLE = True
 except ImportError:  # pragma: no cover
-    curve_fit = None  # type: ignore
+    curve_fit = None 
     SCIPY_AVAILABLE = False
     logging.error("SciPy not found. 2D Gaussian fitting will not be available.")
 
@@ -35,7 +35,7 @@ _MIN_NOISE_SIGMA = 1e-8
 class PeakRefinementResult:
     """Container describing the outcome of a peak refinement step."""
 
-    center: Tuple[float, float]  # (y_abs, x_abs)
+    center: Tuple[float, float] 
     center_std: Optional[Tuple[float, float]]
     method: str
     success: bool
@@ -264,7 +264,7 @@ def fit_2d_gaussian_in_roi(
     except RuntimeError:
         logger.warning("fit_2d_gaussian_in_roi: curve_fit failed, attempting Monte Carlo fallback.")
         return _run_monte_carlo_max_pixel(roi_patch, y_start, x_start, noise_sigma)
-    except Exception as exc:  # pragma: no cover - defensive path
+    except Exception as exc:  # pragma: no cover
         logger.exception("fit_2d_gaussian_in_roi: Unexpected error during fitting: %s", exc)
         return None
 

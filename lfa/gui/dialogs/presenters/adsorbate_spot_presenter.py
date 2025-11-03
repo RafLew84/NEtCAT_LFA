@@ -130,7 +130,6 @@ class AdsorbateSpotPresenter:
                     if 0 <= index < len(self.state.corrected_spot_covariances):
                         self.state.corrected_spot_covariances.pop(index)
                 except IndexError:
-                    # corrected_spots may not be in sync (e.g., only computed subset).
                     pass
             return True
         return False
@@ -215,7 +214,7 @@ class AdsorbateSpotPresenter:
                     continue
                 try:
                     corrected_covariances.append(F @ cov_arr @ F.T)
-                except Exception as exc:  # pragma: no cover - defensive
+                except Exception as exc:  # pragma: no cover
                     logger.warning("Failed to propagate adsorbate covariance: %s", exc)
                     corrected_covariances.append(None)
         else:

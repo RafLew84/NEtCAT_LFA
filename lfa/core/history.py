@@ -9,7 +9,7 @@ import numpy as np
 from dataclasses import dataclass, field
 from typing import Optional, Dict, Any, Literal, Tuple, List
 import time
-import uuid # For generating unique IDs
+import uuid
 import logging
 
 logger = logging.getLogger(__name__)
@@ -37,13 +37,11 @@ class HistoryNode:
     node_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     parent_id: Optional[str] = None
     operation_name: str = "Original"
-    parameters: Dict[str, Any] = field(default_factory=dict) # Will store scaling_mode for FFT
+    parameters: Dict[str, Any] = field(default_factory=dict)
     timestamp: float = field(default_factory=time.time)
-    # Stores the actual data: float32 for STM, scaled magnitude float32 for FFT
     image_data: Optional[np.ndarray] = field(repr=False, default=None)
-    data_type: Literal["STM", "FFT"] = "STM" # Type of data in image_data
+    data_type: Literal["STM", "FFT"] = "STM"
     complex_fft_data: Optional[np.ndarray] = field(repr=False, default=None)
-    # Stores the source ROI slice if operation resulted from ROI
     source_roi_slice: Optional[Tuple[slice, slice]] = field(repr=False, default=None)
     original_image_id: Optional[str] = None
 
@@ -73,48 +71,42 @@ class HistoryNode:
         if self.data_type == "FFT":
             base_name += " (FFT)"
 
-        # Check if source_roi_slice exists to determine if it came from ROI
         if self.source_roi_slice is not None:
             suffix += " from ROI"
 
         if not self.parameters:
             param_str = "No parameters"
         else:
-            max_param_len = 35 # Maximum length for parameter string
+            max_param_len = 35
             ellipsis = "..."
             fitting_param_parts = []
             current_len = 0
             params_truncated = False
-            # Sort parameters for consistent display (e.g., scaling_mode first)
             param_items = list(self.parameters.items())
             param_items.sort(key=lambda item: (
-                item[0] != 'scaling_mode', # scaling_mode first
-                item[0] != 'mode',         # then mode (for leveling)
-                item[0]                    # then alphabetically
+                item[0] != 'scaling_mode',
+                item[0] != 'mode',        
+                item[0]                   
             ))
 
             for i, (k, v) in enumerate(param_items):
-                # Skip internal flags unless necessary
                 if k in ('apply_roi_only', 'source_image_id', 'source_image_label', 'original_label'):
                     continue
 
-                # Format common parameters nicely
                 if k == 'scaling_mode': part = f"Scale:{v}"
                 elif k == 'window_type' and v is None: part = "NoWin"
                 elif k == 'window_type': part = f"Win:{v}"
-                elif k == 'mode': part = f"Mode:{v}" # For leveling
-                # Shorten points list
+                elif k == 'mode': part = f"Mode:{v}"
                 elif k == 'points' and isinstance(v, list) and len(v) == 3:
                     part = f"Pts:[{v[0]}..]"
-                # Format floats nicely
-                elif isinstance(v, float): part = f"{k}={v:.2g}" # General float format
-                else: part = f"{k}={v}" # Default format
+                elif isinstance(v, float): part = f"{k}={v:.2g}"
+                else: part = f"{k}={v}"
 
                 part_len = len(part)
                 separator_len = len(", ") if i > 0 else 0
                 if current_len + separator_len + part_len > max_param_len:
                     params_truncated = True
-                    break # Stop adding parameters
+                    break
 
                 if i > 0:
                     fitting_param_parts.append(", ")
@@ -126,15 +118,15 @@ class HistoryNode:
             if params_truncated:
                 param_str += ellipsis
 
-            if not param_str and params_truncated: # Handle case where first param was too long
+            if not param_str and params_truncated:
                  param_str = ellipsis
             elif not param_str and not params_truncated and self.parameters:
-                 param_str = "..." # Params exist but didn't fit or were skipped
+                 param_str = "..."
 
         if param_str == "No parameters":
-             return f"{base_name}{suffix}" # E.g., "FFT from ROI"
+             return f"{base_name}{suffix}"
         else:
-             return f"{base_name}{suffix} ({param_str})" # E.g., "FFT from ROI (Scale:log, Win:hann)"
+             return f"{base_name}{suffix} ({param_str})"
 
 
     def __post_init__(self):
@@ -150,7 +142,6 @@ class HistoryNode:
             TypeError: If image_data or source_roi_slice have invalid types
             ValueError: If data_type is invalid
         """
-        # Input validation
         if self.image_data is not None and not isinstance(self.image_data, np.ndarray):
             raise TypeError("image_data must be a NumPy array or None")
         if self.data_type not in ("STM", "FFT"):

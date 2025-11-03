@@ -25,7 +25,7 @@ from .config import PREPROCESSING_CONFIG
 
 try:
     from lfa.preprocessing.filtering import gaussian_blur, gaussian_sharpen_unsharp_mask
-except ImportError:  # pragma: no cover - import fallback
+except ImportError:  # pragma: no cover
     logging.error("Could not import filtering functions (gaussian_blur/gaussian_sharpen_unsharp_mask).")
 
     def gaussian_blur(image, sigma):

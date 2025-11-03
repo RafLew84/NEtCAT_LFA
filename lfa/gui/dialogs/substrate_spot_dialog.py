@@ -877,7 +877,7 @@ class SubstrateSpotSelectionDialog(QDialog):
                 Lx_sigma_nm=sigma_Lx_nm,
                 Ly_sigma_nm=sigma_Ly_nm,
             )
-        except Exception as exc:  # pragma: no cover - defensive
+        except Exception as exc:  # pragma: no cover
             logger.debug("Failed to compute real space preview: %s", exc)
             return None
 
@@ -1084,7 +1084,7 @@ class SubstrateSpotSelectionDialog(QDialog):
                                 fitted_gauss_2d_for_preview = fit_preview.roi_patch
                         else:
                             self._clear_last_preview_gauss_fit()
-                    except Exception as e_fit:  # pragma: no cover - defensive
+                    except Exception as e_fit:  # pragma: no cover
                         logger.warning("Gaussian fit for preview failed: %s", e_fit)
                         fitted_gauss_2d_for_preview = roi_patch
 

@@ -13,7 +13,6 @@ def _coerce_to_float(value: NumericInput) -> Optional[float]:
     if value is None:
         return None
 
-    # Unwrap numpy arrays with a single value to avoid ambiguous truth-value checks.
     if isinstance(value, np.ndarray):
         if value.size != 1:
             return None
@@ -138,7 +137,6 @@ def summarise_fft_metrics(
         return fallback
 
     if sigma is not None:
-        # For scalar values take the first component if a sequence/array is passed.
         sigma_components = list(_normalise_sequence(sigma))
         sigma_value: NumericInput
         if sigma_components:

@@ -8,12 +8,12 @@ import numpy as np
 
 from ...analysis.lattice import create_ase_supercell_from_2d_vectors
 
-try:  # pragma: no cover - optional dependency
+try:  # pragma: no cover
     import pyvista as pv
     from pyvistaqt import BackgroundPlotter
 
     PYVISTA_AVAILABLE = True
-except ImportError:  # pragma: no cover - executed when dependency missing
+except ImportError:  # pragma: no cover
     pv = None
     BackgroundPlotter = None
     PYVISTA_AVAILABLE = False
@@ -41,7 +41,7 @@ class RealSpacePyVistaAdapter:
     def __init__(self, logger: logging.Logger | None = None) -> None:
         self._logger = logger or logging.getLogger(__name__)
         self._plotter: Optional[BackgroundPlotter] = None
-        if PYVISTA_AVAILABLE:  # pragma: no branch - trivial guard
+        if PYVISTA_AVAILABLE:  # pragma: no branch
             pv.set_plot_theme("document")
 
     # ---------------------------------------------------------------------#
@@ -58,8 +58,8 @@ class RealSpacePyVistaAdapter:
     def close(self) -> None:
         if self._plotter is not None:
             try:
-                self._plotter.close()  # pragma: no cover - GUI heavy
-            except Exception:  # pragma: no cover - defensive
+                self._plotter.close()  # pragma: no cover
+            except Exception:  # pragma: no cover
                 self._logger.exception("Failed to close PyVista plotter cleanly.")
             finally:
                 self._plotter = None
@@ -67,7 +67,7 @@ class RealSpacePyVistaAdapter:
     # ---------------------------------------------------------------------#
     def refresh_scene(self, config: RealSpaceSceneConfig) -> None:
         """Ensure the BackgroundPlotter is open and populated according to config."""
-        if not PYVISTA_AVAILABLE:  # pragma: no cover - dependency missing
+        if not PYVISTA_AVAILABLE:  # pragma: no cover
             raise RuntimeError("PyVista is not available in this environment.")
 
         plotter = self._ensure_plotter(config.window_title)
@@ -85,13 +85,13 @@ class RealSpacePyVistaAdapter:
 
         plotter.camera_position = "xy"
         plotter.reset_camera()
-        plotter.app_window.show()  # pragma: no cover - GUI heavy
+        plotter.app_window.show()  # pragma: no cover
 
     # ------------------------------------------------------------------ priv
     def _ensure_plotter(self, title: str) -> BackgroundPlotter:
         if self._plotter is None or getattr(self._plotter, "_closed", False):
             self._logger.info("Creating a new PyVista BackgroundPlotter.")
-            self._plotter = BackgroundPlotter(show=True, title=title)  # pragma: no cover - GUI heavy
+            self._plotter = BackgroundPlotter(show=True, title=title)  # pragma: no cover
         else:
             self._logger.info("Reusing existing PyVista BackgroundPlotter.")
         return self._plotter
@@ -126,8 +126,8 @@ class RealSpacePyVistaAdapter:
             sphere = pv.Sphere(center=atom.position, radius=0.07)
             sphere.compute_normals(inplace=True)
             actor = plotter.add_mesh(sphere, color="gold", smooth_shading=True)
-            actor.prop.metallic = 0.8  # pragma: no cover - visual styling
-            actor.prop.roughness = 0.2  # pragma: no cover - visual styling
+            actor.prop.metallic = 0.8  # pragma: no cover
+            actor.prop.roughness = 0.2  # pragma: no cover
 
     def _draw_adsorbate(
         self,
@@ -167,8 +167,8 @@ class RealSpacePyVistaAdapter:
             sphere = pv.Sphere(center=atom.position, radius=0.1)
             sphere.compute_normals(inplace=True)
             actor = plotter.add_mesh(sphere, color="purple", smooth_shading=True)
-            actor.prop.metallic = 0.2  # pragma: no cover - visual styling
-            actor.prop.roughness = 0.6  # pragma: no cover - visual styling
+            actor.prop.metallic = 0.2  # pragma: no cover
+            actor.prop.roughness = 0.6  # pragma: no cover
 
     def _compute_adsorbate_offset(
         self,

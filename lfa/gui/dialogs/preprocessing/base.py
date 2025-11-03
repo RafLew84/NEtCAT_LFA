@@ -30,7 +30,7 @@ try:
     from PyQt6.QtCore import Qt, pyqtSlot
     import pyqtgraph as pg
     from pyqtgraph import ImageItem, PlotItem, RectROI, ROI
-except ImportError as exc:  # pragma: no cover - import guard
+except ImportError as exc:  # pragma: no cover
     logging.critical("Failed to import required Qt/pyqtgraph modules: %s", exc)
     raise
 
@@ -181,7 +181,7 @@ class BasePreprocessingDialog(QDialog):
         preview = None
         try:
             preview = self._apply_operation(self.original_data, params)
-        except Exception as exc:  # pragma: no cover - defensive
+        except Exception as exc:  # pragma: no cover
             logger.exception("%s: error during preview computation", self.operation_name, exc_info=exc)
         if preview is None:
             preview = self.original_data.copy()
@@ -210,7 +210,7 @@ class BasePreprocessingDialog(QDialog):
         logger.info("%s: applying operation (ROI only=%s)", self.operation_name, self._final_is_roi_applied_only)
         try:
             result = self._apply_operation(self.original_data, params)
-        except Exception as exc:  # pragma: no cover - defensive
+        except Exception as exc:  # pragma: no cover
             logger.exception("%s: error computing final result", self.operation_name, exc_info=exc)
             result = None
         if result is None:

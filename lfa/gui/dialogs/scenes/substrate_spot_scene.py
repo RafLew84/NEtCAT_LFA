@@ -6,7 +6,7 @@ from typing import Iterable, Optional, Sequence, Tuple
 
 from PyQt6.QtCore import QPointF
 
-try:  # pragma: no cover - guarded import
+try:  # pragma: no cover
     import pyqtgraph as pg
 except ImportError:  # pragma: no cover
     pg = None  # type: ignore

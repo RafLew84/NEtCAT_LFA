@@ -3,7 +3,7 @@
 import logging
 from typing import Any, Dict, Optional
 
-import numpy as np  # noqa: F401
+import numpy as np
 
 from .base import (
     BasePreprocessingDialog,
@@ -27,7 +27,7 @@ from .config import PREPROCESSING_CONFIG
 
 try:
     from lfa.preprocessing.filtering import median_filter_lfa
-except ImportError:  # pragma: no cover - fallback
+except ImportError:  # pragma: no cover
     logging.error("Could not import median_filter_lfa.")
 
     def median_filter_lfa(image, size, mode="reflect", cval=0.0):

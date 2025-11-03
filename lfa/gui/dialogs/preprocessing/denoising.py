@@ -221,7 +221,7 @@ class NLMeansDialog(BasePreprocessingDialog):
                 patch_distance=params.get("patch_distance", 11),
                 fast_mode=params.get("fast_mode", True),
             )
-        except Exception as exc:  # pragma: no cover - defensive
+        except Exception as exc:  # pragma: no cover
             logger.exception("NL-Means denoising failed", exc_info=exc)
             return None
         return self._apply_with_optional_roi(

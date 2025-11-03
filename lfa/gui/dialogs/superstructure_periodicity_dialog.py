@@ -195,7 +195,7 @@ class SuperstructurePeriodicityDialog(QDialog):
         sub_transform_layout.addRow("Scale:", self.dist_sub_transform_info_label_scale)
         sub_transform_layout.addRow("RMSE:", self.dist_sub_transform_info_label_rmse)
         self.apply_substrate_transform_checkbox = QCheckBox("Apply Substrate Transformation")
-        self.apply_substrate_transform_checkbox.setChecked(True)  # enabled by default
+        self.apply_substrate_transform_checkbox.setChecked(True) 
         sub_transform_layout.addRow("Apply Transform:", self.apply_substrate_transform_checkbox)
         left_controls_layout.addWidget(sub_transform_group)
         

@@ -193,5 +193,4 @@ class HistoryViewHandler:
         """Remove markers from the provided view box."""
         if pg is None or not view_box:
             return
-        # Placeholder: actual removal logic lives inside VisualizationManager currently.
         logger.debug("HistoryViewHandler: request to clear spot markers (no-op placeholder).")

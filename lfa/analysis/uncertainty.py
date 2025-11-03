@@ -154,7 +154,6 @@ def propagate_monte_carlo(
     try:
         chol = np.linalg.cholesky(cov_x)
     except np.linalg.LinAlgError:
-        # Fallback to eigenvalue decomposition for semi-definite matrices.
         vals, vecs = np.linalg.eigh(cov_x)
         vals = np.clip(vals, 0.0, None)
         chol = vecs @ np.diag(np.sqrt(vals))

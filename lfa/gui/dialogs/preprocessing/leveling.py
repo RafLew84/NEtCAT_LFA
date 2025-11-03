@@ -3,7 +3,7 @@
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 
-import numpy as np  # noqa: F401  # reserved for future use / parity with original module
+import numpy as np
 
 from .base import (
     BasePreprocessingDialog,
@@ -27,7 +27,7 @@ from .base import (
 
 try:
     from lfa.preprocessing.leveling import fit_plane, fit_plane_3pts
-except ImportError:  # pragma: no cover - fallback
+except ImportError:  # pragma: no cover
     logging.error("Could not import leveling helpers (fit_plane, fit_plane_3pts).")
 
     def fit_plane(*args, **kwargs):
@@ -143,7 +143,6 @@ class PlaneLevelingDialog(BasePreprocessingDialog):
         main_layout.addLayout(top_layout)
         main_layout.addLayout(bottom_layout)
 
-        # Manage ROI visibility manually depending on mode selection.
         self._manage_roi_with_checkbox = False
         self._initialize_common_behavior()
         self._update_mode_ui()
@@ -225,7 +224,7 @@ class PlaneLevelingDialog(BasePreprocessingDialog):
                     scene = vb.scene() if vb is not None else None
                     if scene is not None and hasattr(scene, "sigMouseClicked"):
                         scene.sigMouseClicked.disconnect(self._mouse_click_connection)
-                except Exception as exc:  # pragma: no cover - defensive
+                except Exception as exc:  # pragma: no cover
                     logger.warning("PlaneLeveling: failed to disconnect point selection: %s", exc)
                 self._mouse_click_connection = None
             self._is_selecting_points = False
@@ -299,7 +298,7 @@ class PlaneLevelingDialog(BasePreprocessingDialog):
             else:
                 logger.error("PlaneLeveling: unknown mode %s", mode)
                 return image_in
-        except Exception as exc:  # pragma: no cover - defensive
+        except Exception as exc:  # pragma: no cover
             logger.exception("PlaneLeveling: plane fitting failed", exc_info=exc)
             return None
 
