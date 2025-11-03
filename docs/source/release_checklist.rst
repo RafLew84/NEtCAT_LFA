@@ -37,6 +37,9 @@ reports) for archival with the release:
    ruff check .
    black --check lfa tests
 
+   # Auto-fix import order before linting (matches CI expectations)
+   python -m ruff check --select I --fix .
+
    # Static typing
    mypy lfa
 
