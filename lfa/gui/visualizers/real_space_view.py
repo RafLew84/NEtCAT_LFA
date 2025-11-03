@@ -21,10 +21,10 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-try:  # pragma: no cover - purely UI wiring
+try:  # pragma: no cover
     import pyqtgraph as pg
     from pyqtgraph import GraphicsLayoutWidget, ImageItem, PlotWidget, ViewBox
-except ImportError:  # pragma: no cover - handled at dialog level
+except ImportError:  # pragma: no cover
     pg = None  # type: ignore
     GraphicsLayoutWidget = None  # type: ignore
     ImageItem = None  # type: ignore
