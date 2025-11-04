@@ -197,14 +197,6 @@ class MenuActionManager:
 
     def _create_help_menu(self):
         """Creates the Help menu."""
-        help_menu = self.menu_bar.addMenu("&Help")
-        
-        self.help_actions["about"] = self._create_action(
-            text="&About LFA...", 
-            status_tip="Show information about LFA",
-            triggered_slot=self.main_window.show_about_dialog
-        )
-        help_menu.addAction(self.help_actions["about"])
 
     def _create_all_menus(self):
         """Creates all main menus."""

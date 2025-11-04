@@ -1,4 +1,4 @@
-﻿# lfa/gui/main_window.py
+# lfa/gui/main_window.py
 """
 Defines the main window for the Lattice Fourier Analyzer (LFA) application.
 """
@@ -893,17 +893,6 @@ class MainWindow(QMainWindow):
             self.history_view_handler.handle_list_selection(current_item)
 
     @pyqtSlot()
-    def show_about_dialog(self):
-        """Displays the 'About' information message box."""
-        logger.debug("About dialog triggered.")
-        about_text = """
-        <h2>Lattice Fourier Analyzer (LFA)</h2>
-        <p>Version: 0.1.0 (Development)</p>
-        <p>A research tool for quantitative Fourier-space analysis of STM images.</p>
-        <p>Project homepage: <a href=\"https://netcat.uwr.edu.pl\">https://netcat.uwr.edu.pl</a></p>
-        <p><b>Note:</b> This build is under active development; feedback is welcome.</p>
-        """
-        QMessageBox.about(self, "About LFA", about_text)
 
     def open_gaussian_blur_dialog(self):
         """Opens the Gaussian blur dialog for applying Gaussian blur."""
@@ -1037,3 +1026,5 @@ class MainWindow(QMainWindow):
         """Handle the event when the user tries to close the window."""
         logger.info("Close event triggered. Exiting application.")
         event.accept()
+
+
