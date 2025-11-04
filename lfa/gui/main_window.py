@@ -897,12 +897,11 @@ class MainWindow(QMainWindow):
         """Displays the 'About' information message box."""
         logger.debug("About dialog triggered.")
         about_text = """
-        <H2>Lattice Fourier Analyzer (LFA)</H2>
+        <h2>Lattice Fourier Analyzer (LFA)</h2>
         <p>Version: 0.1.0 (Development)</p>
-        <p>A tool for analyzing Scanning Tunneling Microscopy (STM) images,
-        focusing on lattice determination using Fourier methods.</p>
-        <p>(Further development ongoing)</p>
-        <p><b>Note:</b> This is developmental software.</p>
+        <p>A research tool for quantitative Fourier-space analysis of STM images.</p>
+        <p>Project homepage: <a href=\"https://netcat.uwr.edu.pl\">https://netcat.uwr.edu.pl</a></p>
+        <p><b>Note:</b> This build is under active development; feedback is welcome.</p>
         """
         QMessageBox.about(self, "About LFA", about_text)
 
