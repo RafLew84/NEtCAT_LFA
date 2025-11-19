@@ -187,6 +187,8 @@ def fit_2d_gaussian_in_roi(
     fft_magnitude_data: np.ndarray,
     center_yx: Tuple[int, int],
     roi_radius: int,
+    *,
+    compute_uncertainty: bool = True,
 ) -> Optional[PeakRefinementResult]:
     """
     Fit a rotated 2D Gaussian to a square ROI in the FFT magnitude data.
@@ -276,18 +278,19 @@ def fit_2d_gaussian_in_roi(
     residual_rms = float(np.sqrt(np.mean(residuals**2)))
 
     center_std: Optional[Tuple[float, float]] = None
-    if pcov is not None and pcov.shape[0] >= 3:
-        diag = np.diag(pcov)
-        if np.all(np.isfinite(diag[1:3])) and np.all(diag[1:3] >= 0.0):
-            center_std = (float(np.sqrt(diag[1])), float(np.sqrt(diag[2])))
+    if compute_uncertainty:
+        if pcov is not None and pcov.shape[0] >= 3:
+            diag = np.diag(pcov)
+            if np.all(np.isfinite(diag[1:3])) and np.all(diag[1:3] >= 0.0):
+                center_std = (float(np.sqrt(diag[1])), float(np.sqrt(diag[2])))
 
-    if center_std is None:
-        center_std = _monte_carlo_uncertainty(
-            roi_patch,
-            noise_sigma_eff,
-            lambda noisy: _gaussian_fit_estimator(noisy, y_start, x_start, p0),
-            runs=MC_SAMPLE_COUNT_FAST,
-        )
+        if center_std is None:
+            center_std = _monte_carlo_uncertainty(
+                roi_patch,
+                noise_sigma_eff,
+                lambda noisy: _gaussian_fit_estimator(noisy, y_start, x_start, p0),
+                runs=MC_SAMPLE_COUNT_FAST,
+            )
 
     metadata: Dict[str, Any] = {
         "sigma_y_fit": float(popt[3]),
@@ -295,6 +298,8 @@ def fit_2d_gaussian_in_roi(
         "theta_fit": float(popt[5]),
         "noise_sigma": float(noise_sigma),
         "residual_rms": residual_rms,
+        "roi_origin": (int(y_start), int(x_start)),
+        "initial_params": tuple(float(param) for param in p0),
     }
 
     return PeakRefinementResult(
@@ -513,11 +518,50 @@ def fit_2d_gaussian_in_roi_with_all_data(
     fft_magnitude_data: np.ndarray,
     center_yx: Tuple[int, int],
     roi_radius: int,
+    *,
+    compute_uncertainty: bool = True,
 ) -> Optional[PeakRefinementResult]:
     """
     Legacy compatibility wrapper returning the rich ``PeakRefinementResult``.
     """
-    return fit_2d_gaussian_in_roi(fft_magnitude_data, center_yx, roi_radius)
+    return fit_2d_gaussian_in_roi(
+        fft_magnitude_data,
+        center_yx,
+        roi_radius,
+        compute_uncertainty=compute_uncertainty,
+    )
+
+
+def derive_gaussian_center_std(
+    result: PeakRefinementResult,
+) -> Optional[Tuple[float, float]]:
+    """
+    Post-process an existing fit result to obtain ``center_std``.
+
+    Used by dialogs that capture lightweight preview fits (no covariance/MC yet)
+    and only need the uncertainties once the user confirms a spot.
+    """
+    pcov = result.pcov
+    if pcov is not None and pcov.shape[0] >= 3:
+        diag = np.diag(pcov)
+        if np.all(np.isfinite(diag[1:3])) and np.all(diag[1:3] >= 0.0):
+            return float(np.sqrt(diag[1])), float(np.sqrt(diag[2]))
+
+    roi_origin = (result.metadata or {}).get("roi_origin")
+    initial_params = (result.metadata or {}).get("initial_params")
+    roi_patch = getattr(result, "roi_patch", None)
+    if roi_origin is None or initial_params is None or roi_patch is None:
+        return None
+
+    noise_sigma = max(float(result.noise_sigma), _MIN_NOISE_SIGMA)
+    y_start, x_start = roi_origin
+    p0 = list(initial_params)
+    return _monte_carlo_uncertainty(
+        roi_patch,
+        noise_sigma,
+        lambda noisy: _gaussian_fit_estimator(noisy, y_start, x_start, p0),
+        runs=MC_SAMPLE_COUNT_FAST,
+    )
 
 
 __all__ = [
@@ -525,6 +569,7 @@ __all__ = [
     "find_max_pixel_in_roi",
     "fit_2d_gaussian_in_roi",
     "fit_2d_gaussian_in_roi_with_all_data",
+    "derive_gaussian_center_std",
     "refine_peak_parabola_3x3",
     "refine_peak_local_dft",
     "SCIPY_AVAILABLE",

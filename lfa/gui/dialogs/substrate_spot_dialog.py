@@ -41,6 +41,19 @@ from .presenters.substrate_spot_presenter import (
     TransformComputationError,
 )
 from .scenes import MarkerSpec, SubstrateSpotScene
+from ...logic.history_manager import HistoryManager
+from ...core.constants import (
+    LATTICE_TYPE_CUSTOM,
+    LATTICE_TYPE_HEXAGONAL,
+    LATTICE_TYPE_SQUARE,
+    PREDEFINED_SUBSTRATE_CUSTOM,
+    PREDEFINED_SUBSTRATE_NONE,
+    REFINEMENT_DIRECT_CLICK,
+    REFINEMENT_GAUSSIAN_FIT,
+    REFINEMENT_LOCAL_DFT,
+    REFINEMENT_MAX_PIXEL,
+    REFINEMENT_PARABOLA_3X3,
+)
 
 try:
     import pyqtgraph as pg
@@ -74,11 +87,24 @@ except ImportError:
 
 try:
     from ...analysis.lattice import (
-        KNOWN_LATTICES,
+        KNOWN_LATTICES as ANALYSIS_KNOWN_LATTICES,
         get_nearest_reciprocal_points,
         get_real_space_lattice_parameters,
     )
+except Exception:  # pragma: no cover
+    ANALYSIS_KNOWN_LATTICES = None
+    logger.warning("Substrate dialog falling back to built-in lattice definitions.", exc_info=True)
+
+from ..utils.lattice_defaults import KNOWN_LATTICES_FALLBACK
+
+if ANALYSIS_KNOWN_LATTICES:
+    KNOWN_LATTICES = ANALYSIS_KNOWN_LATTICES
+else:
+    KNOWN_LATTICES = KNOWN_LATTICES_FALLBACK
+
+try:
     from ...analysis.peak_fitting import (
+        PeakRefinementResult,
         SCIPY_AVAILABLE,
         _gaussian_2d,
         find_max_pixel_in_roi,
@@ -86,37 +112,54 @@ try:
         refine_peak_local_dft,
         refine_peak_parabola_3x3,
     )
-    from ...core.constants import (
-        LATTICE_TYPE_CUSTOM,
-        LATTICE_TYPE_HEXAGONAL,
-        LATTICE_TYPE_SQUARE,
-        PREDEFINED_SUBSTRATE_CUSTOM,
-        PREDEFINED_SUBSTRATE_NONE,
-        REFINEMENT_DIRECT_CLICK,
-        REFINEMENT_GAUSSIAN_FIT,
-        REFINEMENT_LOCAL_DFT,
-        REFINEMENT_MAX_PIXEL,
-        REFINEMENT_PARABOLA_3X3,
-    )
-    from ...logic.history_manager import HistoryManager
+    from .helpers import GaussianRefinementOutcome, run_gaussian_refinement_for_roi
     PEAK_FITTING_MODULE_AVAILABLE = True
-except ImportError: # pragma: no cover
+except ImportError:  # pragma: no cover
     PEAK_FITTING_MODULE_AVAILABLE = False
     SCIPY_AVAILABLE = False
-    KNOWN_LATTICES = {}
-    logging.error("SubstrateSpotSelectionDialog: Could not import peak_fitting or lattice modules.")
-    def find_max_pixel_in_roi(data, center, radius): return center
-    def fit_2d_gaussian_in_roi(data, center, radius): return None
-    def refine_peak_parabola_3x3(data, center): return None
-    def refine_peak_local_dft(data, center, radius, upsample_factor=8): return None
-    def _gaussian_2d(*args, **kwargs): raise ImportError("Gaussian 2D function is not available")
-    def get_real_space_lattice_parameters(*args, **kwargs): return None
+    logger.exception("SubstrateSpotSelectionDialog: Could not import peak_fitting helpers.")
+
+    PeakRefinementResult = Any  # type: ignore
+
+    def find_max_pixel_in_roi(data, center, radius):
+        return center
+
+    def fit_2d_gaussian_in_roi(data, center, radius, **kwargs):
+        return None
+
+    def refine_peak_parabola_3x3(data, center):
+        return None
+
+    def refine_peak_local_dft(data, center, radius, upsample_factor=8):
+        return None
+
+    def _gaussian_2d(*args, **kwargs):
+        raise ImportError("Gaussian 2D function is not available")
+
+    def get_real_space_lattice_parameters(*args, **kwargs):
+        return None
+
+    class GaussianRefinementOutcome:  # type: ignore
+        def __init__(self) -> None:
+            self.center_yx = (0.0, 0.0)
+            self.sigma_yx = None
+            self.covariance = None
+            self.fit_result = None
+            self.used_preview = False
+
+    def run_gaussian_refinement_for_roi(*args, **kwargs):
+        return GaussianRefinementOutcome()
 
 logger = logging.getLogger(__name__)
 
 PARABOLA_PATCH_SIZE = 3
 
 class SubstrateSpotSelectionDialog(QDialog):
+    """
+    Dialog for selecting substrate peaks, fitting affine transforms, and exporting
+    lattice definitions. Gaussian refinement uses the shared helper so ROI previews
+    stay responsive while full covariance is only computed when the user adds a spot.
+    """
     def __init__(self,
                  fft_image_data: Optional[np.ndarray],
                  history_manager: HistoryManager,
@@ -195,6 +238,7 @@ class SubstrateSpotSelectionDialog(QDialog):
         self.last_preview_gauss_fit_center_abs: Optional[Tuple[float, float]] = None
         self.last_preview_gauss_center_std: Optional[Tuple[float, float]] = None
         self.last_preview_gauss_roi_state: Optional[Dict] = None
+        self.last_preview_gauss_fit_result: Optional[PeakRefinementResult] = None
 
         self.substrate_transformation_matrix_F: Optional[np.ndarray] = initial_transform_F
         self.substrate_translation_vector_t: Optional[np.ndarray] = initial_transform_t
@@ -997,6 +1041,7 @@ class SubstrateSpotSelectionDialog(QDialog):
         self.last_preview_gauss_fit_center_abs = None
         self.last_preview_gauss_center_std = None
         self.last_preview_gauss_roi_state = None
+        self.last_preview_gauss_fit_result = None
 
     @pyqtSlot(object) 
     def _handle_roi_region_changing(self, roi_item: Optional[RectROI] = None):
@@ -1068,7 +1113,7 @@ class SubstrateSpotSelectionDialog(QDialog):
             elif hasattr(self, 'roi_preview_2d_image_item'): 
                 self.roi_preview_2d_image_item.clear()
 
-            if self.rb_refine_gaussian.isChecked():
+            if self.rb_refine_gaussian.isChecked() and self.enable_gauss_2d_preview_checkbox.isChecked():
                 fitted_gauss_params = None
                 fitted_gauss_2d_for_preview = roi_patch
                 if PEAK_FITTING_MODULE_AVAILABLE and SCIPY_AVAILABLE:
@@ -1077,10 +1122,16 @@ class SubstrateSpotSelectionDialog(QDialog):
                     eff_center_ky = np.clip(int(round(y0_roi + height_roi / 2)), patch_radius, max_h - 1 - patch_radius)
                     eff_center_kx = np.clip(int(round(x0_roi + width_roi / 2)), patch_radius, max_w - 1 - patch_radius)
                     try:
-                        fit_preview = fit_2d_gaussian_in_roi(self.fft_data, (eff_center_ky, eff_center_kx), patch_radius)
+                        fit_preview = fit_2d_gaussian_in_roi(
+                            self.fft_data,
+                            (eff_center_ky, eff_center_kx),
+                            patch_radius,
+                            compute_uncertainty=False,
+                        )
                         if fit_preview:
+                            self.last_preview_gauss_fit_result = fit_preview
                             self.last_preview_gauss_fit_popt = fit_preview.popt
-                            self.last_preview_gauss_center_std = fit_preview.center_std
+                            self.last_preview_gauss_center_std = None
                             self.last_preview_gauss_fit_center_abs = (
                                 float(fit_preview.center[1]),
                                 float(fit_preview.center[0]),
@@ -1340,24 +1391,31 @@ class SubstrateSpotSelectionDialog(QDialog):
                     if preview_pos == current_pos and preview_size == current_size:
                         roi_state_matches_preview = True
 
-            if self.last_preview_gauss_fit_center_abs is not None and roi_state_matches_preview:
-                refined_kx, refined_ky = self.last_preview_gauss_fit_center_abs
-                if self.last_preview_gauss_center_std:
-                    std_y, std_x = self.last_preview_gauss_center_std
-                logger.info("Using PREVIEW Gaussian fit result for Add Spot: (%.2f, %.2f)", refined_kx, refined_ky)
-            else:
-                logger.info("Performing NEW Gaussian fit for Add Spot (preview data not used or ROI changed).")
-                patch_radius = self.refinement_roi_size // 2
-                max_h, max_w = self.fft_data.shape
-                eff_center_ky = np.clip(center_ky, patch_radius, max_h - 1 - patch_radius)
-                eff_center_kx = np.clip(center_kx, patch_radius, max_w - 1 - patch_radius)
+            patch_radius = self.refinement_roi_size // 2
+            max_h, max_w = self.fft_data.shape
+            eff_center_ky = np.clip(center_ky, patch_radius, max_h - 1 - patch_radius)
+            eff_center_kx = np.clip(center_kx, patch_radius, max_w - 1 - patch_radius)
 
-                fit_output = fit_2d_gaussian_in_roi(self.fft_data, (eff_center_ky, eff_center_kx), patch_radius)
-                if fit_output:
-                    refined_kx = float(fit_output.center[1])
-                    refined_ky = float(fit_output.center[0])
-                    if fit_output.center_std:
-                        std_y, std_x = fit_output.center_std
+            preview_fit = self.last_preview_gauss_fit_result if roi_state_matches_preview else None
+            outcome = run_gaussian_refinement_for_roi(
+                self.fft_data,
+                (center_ky, center_kx),
+                patch_radius,
+                preview_result=preview_fit,
+                require_uncertainty=True,
+            )
+            if outcome.fit_result is None:
+                logger.warning("2D Gaussian fit failed for Add Spot. Using ROI center.")
+            else:
+                refined_ky = float(outcome.center_yx[0])
+                refined_kx = float(outcome.center_yx[1])
+                if outcome.sigma_yx:
+                    std_y, std_x = outcome.sigma_yx
+                    self.last_preview_gauss_center_std = outcome.sigma_yx
+                if outcome.used_preview:
+                    logger.info("Using PREVIEW Gaussian fit result for Add Spot: (%.2f, %.2f)", refined_kx, refined_ky)
+                else:
+                    if std_y is not None and std_x is not None:
                         logger.info(
                             "Spot refined by NEW 2D Gaussian Fit: (%.2f +/- %.3f, %.2f +/- %.3f)",
                             refined_kx,
@@ -1367,8 +1425,7 @@ class SubstrateSpotSelectionDialog(QDialog):
                         )
                     else:
                         logger.info("Spot refined by NEW 2D Gaussian Fit: (%.2f, %.2f)", refined_kx, refined_ky)
-                else:
-                    logger.warning("2D Gaussian fit failed for Add Spot. Using ROI center.")
+                covariance_matrix = outcome.covariance
 
         elif self.current_refinement_method == REFINEMENT_PARABOLA_3X3 and PEAK_FITTING_MODULE_AVAILABLE:
             result = refine_peak_parabola_3x3(self.fft_data, (center_ky, center_kx))

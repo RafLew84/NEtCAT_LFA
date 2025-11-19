@@ -11,10 +11,22 @@ pytest.importorskip("pytestqt", reason="pytest-qt is required for qtbot fixture"
 
 from PyQt6.QtWidgets import QListWidget
 
-from lfa.gui.dialogs.adsorbate_spot_dialog import REFINEMENT_MAX_PIXEL as ADS_REFINEMENT_MAX_PIXEL
+from dataclasses import dataclass
+
+from lfa.analysis.peak_fitting import PeakRefinementResult
+from lfa.gui.dialogs.adsorbate_spot_dialog import (
+    REFINEMENT_GAUSSIAN_FIT as ADS_REFINEMENT_GAUSSIAN_FIT,
+)
+from lfa.gui.dialogs.adsorbate_spot_dialog import (
+    REFINEMENT_MAX_PIXEL as ADS_REFINEMENT_MAX_PIXEL,
+)
 from lfa.gui.dialogs.adsorbate_spot_dialog import AdsorbateSpotSelectionDialog
 from lfa.gui.dialogs.presenters.substrate_spot_presenter import TransformComputation
-from lfa.gui.dialogs.substrate_spot_dialog import REFINEMENT_MAX_PIXEL, SubstrateSpotSelectionDialog
+from lfa.gui.dialogs.substrate_spot_dialog import (
+    REFINEMENT_GAUSSIAN_FIT,
+    REFINEMENT_MAX_PIXEL,
+    SubstrateSpotSelectionDialog,
+)
 from lfa.logic.history_manager import HistoryManager
 
 
@@ -168,3 +180,108 @@ def test_adsorbate_dialog_displays_substrate_transform_sigma(adsorbate_dialog):
 
     rmse_label = adsorbate_dialog.sub_transform_info_label_rmse.text()
     assert "0.030" in rmse_label
+
+
+def test_adsorbate_gaussian_roi_preview_uses_lightweight_fit(adsorbate_dialog, monkeypatch):
+    adsorbate_dialog.current_refinement_method = ADS_REFINEMENT_GAUSSIAN_FIT
+    adsorbate_dialog.rb_refine_gaussian.setChecked(True)
+    calls = []
+
+    def fake_fit(data, center, radius, compute_uncertainty=True):
+        calls.append(compute_uncertainty)
+        return PeakRefinementResult(
+            center=(float(center[0]), float(center[1])),
+            center_std=None,
+            method="gaussian_fit",
+            success=True,
+            roi_patch=np.zeros((3, 3), dtype=float),
+            noise_sigma=1.0,
+            residual_rms=0.0,
+            popt=np.zeros(7),
+            pcov=None,
+            metadata={},
+        )
+
+    monkeypatch.setattr(
+        "lfa.gui.dialogs.adsorbate_spot_dialog.fit_2d_gaussian_in_roi",
+        fake_fit,
+    )
+
+    adsorbate_dialog._update_roi_previews()
+
+    assert calls, "preview should call gaussian fit"
+    assert calls[-1] is False
+
+
+def test_adsorbate_gaussian_add_spot_uses_helper_covariance(adsorbate_dialog, monkeypatch):
+    adsorbate_dialog.current_refinement_method = ADS_REFINEMENT_GAUSSIAN_FIT
+    adsorbate_dialog.state.raw_spots.clear()
+    adsorbate_dialog.state.raw_spot_covariances.clear()
+
+    @dataclass
+    class DummyOutcome:
+        center_yx: tuple
+        sigma_yx: tuple
+        covariance: np.ndarray
+        fit_result: object
+        used_preview: bool
+
+    called = {}
+
+    def fake_run(data, center, radius, preview_result=None, require_uncertainty=True):
+        called["args"] = (tuple(center), radius, require_uncertainty)
+        return DummyOutcome(
+            center_yx=(3.5, 5.5),
+            sigma_yx=(0.2, 0.3),
+            covariance=np.array([[0.04, 0.0], [0.0, 0.09]], dtype=float),
+            fit_result=object(),
+            used_preview=False,
+        )
+
+    monkeypatch.setattr(
+        "lfa.gui.dialogs.adsorbate_spot_dialog.run_gaussian_refinement_for_roi",
+        fake_run,
+    )
+
+    adsorbate_dialog._add_current_adsorbate_spot_from_roi()
+
+    assert called["args"][2] is True
+    assert adsorbate_dialog.state.raw_spot_covariances
+    cov = adsorbate_dialog.state.raw_spot_covariances[-1]
+    assert cov[0, 0] == pytest.approx(0.04)
+    assert cov[1, 1] == pytest.approx(0.09)
+
+
+def test_substrate_gaussian_add_spot_uses_helper_covariance(substrate_dialog, monkeypatch):
+    substrate_dialog.current_refinement_method = REFINEMENT_GAUSSIAN_FIT
+    substrate_dialog.selected_spots.clear()
+    substrate_dialog.selected_spot_covariances.clear()
+
+    @dataclass
+    class DummyOutcome:
+        center_yx: tuple
+        sigma_yx: tuple
+        covariance: np.ndarray
+        fit_result: object
+        used_preview: bool
+
+    def fake_run(data, center, radius, preview_result=None, require_uncertainty=True):
+        return DummyOutcome(
+            center_yx=(4.2, 6.4),
+            sigma_yx=(0.15, 0.25),
+            covariance=np.array([[0.0225, 0.0], [0.0, 0.0625]], dtype=float),
+            fit_result=object(),
+            used_preview=False,
+        )
+
+    monkeypatch.setattr(
+        "lfa.gui.dialogs.substrate_spot_dialog.run_gaussian_refinement_for_roi",
+        fake_run,
+    )
+
+    substrate_dialog._add_current_roi_spot()
+
+    assert substrate_dialog.selected_spot_covariances
+    cov = substrate_dialog.selected_spot_covariances[-1]
+    assert cov[0, 0] == pytest.approx(0.0225)
+    assert cov[1, 1] == pytest.approx(0.0625)

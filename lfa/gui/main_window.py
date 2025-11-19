@@ -94,7 +94,7 @@ except ImportError:
     def find_max_pixel_in_roi(data, center, radius):
         return center
 
-    def fit_2d_gaussian_in_roi(data, center, radius):
+    def fit_2d_gaussian_in_roi(data, center, radius, **kwargs):
         return None
 
     def refine_peak_parabola_3x3(data, center):

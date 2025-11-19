@@ -58,8 +58,21 @@ except ImportError: # pragma: no cover
     def scipy_curve_fit(*args, **kwargs): raise ImportError("scipy.optimize.curve_fit is not available")
 
 try:
-    from ...analysis.lattice import KNOWN_LATTICES
+    from ...analysis.lattice import KNOWN_LATTICES as ANALYSIS_KNOWN_LATTICES
+except Exception:  # pragma: no cover - fallback for optional deps
+    ANALYSIS_KNOWN_LATTICES = None
+    logger.warning("Falling back to built-in lattice definitions.", exc_info=True)
+
+from ..utils.lattice_defaults import KNOWN_LATTICES_FALLBACK
+
+if ANALYSIS_KNOWN_LATTICES:
+    KNOWN_LATTICES = ANALYSIS_KNOWN_LATTICES
+else:
+    KNOWN_LATTICES = KNOWN_LATTICES_FALLBACK
+
+try:
     from ...analysis.peak_fitting import (
+        PeakRefinementResult,
         SCIPY_AVAILABLE,
         _gaussian_2d,
         find_max_pixel_in_roi,
@@ -67,18 +80,40 @@ try:
         refine_peak_local_dft,
         refine_peak_parabola_3x3,
     )
-    from ...logic.history_manager import HistoryManager
+    from .helpers import run_gaussian_refinement_for_roi
     PEAK_FITTING_MODULE_AVAILABLE = True
 except ImportError:
     PEAK_FITTING_MODULE_AVAILABLE = False
     SCIPY_AVAILABLE = False
-    KNOWN_LATTICES = {}
-    logging.error("AdsorbateSpotSelectionDialog: Could not import peak_fitting or lattice modules.")
-    def find_max_pixel_in_roi(data, center, radius): return center
-    def fit_2d_gaussian_in_roi(data, center, radius): return None
-    def refine_peak_parabola_3x3(data, center): return None
-    def refine_peak_local_dft(data, center, radius, upsample_factor=8): return None
-    def _gaussian_2d(*args, **kwargs): raise ImportError("Gaussian 2D function is not available")
+    logger.exception("AdsorbateSpotSelectionDialog: Could not import peak_fitting helpers.")
+
+    def find_max_pixel_in_roi(data, center, radius):
+        return center
+
+    PeakRefinementResult = Any  # type: ignore
+
+    def fit_2d_gaussian_in_roi(data, center, radius, **kwargs):
+        return None
+
+    def refine_peak_parabola_3x3(data, center):
+        return None
+
+    def refine_peak_local_dft(data, center, radius, upsample_factor=8):
+        return None
+
+    def _gaussian_2d(*args, **kwargs):
+        raise ImportError("Gaussian 2D function is not available")
+
+    class _PreviewOutcome:  # type: ignore
+        def __init__(self) -> None:
+            self.center_yx = (0.0, 0.0)
+            self.sigma_yx = None
+            self.covariance = None
+            self.fit_result = None
+            self.used_preview = False
+
+    def run_gaussian_refinement_for_roi(*args, **kwargs):
+        return _PreviewOutcome()
 
 from ...core.constants import (
     ADSORBATE_LATTICE_TYPE_HEXAGONAL,
@@ -90,6 +125,7 @@ from ...core.constants import (
     REFINEMENT_MAX_PIXEL,
     REFINEMENT_PARABOLA_3X3,
 )
+from ...logic.history_manager import HistoryManager
 from ..utils.display import (
     format_float,
     format_value_with_sigma,
@@ -119,6 +155,8 @@ class AdsorbateSpotSelectionDialog(QDialog):
     - View and manage selected spots
     - Apply substrate correction to adsorbate spots
     - Visualize spots in both 2D and 3D views
+    - Run Gaussian refinement through a shared helper that keeps ROI previews light
+      and computes uncertainties only when the user commits a spot
     
     Attributes:
         fft_data (np.ndarray): The FFT image data.
@@ -233,6 +271,7 @@ class AdsorbateSpotSelectionDialog(QDialog):
         self.last_preview_gauss_fit_center_abs: Optional[Tuple[float, float]] = None
         self.last_preview_gauss_center_std: Optional[Tuple[float, float]] = None
         self.last_preview_gauss_roi_state: Optional[Dict] = None
+        self.last_preview_gauss_fit_result: Optional[PeakRefinementResult] = None
 
         self._init_ui()
         self._connect_signals() 
@@ -524,6 +563,7 @@ class AdsorbateSpotSelectionDialog(QDialog):
         self.last_preview_gauss_fit_center_abs = None
         self.last_preview_gauss_center_std = None
         self.last_preview_gauss_roi_state = None
+        self.last_preview_gauss_fit_result = None
         logger.debug("AdsorbateDialog: Cleared last preview Gaussian fit results.")
 
     @pyqtSlot(object)
@@ -589,7 +629,7 @@ class AdsorbateSpotSelectionDialog(QDialog):
                 self.roi_preview_2d_image_item.setImage(roi_patch.T)
                 self.roi_preview_2d_plot.autoRange()
             elif hasattr(self,'roi_preview_2d_image_item'): self.roi_preview_2d_image_item.clear()
-            if self.rb_refine_gaussian.isChecked():
+            if self.rb_refine_gaussian.isChecked() and self.enable_gauss_2d_preview_checkbox.isChecked():
                 fitted_gauss_2d_for_preview = None
                 if PEAK_FITTING_MODULE_AVAILABLE and SCIPY_OPTIMIZE_AVAILABLE and SCIPY_AVAILABLE:
                     patch_radius = self.refinement_roi_size // 2
@@ -597,20 +637,20 @@ class AdsorbateSpotSelectionDialog(QDialog):
                     eff_center_ky = np.clip(int(round(y0_roi + (y1_cl - y0_cl) / 2)), patch_radius, max_h - 1 - patch_radius)
                     eff_center_kx = np.clip(int(round(x0_roi + (x1_cl - x0_cl) / 2)), patch_radius, max_w - 1 - patch_radius)
                     try:
-                        fit_preview = fit_2d_gaussian_in_roi(self.fft_data, (eff_center_ky, eff_center_kx), patch_radius)
+                        fit_preview = fit_2d_gaussian_in_roi(
+                            self.fft_data,
+                            (eff_center_ky, eff_center_kx),
+                            patch_radius,
+                            compute_uncertainty=False,
+                        )
                         if fit_preview:
+                            self.last_preview_gauss_fit_result = fit_preview
                             self.last_preview_gauss_fit_popt = fit_preview.popt
                             self.last_preview_gauss_fit_center_abs = (
                                 float(fit_preview.center[1]),
                                 float(fit_preview.center[0]),
                             )
-                            if getattr(fit_preview, "center_std", None):
-                                self.last_preview_gauss_center_std = (
-                                    float(fit_preview.center_std[0]),
-                                    float(fit_preview.center_std[1]),
-                                )
-                            else:
-                                self.last_preview_gauss_center_std = None
+                            self.last_preview_gauss_center_std = None
                             self.last_preview_gauss_roi_state = self.selection_roi.getState().copy()
                             logger.info("Adsorbate Preview GaussFit OK. Center: %s", self.last_preview_gauss_fit_center_abs)
                             if fit_preview.popt is not None:
@@ -788,23 +828,26 @@ class AdsorbateSpotSelectionDialog(QDialog):
                    self.last_preview_gauss_roi_state['size'] == curr_roi_state['size']:
                     roi_state_match = True
 
-            if self.last_preview_gauss_fit_center_abs and roi_state_match:
-                ref_kx,ref_ky = self.last_preview_gauss_fit_center_abs
-                if self.last_preview_gauss_center_std:
-                    std_y, std_x = self.last_preview_gauss_center_std
-                logger.info(f"Using PREVIEW GaussFit for Adsorbate: ({ref_kx:.2f},{ref_ky:.2f})")
+            pr=self.refinement_roi_size//2
+            preview_fit = self.last_preview_gauss_fit_result if roi_state_match else None
+            outcome = run_gaussian_refinement_for_roi(
+                self.fft_data,
+                (cky, ckx),
+                pr,
+                preview_result=preview_fit,
+                require_uncertainty=True,
+            )
+            if outcome.fit_result is None:
+                logger.warning("Adsorbate GaussFit FAILED for Add Spot. Using ROI center.")
             else:
-                pr=self.refinement_roi_size//2
-                max_h,max_w=self.fft_data.shape
-                eff_cky=np.clip(cky,pr,max_h-1-pr)
-                eff_ckx=np.clip(ckx,pr,max_w-1-pr)
-                fit_res = fit_2d_gaussian_in_roi(self.fft_data, (eff_cky, eff_ckx), pr)
-                if fit_res:
-                    ref_kx = float(fit_res.center[1])
-                    ref_ky = float(fit_res.center[0])
-                    if fit_res.center_std:
-                        std_x = fit_res.center_std[1]
-                        std_y = fit_res.center_std[0]
+                ref_ky = float(outcome.center_yx[0])
+                ref_kx = float(outcome.center_yx[1])
+                if outcome.sigma_yx:
+                    std_y, std_x = outcome.sigma_yx
+                if outcome.used_preview:
+                    logger.info(f"Using PREVIEW GaussFit for Adsorbate: ({ref_kx:.2f},{ref_ky:.2f})")
+                else:
+                    if std_x is not None and std_y is not None:
                         logger.info(
                             "NEW Adsorbate GaussFit: (%.2f +/- %.3f, %.2f +/- %.3f)",
                             ref_kx,
@@ -814,8 +857,7 @@ class AdsorbateSpotSelectionDialog(QDialog):
                         )
                     else:
                         logger.info("NEW Adsorbate GaussFit: (%.2f, %.2f)", ref_kx, ref_ky)
-                else: 
-                    logger.warning("Adsorbate GaussFit FAILED for Add Spot. Using ROI center.")
+                covariance_matrix = outcome.covariance
         elif self.current_refinement_method == REFINEMENT_PARABOLA_3X3 and PEAK_FITTING_MODULE_AVAILABLE:
             result = refine_peak_parabola_3x3(self.fft_data, (cky, ckx))
             if result:
