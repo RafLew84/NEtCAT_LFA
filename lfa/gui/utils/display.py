@@ -73,9 +73,23 @@ def format_pair(
     return f"({first}, {second})"
 
 
-def format_ratio(value: Optional[float], precision: int = 3) -> str:
-    """Format ratio-style values with a fixed precision."""
-    return format_float(value, precision)
+def format_ratio(
+    value: Optional[float],
+    precision: int = 3,
+    *,
+    sigma: Optional[float] = None,
+    sigma_precision: int = 3,
+) -> str:
+    """Format ratio-style values with optional uncertainty."""
+    value_text = format_float(value, precision)
+    if value_text == "-":
+        return value_text
+    if sigma is None:
+        return value_text
+    sigma_text = format_float(sigma, sigma_precision)
+    if sigma_text == "-":
+        return value_text
+    return f"{value_text} +/- {sigma_text}"
 
 
 def format_value_with_sigma(

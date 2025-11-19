@@ -60,8 +60,9 @@ def test_summarise_fft_metrics_invalid_value_returns_fallback():
     assert result == "-"
 
 
-def test_format_ratio_delegates_to_float():
+def test_format_ratio_formats_sigma_when_available():
     assert format_ratio(0.3333, precision=2) == "0.33"
+    assert format_ratio(0.3333, precision=2, sigma=0.0123, sigma_precision=3) == "0.33 +/- 0.012"
     assert format_ratio(None) == "-"
 
 

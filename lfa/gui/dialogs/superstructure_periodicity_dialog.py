@@ -1,5 +1,6 @@
 # lfa/gui/dialogs/superstructure_periodicity_dialog.py
 import logging
+import math
 from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
@@ -145,19 +146,29 @@ class SuperstructurePeriodicityDialog(QDialog):
 
         self._selection_mode: Optional[str] = None
         self.main_peak_raw_refined_px: Optional[Tuple[float, float]] = None
-        self.satellite_peak_raw_refined_px: Optional[Tuple[float, float]] = []
+        self.main_peak_raw_sigma_px: Optional[Tuple[float, float]] = None
+        self.satellite_peak_raw_refined_px: Optional[Tuple[float, float]] = None
+        self.satellite_peak_raw_sigma_px: Optional[Tuple[float, float]] = None
         self.main_peak_raw_marker: Optional[ScatterPlotItem] = None
         self.satellite_raw_marker: Optional[ScatterPlotItem] = None
         self.main_peak_corrected_marker: Optional[ScatterPlotItem] = None
         self.satellite_corrected_marker: Optional[ScatterPlotItem] = None
         self.main_peak_corrected_ideal_px: Optional[Tuple[float, float]] = None
+        self.main_peak_corrected_sigma_px: Optional[Tuple[float, float]] = None
         self.satellite_peak_corrected_ideal_px: Optional[Tuple[float, float]] = None
+        self.satellite_peak_corrected_sigma_px: Optional[Tuple[float, float]] = None
         self.main_peak_amplitude: Optional[float] = None
+        self.main_peak_amplitude_sigma: Optional[float] = None
         self.satellite_peak_amplitude: Optional[float] = None
+        self.satellite_peak_amplitude_sigma: Optional[float] = None
         self.main_peak_intensity: Optional[float] = None
+        self.main_peak_intensity_sigma: Optional[float] = None
         self.satellite_peak_intensity: Optional[float] = None
+        self.satellite_peak_intensity_sigma: Optional[float] = None
         self.main_peak_max_value: Optional[float] = None
+        self.main_peak_max_value_sigma: Optional[float] = None
         self.satellite_peak_max_value: Optional[float] = None
+        self.satellite_peak_max_value_sigma: Optional[float] = None
         self.basic_main_periodicity_nm: Optional[float] = None
         self.basic_satellite_periodicity_nm: Optional[float] = None
         self._final_results: Optional[Dict[str, Any]] = None
@@ -351,15 +362,21 @@ class SuperstructurePeriodicityDialog(QDialog):
         main_peak_data = {
             'corrected': self.main_peak_corrected_ideal_px,
             'intensity': self.main_peak_intensity,
+            'intensity_sigma': self.main_peak_intensity_sigma,
             'amplitude': self.main_peak_amplitude,
-            'max_value': self.main_peak_max_value
+            'amplitude_sigma': self.main_peak_amplitude_sigma,
+            'max_value': self.main_peak_max_value,
+            'max_value_sigma': self.main_peak_max_value_sigma,
         }
         
         satellite_peak_data = {
             'corrected': self.satellite_peak_corrected_ideal_px,
             'intensity': self.satellite_peak_intensity,
+            'intensity_sigma': self.satellite_peak_intensity_sigma,
             'amplitude': self.satellite_peak_amplitude,
-            'max_value': self.satellite_peak_max_value
+            'amplitude_sigma': self.satellite_peak_amplitude_sigma,
+            'max_value': self.satellite_peak_max_value,
+            'max_value_sigma': self.satellite_peak_max_value_sigma
         }
 
         if self.fft_data is None or self.history_manager is None:
@@ -401,6 +418,20 @@ class SuperstructurePeriodicityDialog(QDialog):
                 )
                 if delta_nm_inv_vec is not None:
                     results["delta_g_nm_inv_vec"] = tuple(float(v) for v in delta_nm_inv_vec)
+                dist_sigma_px, dist_sigma_nm_inv = self._propagate_superstructure_uncertainties(
+                    delta_px=delta_px,
+                    main_sigma=self.main_peak_corrected_sigma_px,
+                    satellite_sigma=self.satellite_peak_corrected_sigma_px,
+                    lx_nm=Lx_nm,
+                    ly_nm=Ly_nm,
+                )
+                if dist_sigma_px is not None:
+                    results["dist_px_sigma"] = dist_sigma_px
+                if dist_sigma_nm_inv is not None:
+                    results["dist_nm_inv_sigma"] = dist_sigma_nm_inv
+                    dist_nm_value = results.get("dist_nm_inv")
+                    if dist_nm_value and dist_nm_value > 1e-12:
+                        results["periodicity_nm_sigma"] = dist_sigma_nm_inv / (dist_nm_value ** 2)
 
             def _flt_pair(pair):
                 if not pair:
@@ -411,21 +442,75 @@ class SuperstructurePeriodicityDialog(QDialog):
             results["satellite_peak_raw_px"] = _flt_pair(self.satellite_peak_raw_refined_px)
             results["main_peak_corrected_px"] = _flt_pair(self.main_peak_corrected_ideal_px)
             results["satellite_peak_corrected_px"] = _flt_pair(self.satellite_peak_corrected_ideal_px)
+            results["main_peak_raw_sigma_px"] = _flt_pair(self.main_peak_raw_sigma_px)
+            results["satellite_peak_raw_sigma_px"] = _flt_pair(self.satellite_peak_raw_sigma_px)
+            results["main_peak_corrected_sigma_px"] = _flt_pair(self.main_peak_corrected_sigma_px)
+            results["satellite_peak_corrected_sigma_px"] = _flt_pair(self.satellite_peak_corrected_sigma_px)
+
+            results["intensity_ratio_sigma"] = self._ratio_sigma(
+                self.satellite_peak_intensity,
+                self.satellite_peak_intensity_sigma,
+                self.main_peak_intensity,
+                self.main_peak_intensity_sigma,
+            )
+            results["amplitude_ratio_sigma"] = self._ratio_sigma(
+                self.satellite_peak_amplitude,
+                self.satellite_peak_amplitude_sigma,
+                self.main_peak_amplitude,
+                self.main_peak_amplitude_sigma,
+            )
+            results["max_value_ratio_sigma"] = self._ratio_sigma(
+                self.satellite_peak_max_value,
+                self.satellite_peak_max_value_sigma,
+                self.main_peak_max_value,
+                self.main_peak_max_value_sigma,
+            )
 
             self._final_results = results
 
-            dist_px_text = format_float(results.get('dist_px'), precision=2)
-            dist_nm_inv_text = format_float(results.get('dist_nm_inv'), precision=4)
-            self.distance_fft_label.setText(
-                f"{dist_px_text} px | {dist_nm_inv_text} nm^-1"
+            dist_px_text = format_value_with_sigma(
+                results.get("dist_px"),
+                results.get("dist_px_sigma"),
+                "px",
+                value_precision=2,
+                sigma_precision=2,
             )
+            dist_nm_inv_text = format_value_with_sigma(
+                results.get("dist_nm_inv"),
+                results.get("dist_nm_inv_sigma"),
+                "nm⁻¹",
+                value_precision=4,
+                sigma_precision=4,
+            )
+            self.distance_fft_label.setText(f"{dist_px_text} | {dist_nm_inv_text}")
 
-            periodicity_text = format_float(results.get('periodicity_nm'), precision=3)
-            self.distance_real_space_label.setText(f"{periodicity_text} nm")
+            periodicity_text = format_value_with_sigma(
+                results.get("periodicity_nm"),
+                results.get("periodicity_nm_sigma"),
+                "nm",
+                value_precision=3,
+                sigma_precision=3,
+            )
+            self.distance_real_space_label.setText(periodicity_text)
 
-            intensity_text = format_ratio(results.get('intensity_ratio'), precision=3)
-            amplitude_text = format_ratio(results.get('amplitude_ratio'), precision=3)
-            max_value_text = format_ratio(results.get('max_value_ratio'), precision=3)
+            intensity_text = format_ratio(
+                results.get('intensity_ratio'),
+                precision=3,
+                sigma=results.get('intensity_ratio_sigma'),
+                sigma_precision=3,
+            )
+            amplitude_text = format_ratio(
+                results.get('amplitude_ratio'),
+                precision=3,
+                sigma=results.get('amplitude_ratio_sigma'),
+                sigma_precision=3,
+            )
+            max_value_text = format_ratio(
+                results.get('max_value_ratio'),
+                precision=3,
+                sigma=results.get('max_value_ratio_sigma'),
+                sigma_precision=3,
+            )
             self.intensity_ratio_label.setText(intensity_text)
             self.amplitude_ratio_label.setText(amplitude_text)
             self.max_value_label.setText(max_value_text)
@@ -442,14 +527,26 @@ class SuperstructurePeriodicityDialog(QDialog):
             return
         results = self._refine_and_process_spot()
         if results:
-            raw,corr,intensity,amplitude, max_value, d_spacing_nm = results
-            self.satellite_peak_raw_refined_px=raw
-            self.satellite_peak_corrected_ideal_px=corr
-            self.satellite_peak_intensity=intensity
-            self.satellite_peak_amplitude=amplitude
-            self.satellite_peak_max_value=max_value
-            self.basic_satellite_periodicity_nm=d_spacing_nm
-            logger.info(f"Satelite peak selected/updated: Raw={raw}, Corrected={corr}, Intensity={intensity:.2e}, Amplitude={amplitude:.2e}")
+            raw = results["raw"]
+            corr = results["corrected"]
+            self.satellite_peak_raw_refined_px = raw
+            self.satellite_peak_corrected_ideal_px = corr
+            self.satellite_peak_intensity = results["intensity"]
+            self.satellite_peak_intensity_sigma = results.get("intensity_sigma")
+            self.satellite_peak_amplitude = results["amplitude"]
+            self.satellite_peak_amplitude_sigma = results.get("amplitude_sigma")
+            self.satellite_peak_max_value = results["max_value"]
+            self.satellite_peak_max_value_sigma = results.get("max_value_sigma")
+            self.basic_satellite_periodicity_nm = results["d_spacing_nm"]
+            self.satellite_peak_raw_sigma_px = results.get("raw_sigma")
+            self.satellite_peak_corrected_sigma_px = results.get("corrected_sigma")
+            logger.info(
+                "Satelite peak selected/updated: Raw=%s, Corrected=%s, Intensity=%.2e, Amplitude=%.2e",
+                raw,
+                corr,
+                self.satellite_peak_intensity,
+                self.satellite_peak_amplitude,
+            )
             self._update_all_ui_elements()
         self.selection_roi.setVisible(False)
         self._update_buttons_state()
@@ -637,24 +734,54 @@ class SuperstructurePeriodicityDialog(QDialog):
         Updates the text fields, displaying information about the selected peaks.
         """
         if self.main_peak_raw_refined_px and self.main_peak_corrected_ideal_px and self.main_peak_intensity is not None:
-            raw = self.main_peak_raw_refined_px
             corr = self.main_peak_corrected_ideal_px
             intensity = self.main_peak_intensity
             amplitude = self.main_peak_amplitude
             max_value = self.main_peak_max_value
             d_spacing_nm = self.basic_main_periodicity_nm
-            self.main_peak_info_label.setText(f"Corrected: ({corr[0]:.1f}, {corr[1]:.1f}) px | I: {intensity:.2e} \n A: {amplitude:.2e} | Max: {max_value:.2e} \n d_spacing: {d_spacing_nm:.2f} nm")
+            corr_text = format_pair_with_sigma(
+                corr,
+                self.main_peak_corrected_sigma_px,
+                precision=2,
+                sigma_precision=3,
+            )
+            d_spacing_text = format_value_with_sigma(
+                d_spacing_nm,
+                None,
+                "nm",
+                value_precision=2,
+                sigma_precision=2,
+            )
+            self.main_peak_info_label.setText(
+                f"Corrected: {corr_text} px | I: {intensity:.2e} \n"
+                f"A: {amplitude:.2e} | Max: {max_value:.2e} \n d_spacing: {d_spacing_text}"
+            )
         else:
             self.main_peak_info_label.setText("Not Selected")
         
         if self.satellite_peak_raw_refined_px and self.satellite_peak_corrected_ideal_px and self.satellite_peak_intensity is not None:
-            raw = self.satellite_peak_raw_refined_px
             corr = self.satellite_peak_corrected_ideal_px
             intensity = self.satellite_peak_intensity
             amplitude = self.satellite_peak_amplitude
             max_value = self.satellite_peak_max_value
             d_spacing_nm = self.basic_satellite_periodicity_nm
-            self.satellite_peak_info_label.setText(f"Corrected: ({corr[0]:.1f}, {corr[1]:.1f}) px | I: {intensity:.2e} \n A: {amplitude:.2e} | Max: {max_value:.2e} \n d_spacing: {d_spacing_nm:.2f} nm")
+            corr_text = format_pair_with_sigma(
+                corr,
+                self.satellite_peak_corrected_sigma_px,
+                precision=2,
+                sigma_precision=3,
+            )
+            d_spacing_text = format_value_with_sigma(
+                d_spacing_nm,
+                None,
+                "nm",
+                value_precision=2,
+                sigma_precision=2,
+            )
+            self.satellite_peak_info_label.setText(
+                f"Corrected: {corr_text} px | I: {intensity:.2e} \n"
+                f"A: {amplitude:.2e} | Max: {max_value:.2e} \n d_spacing: {d_spacing_text}"
+            )
         else:
             self.satellite_peak_info_label.setText("Not Selected")
 
@@ -716,51 +843,114 @@ class SuperstructurePeriodicityDialog(QDialog):
         self.last_preview_gauss_roi_state = None
         logger.debug("Cleared last preview Gaussian fit results.")
     
-    def _refine_and_process_spot(self) -> Optional[Tuple[Tuple[float, float], Tuple[float, float], float]]:
-        if not self.selection_roi.isVisible() or self.fft_data is None: return None
-        
-        roi_state=self.selection_roi.getState()
-        x0r,y0r=int(round(roi_state['pos'].x())),int(round(roi_state['pos'].y()))
-        wr,hr=int(round(roi_state['size'].x())),int(round(roi_state['size'].y()))
-        ckx_roi,cky_roi=x0r+wr//2,y0r+hr//2
-
-        if not (PEAK_FITTING_MODULE_AVAILABLE and fit_2d_gaussian_in_roi_with_all_data and callable(fit_2d_gaussian_in_roi_with_all_data)): 
+    def _refine_and_process_spot(self) -> Optional[Dict[str, Any]]:
+        if not self.selection_roi.isVisible() or self.fft_data is None:
             return None
-        
-        pr=self.refinement_roi_size_spinbox.value()//2
-        mh,mw=self.fft_data.shape
-        eff_cky,eff_ckx=np.clip(cky_roi,pr,mh-1-pr),np.clip(ckx_roi,pr,mw-1-pr)
+
+        roi_state = self.selection_roi.getState()
+        x0r, y0r = int(round(roi_state["pos"].x())), int(round(roi_state["pos"].y()))
+        wr, hr = int(round(roi_state["size"].x())), int(round(roi_state["size"].y()))
+        ckx_roi, cky_roi = x0r + wr // 2, y0r + hr // 2
+
+        if not (
+            PEAK_FITTING_MODULE_AVAILABLE
+            and fit_2d_gaussian_in_roi_with_all_data
+            and callable(fit_2d_gaussian_in_roi_with_all_data)
+        ):
+            return None
+
+        pr = self.refinement_roi_size_spinbox.value() // 2
+        mh, mw = self.fft_data.shape
+        eff_cky, eff_ckx = np.clip(cky_roi, pr, mh - 1 - pr), np.clip(ckx_roi, pr, mw - 1 - pr)
 
         fit_res = fit_2d_gaussian_in_roi_with_all_data(self.fft_data, (eff_cky, eff_ckx), pr)
         if not fit_res:
             logger.warning("Gaussian fit failed.")
             return None
+
         refined_kx_fft = float(fit_res.center[1])
         refined_ky_fft = float(fit_res.center[0])
-        
         raw_refined_spot = (refined_kx_fft, refined_ky_fft)
-        
+
+        amplitude = 0.0
+        amplitude_sigma: Optional[float] = None
+        sigma_y = 0.0
+        sigma_x = 0.0
         intensity = 0.0
-        if fit_res.popt is not None:
-            amplitude, _, _, sigma_y, sigma_x, _, _ = fit_res.popt
-            intensity = 2 * np.pi * abs(amplitude) * abs(sigma_x) * abs(sigma_y)
+        intensity_sigma: Optional[float] = None
+        if fit_res.popt is not None and len(fit_res.popt) >= 5:
+            amplitude = float(fit_res.popt[0])
+            sigma_y = float(fit_res.popt[3])
+            sigma_x = float(fit_res.popt[4])
+            intensity = 2 * math.pi * abs(amplitude) * abs(sigma_x) * abs(sigma_y)
+            if fit_res.pcov is not None and fit_res.pcov.shape[0] >= 5:
+                var_amp = float(fit_res.pcov[0, 0])
+                if math.isfinite(var_amp) and var_amp >= 0.0:
+                    amplitude_sigma = math.sqrt(var_amp)
+                amp_sigma_indices = np.ix_([0, 3, 4], [0, 3, 4])
+                amp_cov = np.asarray(fit_res.pcov[amp_sigma_indices], dtype=float)
+                if amp_cov.shape == (3, 3) and np.all(np.isfinite(amp_cov)):
+                    intensity_sigma = self._compute_intensity_sigma(
+                        amplitude,
+                        sigma_x,
+                        sigma_y,
+                        amp_cov,
+                    )
+
         roi_patch_used = fit_res.roi_patch
         max_value = float(np.max(roi_patch_used)) if roi_patch_used.size > 0 else 0.0
-        
+        max_value_sigma = None
+        if hasattr(fit_res, "noise_sigma") and fit_res.noise_sigma is not None:
+            try:
+                nv = float(fit_res.noise_sigma)
+            except (TypeError, ValueError):
+                nv = None
+            else:
+                if math.isfinite(nv) and nv >= 0.0:
+                    max_value_sigma = nv
+
+        raw_sigma: Optional[Tuple[float, float]] = None
+        if fit_res.center_std:
+            std_y, std_x = fit_res.center_std
+            try:
+                raw_sigma = (abs(float(std_x)), abs(float(std_y)))
+            except (TypeError, ValueError):
+                raw_sigma = None
+
+        raw_cov = None
+        if raw_sigma:
+            raw_cov = np.array(
+                [[raw_sigma[0] ** 2, 0.0], [0.0, raw_sigma[1] ** 2]],
+                dtype=float,
+            )
+
+        corrected_spot: Optional[Tuple[float, float]] = raw_refined_spot
+        corrected_cov = raw_cov.copy() if raw_cov is not None else None
         if self.apply_substrate_transform_checkbox.isChecked():
             corrected_spot = None
-            if self.sub_F_m2i is not None and self.sub_t_m2i is not None and apply_affine_transform:
-                try:
-                    corrected_array = apply_affine_transform(np.array([raw_refined_spot]), self.sub_F_m2i, self.sub_t_m2i)
+            try:
+                if (
+                    self.sub_F_m2i is not None
+                    and self.sub_t_m2i is not None
+                    and apply_affine_transform
+                ):
+                    corrected_array = apply_affine_transform(
+                        np.array([raw_refined_spot]),
+                        self.sub_F_m2i,
+                        self.sub_t_m2i,
+                    )
                     if corrected_array is not None:
                         corrected_spot = tuple(corrected_array[0])
-                except Exception as e:
-                    logger.error(f"Error correcting spot {raw_refined_spot}: {e}")
-        else:
-            corrected_spot = raw_refined_spot
-        
+                        if corrected_cov is not None:
+                            corrected_cov = self.sub_F_m2i @ corrected_cov @ self.sub_F_m2i.T
+            except Exception as exc:
+                logger.error(f"Error correcting spot {raw_refined_spot}: {exc}")
+        if corrected_spot is None:
+            logger.warning(f"Could not correct spot {raw_refined_spot}.")
+            return None
+
         d_spacing_nm = None
-        if corrected_spot and self.fft_data is not None and self.history_manager:
+        if self.fft_data is not None and self.history_manager:
             root_node = self.history_manager.get_root_node_for_node(self.current_fft_node_id)
             if root_node and root_node.parameters:
                 lx = root_node.parameters.get("size_nm_x")
@@ -770,14 +960,189 @@ class SuperstructurePeriodicityDialog(QDialog):
                         spot_corrected_ideal_px=corrected_spot,
                         fft_shape=self.fft_data.shape,
                         lx_nm=lx,
-                        ly_nm=ly
+                        ly_nm=ly,
                     )
 
-        if corrected_spot is None: 
-            logger.warning(f"Could not correct spot {raw_refined_spot}.")
+        corrected_sigma = self._sigma_from_covariance(corrected_cov)
+
+        return {
+            "raw": raw_refined_spot,
+            "corrected": corrected_spot,
+            "intensity": float(intensity),
+            "intensity_sigma": intensity_sigma,
+            "amplitude": float(amplitude),
+            "amplitude_sigma": amplitude_sigma,
+            "max_value": float(max_value),
+            "max_value_sigma": max_value_sigma,
+            "d_spacing_nm": d_spacing_nm,
+            "raw_sigma": raw_sigma,
+            "corrected_sigma": corrected_sigma,
+        }
+
+    @staticmethod
+    def _sigma_from_covariance(covariance: Optional[np.ndarray]) -> Optional[Tuple[float, float]]:
+        if covariance is None or getattr(covariance, "shape", None) != (2, 2):
+            return None
+        try:
+            sigma_x = math.sqrt(max(float(covariance[0, 0]), 0.0))
+            sigma_y = math.sqrt(max(float(covariance[1, 1]), 0.0))
+        except (TypeError, ValueError):
+            return None
+        return (sigma_x, sigma_y)
+
+    @staticmethod
+    def _compute_intensity_sigma(
+        amplitude: float,
+        sigma_x: float,
+        sigma_y: float,
+        covariance: Optional[np.ndarray],
+    ) -> Optional[float]:
+        if covariance is None:
+            return None
+        try:
+            amp = float(amplitude)
+            sx = float(sigma_x)
+            sy = float(sigma_y)
+        except (TypeError, ValueError):
+            return None
+        abs_amp = abs(amp)
+        abs_sx = abs(sx)
+        abs_sy = abs(sy)
+        prefactor = 2.0 * math.pi
+        intensity = prefactor * abs_amp * abs_sx * abs_sy
+        if not math.isfinite(intensity):
+            return None
+        cov = np.asarray(covariance, dtype=float)
+        if cov.shape != (3, 3) or not np.all(np.isfinite(cov)):
             return None
 
-        return raw_refined_spot, corrected_spot, intensity, amplitude, max_value, d_spacing_nm
+        def _component_derivative(component_value: float, other_product: float) -> float:
+            if abs(component_value) < 1e-12:
+                return 0.0
+            return prefactor * other_product * (1.0 if component_value >= 0.0 else -1.0)
+
+        d_da = _component_derivative(amp, abs_sx * abs_sy)
+        d_dsigma_y = _component_derivative(sy, abs_amp * abs_sx)
+        d_dsigma_x = _component_derivative(sx, abs_amp * abs_sy)
+        gradient = np.array([d_da, d_dsigma_y, d_dsigma_x], dtype=float)
+        variance = float(gradient @ cov @ gradient.T)
+        if not math.isfinite(variance) or variance < 0.0:
+            return None
+        return math.sqrt(variance)
+
+    def _propagate_superstructure_uncertainties(
+        self,
+        *,
+        delta_px: Tuple[float, float],
+        main_sigma: Optional[Tuple[float, float]],
+        satellite_sigma: Optional[Tuple[float, float]],
+        lx_nm: float,
+        ly_nm: float,
+    ) -> Tuple[Optional[float], Optional[float]]:
+        var_dx_px = self._combined_component_variance(main_sigma, satellite_sigma, index=0)
+        var_dy_px = self._combined_component_variance(main_sigma, satellite_sigma, index=1)
+        dist_sigma_px = self._magnitude_sigma(delta_px, var_dx_px, var_dy_px)
+
+        dist_sigma_nm_inv = None
+        if lx_nm and ly_nm and (var_dx_px is not None or var_dy_px is not None):
+            delta_nm = (
+                delta_px[0] / lx_nm if lx_nm else 0.0,
+                delta_px[1] / ly_nm if ly_nm else 0.0,
+            )
+            var_dx_nm = var_dx_px / (lx_nm**2) if var_dx_px is not None else None
+            var_dy_nm = var_dy_px / (ly_nm**2) if var_dy_px is not None else None
+            dist_sigma_nm_inv = self._magnitude_sigma(delta_nm, var_dx_nm, var_dy_nm)
+
+        return dist_sigma_px, dist_sigma_nm_inv
+
+    @staticmethod
+    def _combined_component_variance(
+        first_sigma: Optional[Tuple[float, float]],
+        second_sigma: Optional[Tuple[float, float]],
+        *,
+        index: int,
+    ) -> Optional[float]:
+        variance = 0.0
+        has_value = False
+        for sigma_pair in (first_sigma, second_sigma):
+            if sigma_pair is None or len(sigma_pair) <= index:
+                continue
+            component = sigma_pair[index]
+            if component is None:
+                continue
+            try:
+                component_value = float(component)
+            except (TypeError, ValueError):
+                continue
+            if not math.isfinite(component_value):
+                continue
+            variance += max(component_value, 0.0) ** 2
+            has_value = True
+        return variance if has_value else None
+
+    @staticmethod
+    def _magnitude_sigma(
+        vector: Tuple[float, float],
+        var_x: Optional[float],
+        var_y: Optional[float],
+    ) -> Optional[float]:
+        if vector is None:
+            return None
+        dx, dy = vector
+        norm = math.hypot(dx, dy)
+        if norm <= 1e-9:
+            return None
+        variance = 0.0
+        has_component = False
+        if var_x is not None and var_x >= 0.0:
+            variance += (dx / norm) ** 2 * var_x
+            has_component = True
+        if var_y is not None and var_y >= 0.0:
+            variance += (dy / norm) ** 2 * var_y
+            has_component = True
+        if not has_component:
+            return None
+        return math.sqrt(variance) if variance > 0.0 else 0.0
+
+    @staticmethod
+    def _ratio_sigma(
+        numerator: Optional[float],
+        numerator_sigma: Optional[float],
+        denominator: Optional[float],
+        denominator_sigma: Optional[float],
+    ) -> Optional[float]:
+        try:
+            num = float(numerator)
+            den = float(denominator)
+        except (TypeError, ValueError):
+            return None
+        if abs(den) < 1e-12:
+            return None
+
+        variance = 0.0
+        has_component = False
+        if numerator_sigma is not None:
+            try:
+                sigma_num = float(numerator_sigma)
+            except (TypeError, ValueError):
+                sigma_num = None
+            else:
+                if math.isfinite(sigma_num) and sigma_num >= 0.0:
+                    variance += (sigma_num / den) ** 2
+                    has_component = True
+        if denominator_sigma is not None:
+            try:
+                sigma_den = float(denominator_sigma)
+            except (TypeError, ValueError):
+                sigma_den = None
+            else:
+                if math.isfinite(sigma_den) and sigma_den >= 0.0:
+                    variance += ((num * sigma_den) / (den ** 2)) ** 2
+                    has_component = True
+
+        if not has_component or variance < 0.0 or not math.isfinite(variance):
+            return None
+        return math.sqrt(variance)
 
     @pyqtSlot()
     def _on_add_main_spot_clicked(self):
@@ -787,14 +1152,26 @@ class SuperstructurePeriodicityDialog(QDialog):
         
         results = self._refine_and_process_spot()
         if results:
-            raw,corr,intensity,amplitude, max_value, d_spacing_nm = results
-            self.main_peak_raw_refined_px=raw
-            self.main_peak_corrected_ideal_px=corr
-            self.main_peak_intensity=intensity
-            self.main_peak_amplitude=amplitude
-            self.main_peak_max_value=max_value
-            self.basic_main_periodicity_nm=d_spacing_nm
-            logger.info(f"Main peak selected/updated: Raw={raw}, Corrected={corr}, Intensity={intensity:.2e}, Amplitude={amplitude:.2e}")
+            raw = results["raw"]
+            corr = results["corrected"]
+            self.main_peak_raw_refined_px = raw
+            self.main_peak_corrected_ideal_px = corr
+            self.main_peak_intensity = results["intensity"]
+            self.main_peak_intensity_sigma = results.get("intensity_sigma")
+            self.main_peak_amplitude = results["amplitude"]
+            self.main_peak_amplitude_sigma = results.get("amplitude_sigma")
+            self.main_peak_max_value = results["max_value"]
+            self.main_peak_max_value_sigma = results.get("max_value_sigma")
+            self.basic_main_periodicity_nm = results["d_spacing_nm"]
+            self.main_peak_raw_sigma_px = results.get("raw_sigma")
+            self.main_peak_corrected_sigma_px = results.get("corrected_sigma")
+            logger.info(
+                "Main peak selected/updated: Raw=%s, Corrected=%s, Intensity=%.2e, Amplitude=%.2e",
+                raw,
+                corr,
+                self.main_peak_intensity,
+                self.main_peak_amplitude,
+            )
             self._update_all_ui_elements()
         self.selection_roi.setVisible(False)
         self._update_buttons_state()

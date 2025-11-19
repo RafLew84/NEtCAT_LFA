@@ -139,17 +139,44 @@ class FFTAnalysisPanel(QWidget):
     def update_superstructure_periodicity_display(self, results: Optional[Dict[str, Any]]):
         """Updates the labels with the superstructure periodicity analysis results."""
         if results:
-            dist_px = format_float(results.get("dist_px"), 2)
-            dist_nm_inv = format_float(results.get("dist_nm_inv"), 4)
-            periodicity = format_float(results.get("periodicity_nm"), 3)
-            intensity = format_ratio(results.get("intensity_ratio"))
-            amplitude = format_ratio(results.get("amplitude_ratio"))
-            max_value = format_ratio(results.get("max_value_ratio"))
+            dist_px = format_value_with_sigma(
+                results.get("dist_px"),
+                results.get("dist_px_sigma"),
+                "px",
+                value_precision=2,
+                sigma_precision=2,
+            )
+            dist_nm_inv = format_value_with_sigma(
+                results.get("dist_nm_inv"),
+                results.get("dist_nm_inv_sigma"),
+                "nm⁻¹",
+                value_precision=4,
+                sigma_precision=4,
+            )
+            periodicity = format_value_with_sigma(
+                results.get("periodicity_nm"),
+                results.get("periodicity_nm_sigma"),
+                "nm",
+                value_precision=3,
+                sigma_precision=3,
+            )
+            intensity = format_ratio(
+                results.get("intensity_ratio"),
+                sigma=results.get("intensity_ratio_sigma"),
+            )
+            amplitude = format_ratio(
+                results.get("amplitude_ratio"),
+                sigma=results.get("amplitude_ratio_sigma"),
+            )
+            max_value = format_ratio(
+                results.get("max_value_ratio"),
+                sigma=results.get("max_value_ratio_sigma"),
+            )
 
             self.superstructure_dist_kspace_label.setText(
-                f"{dist_px} px | {dist_nm_inv} nm⁻¹ | I\u209B/I\u2098: {intensity}"
+                f"{dist_px} | {dist_nm_inv} | I\u209B/I\u2098: {intensity}"
             )
-            self.superstructure_periodicity_label.setText(f"{periodicity} nm")
+            self.superstructure_periodicity_label.setText(periodicity)
             self.superstructure_intensity_ratio_label.setText(intensity)
             self.superstructure_amplitude_ratio_label.setText(amplitude)
             self.superstructure_max_value_ratio_label.setText(max_value)
