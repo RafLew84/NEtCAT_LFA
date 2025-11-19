@@ -122,12 +122,14 @@ class FFTAnalysisPanel(QWidget):
         layout = QFormLayout(self.superstructure_periodicity_group)
         
         self.superstructure_dist_kspace_label = QLabel("-")
+        self.superstructure_center_ratio_label = QLabel("-")
         self.superstructure_periodicity_label = QLabel("-")
         self.superstructure_intensity_ratio_label = QLabel("-")
         self.superstructure_amplitude_ratio_label = QLabel("-")
         self.superstructure_max_value_ratio_label = QLabel("-")
 
         layout.addRow("k-space Distance (Δg*):", self.superstructure_dist_kspace_label)
+        layout.addRow("Center distance ratio:", self.superstructure_center_ratio_label)
         layout.addRow("Real Space Periodicity (P):", self.superstructure_periodicity_label)
         layout.addRow("Intensity Ratio (Sat/Main):", self.superstructure_intensity_ratio_label)
         layout.addRow("Amplitude Ratio (Sat/Main):", self.superstructure_amplitude_ratio_label)
@@ -172,9 +174,32 @@ class FFTAnalysisPanel(QWidget):
                 results.get("max_value_ratio"),
                 sigma=results.get("max_value_ratio_sigma"),
             )
+            center_ratio = format_ratio(
+                results.get("center_dist_ratio_sat_main_nm"),
+                sigma=results.get("center_dist_ratio_sat_main_nm_sigma"),
+                precision=3,
+                sigma_precision=3,
+            )
+            main_center = format_value_with_sigma(
+                results.get("main_center_dist_nm_inv"),
+                results.get("main_center_dist_nm_inv_sigma"),
+                "nm⁻¹",
+                value_precision=4,
+                sigma_precision=4,
+            )
+            sat_center = format_value_with_sigma(
+                results.get("satellite_center_dist_nm_inv"),
+                results.get("satellite_center_dist_nm_inv_sigma"),
+                "nm⁻¹",
+                value_precision=4,
+                sigma_precision=4,
+            )
 
             self.superstructure_dist_kspace_label.setText(
                 f"{dist_px} | {dist_nm_inv} | I\u209B/I\u2098: {intensity}"
+            )
+            self.superstructure_center_ratio_label.setText(
+                f"r_sat/r_main: {center_ratio} (main={main_center}, sat={sat_center})"
             )
             self.superstructure_periodicity_label.setText(periodicity)
             self.superstructure_intensity_ratio_label.setText(intensity)

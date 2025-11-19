@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QSpinBox,
     QSplitter,
     QVBoxLayout,
@@ -303,16 +304,23 @@ class SuperstructurePeriodicityDialog(QDialog):
         self.calculate_distance_button.setEnabled(False)
         results_layout.addRow(self.calculate_distance_button)
         self.distance_fft_label = QLabel("-")
+        self.center_ratio_label = QLabel("-")
         self.distance_real_space_label = QLabel("-")
         self.intensity_ratio_label = QLabel("-")
         self.amplitude_ratio_label = QLabel("-")
         self.max_value_label = QLabel("-")
         results_layout.addRow("Distance in k-space (Δg*):", self.distance_fft_label)
+        results_layout.addRow("Center distance ratio:", self.center_ratio_label)
         results_layout.addRow("Real Space Periodicity (P):", self.distance_real_space_label)
         results_layout.addRow("Intensity Ratio (Sat/Main):", self.intensity_ratio_label)
         results_layout.addRow("Amplitude Ratio (Sat/Main):", self.amplitude_ratio_label)
         results_layout.addRow("Max Value Ratio (Set/Main):", self.max_value_label)
-        right_panel_layout.addWidget(results_group)
+        results_scroll = QScrollArea()
+        results_scroll.setWidgetResizable(True)
+        results_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        results_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        results_scroll.setWidget(results_group)
+        right_panel_layout.addWidget(results_scroll)
 
         self.status_label = QLabel("Click on FFT to select a spot.")
         right_panel_layout.addWidget(self.status_label)
@@ -447,6 +455,91 @@ class SuperstructurePeriodicityDialog(QDialog):
             results["main_peak_corrected_sigma_px"] = _flt_pair(self.main_peak_corrected_sigma_px)
             results["satellite_peak_corrected_sigma_px"] = _flt_pair(self.satellite_peak_corrected_sigma_px)
 
+            fft_cols = self.fft_data.shape[1]
+            fft_rows = self.fft_data.shape[0]
+            fft_center = (fft_cols / 2.0, fft_rows / 2.0)
+
+            def _center_distance(pt):
+                if not pt:
+                    return None
+                try:
+                    px = float(pt[0]) - fft_center[0]
+                    py = float(pt[1]) - fft_center[1]
+                except (TypeError, ValueError):
+                    return None
+                return math.hypot(px, py)
+
+            def _center_distance_nm_inv(pt, sigma_px):
+                if not pt:
+                    return None, None
+                g_vec_px = (pt[0] - fft_center[0], pt[1] - fft_center[1])
+                g_vec_nm = convert_g_vector_px_to_nm_inv(
+                    g_vec_px,
+                    Lx_nm,
+                    Ly_nm,
+                    fft_cols,
+                    fft_rows,
+                )
+                if g_vec_nm is None:
+                    return None, None
+                dist_nm_inv = math.hypot(g_vec_nm[0], g_vec_nm[1])
+                sigma_nm = None
+                if sigma_px:
+                    try:
+                        sig_x_px = float(sigma_px[0])
+                        sig_y_px = float(sigma_px[1])
+                    except (TypeError, ValueError):
+                        sig_x_px = sig_y_px = None
+                    if sig_x_px is not None and sig_y_px is not None:
+                        var_x_nm = (sig_x_px / Lx_nm) ** 2
+                        var_y_nm = (sig_y_px / Ly_nm) ** 2
+                        sigma_nm = self._magnitude_sigma(g_vec_nm, var_x_nm, var_y_nm)
+                return dist_nm_inv, sigma_nm
+
+            main_center_dist = _center_distance(self.main_peak_corrected_ideal_px)
+            satellite_center_dist = _center_distance(self.satellite_peak_corrected_ideal_px)
+            if main_center_dist is not None:
+                results["main_center_dist_px"] = main_center_dist
+            if satellite_center_dist is not None:
+                results["satellite_center_dist_px"] = satellite_center_dist
+            if (
+                satellite_center_dist is not None
+                and main_center_dist is not None
+                and main_center_dist > 1e-9
+            ):
+                results["center_dist_ratio_sat_main"] = satellite_center_dist / main_center_dist
+
+            main_center_nm, main_center_nm_sigma = _center_distance_nm_inv(
+                self.main_peak_corrected_ideal_px,
+                self.main_peak_corrected_sigma_px,
+            )
+            sat_center_nm, sat_center_nm_sigma = _center_distance_nm_inv(
+                self.satellite_peak_corrected_ideal_px,
+                self.satellite_peak_corrected_sigma_px,
+            )
+            if main_center_nm is not None:
+                results["main_center_dist_nm_inv"] = main_center_nm
+            if sat_center_nm is not None:
+                results["satellite_center_dist_nm_inv"] = sat_center_nm
+            if main_center_nm_sigma is not None:
+                results["main_center_dist_nm_inv_sigma"] = main_center_nm_sigma
+            if sat_center_nm_sigma is not None:
+                results["satellite_center_dist_nm_inv_sigma"] = sat_center_nm_sigma
+            if (
+                main_center_nm is not None
+                and sat_center_nm is not None
+                and main_center_nm > 1e-12
+            ):
+                results["center_dist_ratio_sat_main_nm"] = sat_center_nm / main_center_nm
+                ratio_sigma_nm = self._ratio_sigma(
+                    sat_center_nm,
+                    sat_center_nm_sigma,
+                    main_center_nm,
+                    main_center_nm_sigma,
+                )
+                if ratio_sigma_nm is not None:
+                    results["center_dist_ratio_sat_main_nm_sigma"] = ratio_sigma_nm
+
             results["intensity_ratio_sigma"] = self._ratio_sigma(
                 self.satellite_peak_intensity,
                 self.satellite_peak_intensity_sigma,
@@ -483,6 +576,27 @@ class SuperstructurePeriodicityDialog(QDialog):
                 sigma_precision=4,
             )
             self.distance_fft_label.setText(f"{dist_px_text} | {dist_nm_inv_text}")
+
+            ratio_value = results.get("center_dist_ratio_sat_main_nm")
+            ratio_sigma_val = results.get("center_dist_ratio_sat_main_nm_sigma")
+            ratio_text = format_ratio(ratio_value, precision=3, sigma=ratio_sigma_val, sigma_precision=3)
+            main_center = format_value_with_sigma(
+                results.get("main_center_dist_nm_inv"),
+                results.get("main_center_dist_nm_inv_sigma"),
+                "nm⁻¹",
+                value_precision=4,
+                sigma_precision=4,
+            )
+            sat_center = format_value_with_sigma(
+                results.get("satellite_center_dist_nm_inv"),
+                results.get("satellite_center_dist_nm_inv_sigma"),
+                "nm⁻¹",
+                value_precision=4,
+                sigma_precision=4,
+            )
+            self.center_ratio_label.setText(
+                f"r_sat/r_main: {ratio_text} (main={main_center}, sat={sat_center})"
+            )
 
             periodicity_text = format_value_with_sigma(
                 results.get("periodicity_nm"),
