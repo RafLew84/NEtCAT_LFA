@@ -148,6 +148,11 @@ class HistoryViewHandler:
             self._visualization.update_substrate_spot_pairs([])
             self._visualization.clear_adsorbate_layers()
 
+        if controller:
+            self._visualization.update_superstructure_overlay(
+                controller.superstructure_periodicity_results
+            )
+
     def update_selected_spots_display(self) -> None:
         """Refresh FFT analysis panel text describing selected spots."""
         if not self._fft_panel or not hasattr(self._fft_panel, "selected_spots_display"):

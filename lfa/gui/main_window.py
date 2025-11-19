@@ -409,6 +409,8 @@ class MainWindow(QMainWindow):
         if hasattr(self, 'fft_analysis_panel_widget') and self.fft_analysis_panel_widget:
             logger.debug(f"MainWindow: Received superstructure periodicity results update: {results}")
             self.fft_analysis_panel_widget.update_superstructure_periodicity_display(results)
+        if hasattr(self, "visualization_manager") and self.visualization_manager:
+            self.visualization_manager.update_superstructure_overlay(results)
 
     @pyqtSlot()
     def open_real_space_reconstruction_dialog(self):

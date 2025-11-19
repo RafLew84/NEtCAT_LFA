@@ -70,7 +70,11 @@ class VisualizationManager(QObject):
         self._adsorbate_raw_visibility: Dict[int, bool] = {}
         self._adsorbate_transformed_visibility: Dict[int, bool] = {}
 
+        self.superstructure_markers: Optional[pg.ScatterPlotItem] = None
+        self.superstructure_line: Optional[pg.PlotDataItem] = None
+
         self._current_fft_mouse_click_connection = None 
+        self._current_node_data_type: Optional[str] = None
 
         logger.info("VisualizationManager initialized successfully.")
 
@@ -108,6 +112,8 @@ class VisualizationManager(QObject):
 
         self._clear_all_graphic_items()      
         self._disconnect_fft_click_handler() 
+
+        self._current_node_data_type = current_node.data_type if current_node else None
 
         if current_node and current_node.image_data is not None:
             display_data = current_node.image_data
@@ -174,6 +180,64 @@ class VisualizationManager(QObject):
             for line in line_list:
                 self._remove_item_from_view(line)
         self.adsorbate_pair_lines = {}
+
+    def update_superstructure_overlay(self, results: Optional[Dict[str, Any]]) -> None:
+        """Render main/satellite peaks and their connecting vector."""
+        self._clear_superstructure_overlay()
+        logger.debug("VisualizationManager: update_superstructure_overlay called with %s", results)
+        if (
+            not self.view_box
+            or not results
+            or self._current_node_data_type != "FFT"
+        ):
+            logger.debug(
+                "VisualizationManager: skipping overlay (view_box=%s, results=%s, data_type=%s)",
+                bool(self.view_box),
+                bool(results),
+                self._current_node_data_type,
+            )
+            return
+
+        raw_main = results.get("main_peak_raw_px")
+        raw_sat = results.get("satellite_peak_raw_px")
+        if not raw_main or not raw_sat:
+            logger.debug(
+                "VisualizationManager: missing raw peak coordinates (main=%s, sat=%s)",
+                raw_main,
+                raw_sat,
+            )
+            return
+
+        xs = [float(raw_main[0]), float(raw_sat[0])]
+        ys = [float(raw_main[1]), float(raw_sat[1])]
+        logger.debug("VisualizationManager: drawing superstructure overlay points x=%s y=%s", xs, ys)
+
+        self.superstructure_markers = pg.ScatterPlotItem(
+            x=xs,
+            y=ys,
+            pen=pg.mkPen(color=(255, 215, 0), width=1),
+            brush=pg.mkBrush(255, 215, 0, 160),
+            size=11,
+            symbol="t",
+        )
+        self.superstructure_markers.setZValue(120)
+        self.view_box.addItem(self.superstructure_markers)
+
+        self.superstructure_line = pg.PlotDataItem(
+            xs,
+            ys,
+            pen=pg.mkPen(color=(255, 140, 0), width=2, style=Qt.PenStyle.DashLine),
+        )
+        self.superstructure_line.setZValue(119)
+        self.view_box.addItem(self.superstructure_line)
+
+    def _clear_superstructure_overlay(self) -> None:
+        if self.superstructure_markers:
+            self._remove_item_from_view(self.superstructure_markers)
+            self.superstructure_markers = None
+        if self.superstructure_line:
+            self._remove_item_from_view(self.superstructure_line)
+            self.superstructure_line = None
 
     def update_substrate_spot_pairs(
         self,

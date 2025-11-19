@@ -25,6 +25,7 @@ from ...analysis.drift_correction import apply_affine_transform
 from ...analysis.lattice import (
     calculate_d_spacing_from_ideal_spot,
     calculate_superstructure_periodicity_parameters,
+    convert_g_vector_px_to_nm_inv,
 )
 from ..utils.display import (
     format_float,
@@ -384,6 +385,33 @@ class SuperstructurePeriodicityDialog(QDialog):
             
 
         if results:
+            # enrich with positional context for downstream overlays/reports
+            if self.main_peak_corrected_ideal_px and self.satellite_peak_corrected_ideal_px:
+                delta_px = (
+                    float(self.satellite_peak_corrected_ideal_px[0] - self.main_peak_corrected_ideal_px[0]),
+                    float(self.satellite_peak_corrected_ideal_px[1] - self.main_peak_corrected_ideal_px[1]),
+                )
+                results["delta_g_px"] = delta_px
+                delta_nm_inv_vec = convert_g_vector_px_to_nm_inv(
+                    delta_px,
+                    Lx_nm,
+                    Ly_nm,
+                    self.fft_data.shape[1],
+                    self.fft_data.shape[0],
+                )
+                if delta_nm_inv_vec is not None:
+                    results["delta_g_nm_inv_vec"] = tuple(float(v) for v in delta_nm_inv_vec)
+
+            def _flt_pair(pair):
+                if not pair:
+                    return None
+                return (float(pair[0]), float(pair[1]))
+
+            results["main_peak_raw_px"] = _flt_pair(self.main_peak_raw_refined_px)
+            results["satellite_peak_raw_px"] = _flt_pair(self.satellite_peak_raw_refined_px)
+            results["main_peak_corrected_px"] = _flt_pair(self.main_peak_corrected_ideal_px)
+            results["satellite_peak_corrected_px"] = _flt_pair(self.satellite_peak_corrected_ideal_px)
+
             self._final_results = results
 
             dist_px_text = format_float(results.get('dist_px'), precision=2)

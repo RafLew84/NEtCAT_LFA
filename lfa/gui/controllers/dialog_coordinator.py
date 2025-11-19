@@ -270,7 +270,7 @@ class DialogCoordinator:
             dialog.setWindowTitle(f"{dialog.windowTitle()} [{source_label}]")
 
         if dialog.exec() == QDialog.DialogCode.Accepted:
-            results = dialog.get_results()
+            results = dialog.get_analysis_results()
             if results:
                 logger.info("Superstructure periodicity analysis accepted with results: %s", results)
                 self._controller.update_superstructure_periodicity_results(results)
