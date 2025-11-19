@@ -146,7 +146,9 @@ class FFTAnalysisPanel(QWidget):
             amplitude = format_ratio(results.get("amplitude_ratio"))
             max_value = format_ratio(results.get("max_value_ratio"))
 
-            self.superstructure_dist_kspace_label.setText(f"{dist_px} px | {dist_nm_inv} nm⁻¹")
+            self.superstructure_dist_kspace_label.setText(
+                f"{dist_px} px | {dist_nm_inv} nm⁻¹ | I\u209B/I\u2098: {intensity}"
+            )
             self.superstructure_periodicity_label.setText(f"{periodicity} nm")
             self.superstructure_intensity_ratio_label.setText(intensity)
             self.superstructure_amplitude_ratio_label.setText(amplitude)
