@@ -130,6 +130,8 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         self.g_substrate_vector_lines: List[PlotItem] = []
         self.g_substrate_vector_labels: List[TextItem] = []
         self.g_adsorbate_vector_lines: List[PlotItem] = []
+        self.g_adsorbate_vector_labels: List[TextItem] = []
+        self.fft_overlay_misc_items: List[PlotItem | TextItem] = []
         self.real_space_substrate_lattice_item: Optional[ScatterPlotItem] = None
         self.real_space_substrate_vector_items: List[PlotItem] = []
         self.real_space_adsorbate_lattice_items: Dict[int, ScatterPlotItem] = {}
@@ -190,6 +192,7 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         """
         self.close_button.clicked.connect(self.accept)
         self.cb_show_substrate_real_lattice.stateChanged.connect(self._trigger_redraw_all_visuals)
+        self.cb_show_fft_axes.stateChanged.connect(self._trigger_redraw_all_visuals)
         self.cb_visual_align.stateChanged.connect(self._trigger_redraw_all_visuals)
         self.cb_show_g_substrate_fft.stateChanged.connect(self._trigger_redraw_all_visuals)
         self.cb_show_g_adsorbate_fft.stateChanged.connect(self._trigger_redraw_all_visuals)
@@ -515,12 +518,34 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         self.g_substrate_vector_labels.clear()
         for item in self.g_adsorbate_vector_lines: plot_item.removeItem(item)
         self.g_adsorbate_vector_lines.clear()
+        for item in getattr(self, "g_adsorbate_vector_labels", []):
+            plot_item.removeItem(item)
+        self.g_adsorbate_vector_labels.clear()
+        for item in getattr(self, "fft_overlay_misc_items", []):
+            plot_item.removeItem(item)
+        self.fft_overlay_misc_items.clear()
 
         if not self.app_controller or self.fft_data_to_display is None: return
 
         fft_rows_ky, fft_cols_kx = self.fft_data_to_display.shape
         center_kx_px = fft_cols_kx / 2.0
         center_ky_px = fft_rows_ky / 2.0
+
+        # Calibration for scale labels
+        scale_text = None
+        kx_per_px = ky_per_px = None
+        if self.history_manager and self.current_fft_node_id:
+            root_node = self.history_manager.get_root_node_for_node(self.current_fft_node_id)
+            if root_node and root_node.parameters:
+                lx = root_node.parameters.get("size_nm_x")
+                ly = root_node.parameters.get("size_nm_y")
+                if lx and ly:
+                    try:
+                        kx_per_px = 1.0 / float(lx)
+                        ky_per_px = 1.0 / float(ly)
+                        scale_text = f"Δkx: {kx_per_px:.4f} nm⁻¹/px | Δky: {ky_per_px:.4f} nm⁻¹/px"
+                    except Exception:
+                        scale_text = None
 
         if self.cb_show_g_substrate_fft.isChecked() and self.app_controller.substrate_real_space_results:
             sub_params = self.app_controller.substrate_real_space_results
@@ -541,6 +566,34 @@ class RealSpaceFFTVisualizerDialog(QDialog):
                 plot_item.addItem(text_g1); plot_item.addItem(text_g2)
                 self.g_substrate_vector_labels.extend([text_g1, text_g2])
 
+                # angle annotation between g1* and g2*
+                norm_g1 = np.linalg.norm(g1s_px)
+                norm_g2 = np.linalg.norm(g2s_px)
+                if norm_g1 > 1e-6 and norm_g2 > 1e-6:
+                    ang_rad = np.arccos(
+                        float(np.clip(np.dot(g1s_px, g2s_px) / (norm_g1 * norm_g2), -1.0, 1.0))
+                    )
+                    ang_deg = np.degrees(ang_rad)
+                    scale_len = 0.3 * min(norm_g1, norm_g2)
+                    p1 = (center_kx_px + g1s_px[0] * scale_len / norm_g1, center_ky_px + g1s_px[1] * scale_len / norm_g1)
+                    p2 = (center_kx_px + g2s_px[0] * scale_len / norm_g2, center_ky_px + g2s_px[1] * scale_len / norm_g2)
+                    angle_pen = pg.mkPen(color=(180, 80, 80), style=Qt.PenStyle.DotLine, width=1.5)
+                    angle_item = pg.PlotDataItem(
+                        x=[p1[0], center_kx_px, p2[0]],
+                        y=[p1[1], center_ky_px, p2[1]],
+                        pen=angle_pen,
+                    )
+                    plot_item.addItem(angle_item)
+                    self.fft_overlay_misc_items.append(angle_item)
+                    angle_label = pg.TextItem(
+                        f"∠g1,g2 ≈ {ang_deg:.2f}°",
+                        color=pg.mkColor(180, 80, 80),
+                        anchor=(0.5, -1.5),
+                    )
+                    angle_label.setPos(center_kx_px + 8, center_ky_px - 8)
+                    plot_item.addItem(angle_label)
+                    self.fft_overlay_misc_items.append(angle_label)
+
         current_ads_set_idx_vis = self.ads_set_combo_vis.currentData()
         if self.cb_show_g_adsorbate_fft.isChecked() and current_ads_set_idx_vis is not None:
             
@@ -548,9 +601,9 @@ class RealSpaceFFTVisualizerDialog(QDialog):
                 corrected_spots = self.app_controller.corrected_adsorbate_spot_sets[current_ads_set_idx_vis]
                 
                 if corrected_spots:
-                    pen_ads = pg.mkPen(color='b', width=2.5, style=Qt.PenStyle.DashLine)
+                    pen_ads = pg.mkPen(color=(100, 180, 255), width=2.5, style=Qt.PenStyle.DashLine)
                     
-                    for spot_kx, spot_ky in corrected_spots:
+                    for idx, (spot_kx, spot_ky) in enumerate(corrected_spots, start=1):
                         line_ads = pg.PlotDataItem(
                             x=[center_kx_px, spot_kx], 
                             y=[center_ky_px, spot_ky], 
@@ -558,8 +611,84 @@ class RealSpaceFFTVisualizerDialog(QDialog):
                         )
                         plot_item.addItem(line_ads)
                         self.g_adsorbate_vector_lines.append(line_ads)
+                        label = pg.TextItem(
+                            f"A{current_ads_set_idx_vis + 1}-{idx}",
+                            color=pg.mkColor(100, 180, 255),
+                            anchor=(0.4, 1.0),
+                        )
+                        label.setPos(spot_kx, spot_ky)
+                        plot_item.addItem(label)
+                        self.g_adsorbate_vector_labels.append(label)
                     
+                    if len(corrected_spots) >= 2:
+                        v1 = np.array(corrected_spots[0]) - np.array([center_kx_px, center_ky_px])
+                        v2 = np.array(corrected_spots[1]) - np.array([center_kx_px, center_ky_px])
+                        n1 = np.linalg.norm(v1); n2 = np.linalg.norm(v2)
+                        if n1 > 1e-6 and n2 > 1e-6:
+                            ang_rad = np.arccos(np.clip(float(np.dot(v1, v2) / (n1 * n2)), -1.0, 1.0))
+                            ang_deg = np.degrees(ang_rad)
+                            scale_len = 0.25 * min(n1, n2)
+                            p1 = (center_kx_px + v1[0] * scale_len / n1, center_ky_px + v1[1] * scale_len / n1)
+                            p2 = (center_kx_px + v2[0] * scale_len / n2, center_ky_px + v2[1] * scale_len / n2)
+                            angle_pen_ads = pg.mkPen(color=(100, 180, 255), style=Qt.PenStyle.DotLine, width=1.2)
+                            angle_item_ads = pg.PlotDataItem(
+                                x=[p1[0], center_kx_px, p2[0]],
+                                y=[p1[1], center_ky_px, p2[1]],
+                                pen=angle_pen_ads,
+                            )
+                            plot_item.addItem(angle_item_ads)
+                            self.fft_overlay_misc_items.append(angle_item_ads)
+                            angle_label_ads = pg.TextItem(
+                                f"∠A{current_ads_set_idx_vis + 1} ≈ {ang_deg:.2f}°",
+                                color=pg.mkColor(100, 180, 255),
+                                anchor=(0.5, 1.2),
+                            )
+                            angle_label_ads.setPos(center_kx_px - 8, center_ky_px + 8)
+                            plot_item.addItem(angle_label_ads)
+                            self.fft_overlay_misc_items.append(angle_label_ads)
+
                     logger.debug(f"Drew {len(corrected_spots)} vectors to corrected adsorbate positions.")
+
+        if self.cb_show_fft_axes.isChecked():
+            if scale_text:
+                scale_item = pg.TextItem(scale_text, color=pg.mkColor(120, 120, 120), anchor=(0, -0.2))
+                scale_item.setPos(plot_item.viewRect().left(), plot_item.viewRect().top())
+                plot_item.addItem(scale_item)
+                self.fft_overlay_misc_items.append(scale_item)
+
+            axis_pen = pg.mkPen(color=(140, 140, 140), width=1, style=Qt.PenStyle.DashLine)
+            axis_x = pg.PlotDataItem(x=[0, fft_cols_kx], y=[center_ky_px, center_ky_px], pen=axis_pen)
+            axis_y = pg.PlotDataItem(x=[center_kx_px, center_kx_px], y=[0, fft_rows_ky], pen=axis_pen)
+            plot_item.addItem(axis_x); plot_item.addItem(axis_y)
+            self.fft_overlay_misc_items.extend([axis_x, axis_y])
+            label_kx = pg.TextItem("kx [nm⁻¹]", color=pg.mkColor(120, 120, 120), anchor=(1.0, 1.2))
+            label_kx.setPos(fft_cols_kx, center_ky_px)
+            label_ky = pg.TextItem("ky [nm⁻¹]", color=pg.mkColor(120, 120, 120), anchor=(1.1, -0.1))
+            label_ky.setPos(center_kx_px, 0)
+            plot_item.addItem(label_kx); plot_item.addItem(label_ky)
+            self.fft_overlay_misc_items.extend([label_kx, label_ky])
+
+            if kx_per_px and ky_per_px:
+                tick_pen = pg.mkPen(color=(160, 160, 160), width=1)
+                tick_labels = []
+                tick_items = []
+                for frac in (-0.25, 0.25):
+                    x = center_kx_px + fft_cols_kx * frac
+                    val = (x - center_kx_px) * kx_per_px
+                    tick = pg.PlotDataItem(x=[x, x], y=[center_ky_px - 3, center_ky_px + 3], pen=tick_pen)
+                    plot_item.addItem(tick); tick_items.append(tick)
+                    lbl = pg.TextItem(f"{val:.3f}", color=pg.mkColor(140, 140, 140), anchor=(0.5, 1.2))
+                    lbl.setPos(x, center_ky_px)
+                    plot_item.addItem(lbl); tick_labels.append(lbl)
+                for frac in (-0.25, 0.25):
+                    y = center_ky_px + fft_rows_ky * frac
+                    val = (center_ky_px - y) * ky_per_px
+                    tick = pg.PlotDataItem(x=[center_kx_px - 3, center_kx_px + 3], y=[y, y], pen=tick_pen)
+                    plot_item.addItem(tick); tick_items.append(tick)
+                    lbl = pg.TextItem(f"{val:.3f}", color=pg.mkColor(140, 140, 140), anchor=(1.2, 0.5))
+                    lbl.setPos(center_kx_px, y)
+                    plot_item.addItem(lbl); tick_labels.append(lbl)
+                self.fft_overlay_misc_items.extend(tick_items + tick_labels)
 
 
 
@@ -759,6 +888,11 @@ class RealSpaceFFTVisualizerDialog(QDialog):
             plot_item.plot([angle_line_end1[0], origin_real[0], angle_line_end2[0]],
                            [angle_line_end1[1], origin_real[1], angle_line_end2[1]], 
                            pen=pg.mkPen(color=pen_color, style=Qt.PenStyle.DotLine, width=1))
+            angle_deg = np.degrees(np.arccos(np.clip(np.dot(a1_vec, a2_vec)/(norm_a1*norm_a2), -1.0, 1.0)))
+            shift = 0.08 * min(norm_a1, norm_a2)
+            angle_label = pg.TextItem(f"∠={angle_deg:.2f}°", color=pg.mkColor(pen_color), anchor=(0.5, -0.1))
+            angle_label.setPos(origin_real[0] + shift, origin_real[1] + shift)
+            plot_item.addItem(angle_label)
 
 
     def _update_real_space_param_labels(self):

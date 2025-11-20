@@ -44,6 +44,7 @@ class RealSpaceVisualizerWidgets:
     real_space_view_box: ViewBox | None
     display_options_form: QFormLayout
     cb_show_substrate_real_lattice: QCheckBox
+    cb_show_fft_axes: QCheckBox
     adsorbate_display_checkbox_layout: QVBoxLayout
     custom_adsorbate_visibility_checkbox: QCheckBox
     adsorbate_sets_checkbox_layout: QVBoxLayout
@@ -155,6 +156,10 @@ def build_real_space_visualizer_ui(
     cb_show_substrate_real_lattice = QCheckBox("Substrate Real Lattice")
     cb_show_substrate_real_lattice.setChecked(True)
     display_options_form.addRow(cb_show_substrate_real_lattice)
+
+    cb_show_fft_axes = QCheckBox("Show FFT axes & ticks")
+    cb_show_fft_axes.setChecked(True)
+    display_options_form.addRow(cb_show_fft_axes)
 
     adsorbate_display_checkbox_layout = QVBoxLayout()
     display_options_form.addRow(QLabel("Adsorbate Sets (Real Space):"))
@@ -401,6 +406,7 @@ def build_real_space_visualizer_ui(
         real_space_view_box=real_space_view_box,
         display_options_form=display_options_form,
         cb_show_substrate_real_lattice=cb_show_substrate_real_lattice,
+        cb_show_fft_axes=cb_show_fft_axes,
         adsorbate_display_checkbox_layout=adsorbate_display_checkbox_layout,
         custom_adsorbate_visibility_checkbox=custom_adsorbate_visibility_checkbox,
         adsorbate_sets_checkbox_layout=adsorbate_sets_checkbox_layout,
