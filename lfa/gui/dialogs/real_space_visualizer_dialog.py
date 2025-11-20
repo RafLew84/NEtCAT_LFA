@@ -128,6 +128,7 @@ class RealSpaceFFTVisualizerDialog(QDialog):
 
 
         self.g_substrate_vector_lines: List[PlotItem] = []
+        self.g_substrate_vector_labels: List[TextItem] = []
         self.g_adsorbate_vector_lines: List[PlotItem] = []
         self.real_space_substrate_lattice_item: Optional[ScatterPlotItem] = None
         self.real_space_substrate_vector_items: List[PlotItem] = []
@@ -509,6 +510,9 @@ class RealSpaceFFTVisualizerDialog(QDialog):
 
         for item in self.g_substrate_vector_lines: plot_item.removeItem(item)
         self.g_substrate_vector_lines.clear()
+        for item in getattr(self, "g_substrate_vector_labels", []):
+            plot_item.removeItem(item)
+        self.g_substrate_vector_labels.clear()
         for item in self.g_adsorbate_vector_lines: plot_item.removeItem(item)
         self.g_adsorbate_vector_lines.clear()
 
@@ -523,11 +527,19 @@ class RealSpaceFFTVisualizerDialog(QDialog):
             g1s_px = sub_params.get("g1_vec_px")
             g2s_px = sub_params.get("g2_vec_px")
             if g1s_px and g2s_px:
-                pen_sub = pg.mkPen(color='r', width=2.5, style=Qt.PenStyle.SolidLine)
-                line1s = pg.PlotDataItem(x=[center_kx_px, center_kx_px + g1s_px[0]], y=[center_ky_px, center_ky_px + g1s_px[1]], pen=pen_sub)
-                line2s = pg.PlotDataItem(x=[center_kx_px, center_kx_px + g2s_px[0]], y=[center_ky_px, center_ky_px + g2s_px[1]], pen=pen_sub)
+                pen_g1 = pg.mkPen(color=(220, 20, 60), width=2.5, style=Qt.PenStyle.SolidLine)
+                pen_g2 = pg.mkPen(color=(200, 60, 20), width=2.5, style=Qt.PenStyle.SolidLine)
+                line1s = pg.PlotDataItem(x=[center_kx_px, center_kx_px + g1s_px[0]], y=[center_ky_px, center_ky_px + g1s_px[1]], pen=pen_g1)
+                line2s = pg.PlotDataItem(x=[center_kx_px, center_kx_px + g2s_px[0]], y=[center_ky_px, center_ky_px + g2s_px[1]], pen=pen_g2)
                 plot_item.addItem(line1s); plot_item.addItem(line2s)
                 self.g_substrate_vector_lines.extend([line1s, line2s])
+
+                text_g1 = pg.TextItem("g1*", color=pg.mkColor(220, 20, 60), anchor=(0.3, 1.2))
+                text_g1.setPos(center_kx_px + g1s_px[0], center_ky_px + g1s_px[1])
+                text_g2 = pg.TextItem("g2*", color=pg.mkColor(200, 60, 20), anchor=(0.3, -0.1))
+                text_g2.setPos(center_kx_px + g2s_px[0], center_ky_px + g2s_px[1])
+                plot_item.addItem(text_g1); plot_item.addItem(text_g2)
+                self.g_substrate_vector_labels.extend([text_g1, text_g2])
 
         current_ads_set_idx_vis = self.ads_set_combo_vis.currentData()
         if self.cb_show_g_adsorbate_fft.isChecked() and current_ads_set_idx_vis is not None:
