@@ -531,8 +531,7 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         center_kx_px = fft_cols_kx / 2.0
         center_ky_px = fft_rows_ky / 2.0
 
-        # Calibration for scale labels
-        scale_text = None
+        # Calibration for axis values
         kx_per_px = ky_per_px = None
         if self.history_manager and self.current_fft_node_id:
             root_node = self.history_manager.get_root_node_for_node(self.current_fft_node_id)
@@ -543,9 +542,8 @@ class RealSpaceFFTVisualizerDialog(QDialog):
                     try:
                         kx_per_px = 1.0 / float(lx)
                         ky_per_px = 1.0 / float(ly)
-                        scale_text = f"Δkx: {kx_per_px:.4f} nm⁻¹/px | Δky: {ky_per_px:.4f} nm⁻¹/px"
                     except Exception:
-                        scale_text = None
+                        kx_per_px = ky_per_px = None
 
         if self.cb_show_g_substrate_fft.isChecked() and self.app_controller.substrate_real_space_results:
             sub_params = self.app_controller.substrate_real_space_results
@@ -650,12 +648,6 @@ class RealSpaceFFTVisualizerDialog(QDialog):
                     logger.debug(f"Drew {len(corrected_spots)} vectors to corrected adsorbate positions.")
 
         if self.cb_show_fft_axes.isChecked():
-            if scale_text:
-                scale_item = pg.TextItem(scale_text, color=pg.mkColor(120, 120, 120), anchor=(0, -0.2))
-                scale_item.setPos(plot_item.viewRect().left(), plot_item.viewRect().top())
-                plot_item.addItem(scale_item)
-                self.fft_overlay_misc_items.append(scale_item)
-
             axis_pen = pg.mkPen(color=(140, 140, 140), width=1, style=Qt.PenStyle.DashLine)
             axis_x = pg.PlotDataItem(x=[0, fft_cols_kx], y=[center_ky_px, center_ky_px], pen=axis_pen)
             axis_y = pg.PlotDataItem(x=[center_kx_px, center_kx_px], y=[0, fft_rows_ky], pen=axis_pen)
@@ -668,26 +660,42 @@ class RealSpaceFFTVisualizerDialog(QDialog):
             plot_item.addItem(label_kx); plot_item.addItem(label_ky)
             self.fft_overlay_misc_items.extend([label_kx, label_ky])
 
-            if kx_per_px and ky_per_px:
+            if kx_per_px is not None and ky_per_px is not None:
+                view_rect = plot_item.viewRect()
+                left = view_rect.left() if view_rect is not None else 0.0
+                right = view_rect.right() if view_rect is not None else fft_cols_kx
+                top = view_rect.top() if view_rect is not None else 0.0
+                bottom = view_rect.bottom() if view_rect is not None else fft_rows_ky
+
+                # 5 ticks from center to right edge and mirror to left (center only once)
+                x_right = np.linspace(center_kx_px, right, 5)
+                x_left = center_kx_px - (x_right - center_kx_px)
+                x_positions = np.unique(np.concatenate([x_left, x_right]))
+
+                y_bottom = np.linspace(center_ky_px, bottom, 5)
+                y_top = center_ky_px - (y_bottom - center_ky_px)
+                y_positions = np.unique(np.concatenate([y_top, y_bottom]))
+
                 tick_pen = pg.mkPen(color=(160, 160, 160), width=1)
-                tick_labels = []
                 tick_items = []
-                for frac in (-0.25, 0.25):
-                    x = center_kx_px + fft_cols_kx * frac
+                tick_labels = []
+
+                for x in x_positions:
                     val = (x - center_kx_px) * kx_per_px
-                    tick = pg.PlotDataItem(x=[x, x], y=[center_ky_px - 3, center_ky_px + 3], pen=tick_pen)
+                    tick = pg.PlotDataItem(x=[x, x], y=[center_ky_px - 4, center_ky_px + 4], pen=tick_pen)
                     plot_item.addItem(tick); tick_items.append(tick)
-                    lbl = pg.TextItem(f"{val:.3f}", color=pg.mkColor(140, 140, 140), anchor=(0.5, 1.2))
+                    lbl = pg.TextItem(f"{val:.3f}", color=pg.mkColor(140, 140, 140), anchor=(0.5, 1.3))
                     lbl.setPos(x, center_ky_px)
                     plot_item.addItem(lbl); tick_labels.append(lbl)
-                for frac in (-0.25, 0.25):
-                    y = center_ky_px + fft_rows_ky * frac
+
+                for y in y_positions:
                     val = (center_ky_px - y) * ky_per_px
-                    tick = pg.PlotDataItem(x=[center_kx_px - 3, center_kx_px + 3], y=[y, y], pen=tick_pen)
+                    tick = pg.PlotDataItem(x=[center_kx_px - 4, center_kx_px + 4], y=[y, y], pen=tick_pen)
                     plot_item.addItem(tick); tick_items.append(tick)
-                    lbl = pg.TextItem(f"{val:.3f}", color=pg.mkColor(140, 140, 140), anchor=(1.2, 0.5))
+                    lbl = pg.TextItem(f"{val:.3f}", color=pg.mkColor(140, 140, 140), anchor=(1.3, 0.5))
                     lbl.setPos(center_kx_px, y)
                     plot_item.addItem(lbl); tick_labels.append(lbl)
+
                 self.fft_overlay_misc_items.extend(tick_items + tick_labels)
 
 
