@@ -142,6 +142,11 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         self._real_space_force_autorange: bool = True
 
         self.fft_data_to_display: Optional[np.ndarray] = None
+        self.stm_data_to_display: Optional[np.ndarray] = None
+        if self.current_fft_node_id and self.history_manager:
+            root_node = self.history_manager.get_root_node_for_node(self.current_fft_node_id)
+            if root_node and root_node.data_type == "STM" and root_node.image_data is not None:
+                self.stm_data_to_display = root_node.image_data.copy()
         if self.current_fft_node_id and self.history_manager:
             node = self.history_manager.get_node_by_id(self.current_fft_node_id)
             if node and node.data_type == "FFT" and node.image_data is not None:
@@ -192,6 +197,7 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         """
         self.close_button.clicked.connect(self.accept)
         self.cb_show_substrate_real_lattice.stateChanged.connect(self._trigger_redraw_all_visuals)
+        self.cb_show_stm_vectors.stateChanged.connect(self._trigger_redraw_all_visuals)
         self.cb_show_fft_axes.stateChanged.connect(self._trigger_redraw_all_visuals)
         self.cb_visual_align.stateChanged.connect(self._trigger_redraw_all_visuals)
         self.cb_show_g_substrate_fft.stateChanged.connect(self._trigger_redraw_all_visuals)
@@ -423,11 +429,21 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         current_hist_node: Optional[HistoryNode] = None
         if self.current_fft_node_id:
             current_hist_node = self.history_manager.get_node_by_id(self.current_fft_node_id)
+            root_node = self.history_manager.get_root_node_for_node(self.current_fft_node_id)
+            if root_node and root_node.data_type == "STM" and root_node.image_data is not None:
+                self.stm_data_to_display = root_node.image_data.copy()
+            else:
+                self.stm_data_to_display = None
         
         if current_hist_node and current_hist_node.data_type == "FFT" and current_hist_node.image_data is not None:
             self.fft_image_item_vis.setImage(current_hist_node.image_data.T)
         else: self.fft_image_item_vis.clear()
         logger.warning("Could not display FFT image in visualizer.")
+
+        if self.stm_image_item and self.stm_data_to_display is not None:
+            self.stm_image_item.setImage(self.stm_data_to_display.T)
+        elif self.stm_image_item:
+            self.stm_image_item.clear()
 
         if self.app_controller.substrate_transform_analysis_m2i:
             analysis = self.app_controller.substrate_transform_analysis_m2i

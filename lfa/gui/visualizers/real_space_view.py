@@ -37,6 +37,9 @@ class RealSpaceVisualizerWidgets:
     """Container for the widgets created for the real-space visualizer."""
 
     main_splitter: QSplitter
+    stm_panel_widget: GraphicsLayoutWidget | None
+    stm_view_box: ViewBox | None
+    stm_image_item: ImageItem | None
     fft_panel_widget: GraphicsLayoutWidget | None
     fft_view_box: ViewBox | None
     fft_image_item_vis: ImageItem | None
@@ -44,6 +47,7 @@ class RealSpaceVisualizerWidgets:
     real_space_view_box: ViewBox | None
     display_options_form: QFormLayout
     cb_show_substrate_real_lattice: QCheckBox
+    cb_show_stm_vectors: QCheckBox
     cb_show_fft_axes: QCheckBox
     adsorbate_display_checkbox_layout: QVBoxLayout
     custom_adsorbate_visibility_checkbox: QCheckBox
@@ -111,6 +115,18 @@ def build_real_space_visualizer_ui(
     main_splitter = QSplitter(Qt.Orientation.Horizontal)
     top_level_layout.addWidget(main_splitter)
 
+    stm_panel_widget = GraphicsLayoutWidget() if GraphicsLayoutWidget else None
+    stm_view_box = None
+    stm_image_item = None
+    if stm_panel_widget:
+        stm_view_box = stm_panel_widget.addViewBox(row=0, col=0, lockAspect=True, invertY=True)
+        stm_image_item = ImageItem() if ImageItem else None
+        if stm_image_item and stm_view_box:
+            stm_view_box.addItem(stm_image_item)
+            stm_view_box.setMenuEnabled(True)
+            stm_view_box.setMouseMode(ViewBox.PanMode)
+        main_splitter.addWidget(stm_panel_widget)
+
     fft_panel_widget = GraphicsLayoutWidget() if GraphicsLayoutWidget else None
     fft_view_box = None
     fft_image_item_vis = None
@@ -156,6 +172,10 @@ def build_real_space_visualizer_ui(
     cb_show_substrate_real_lattice = QCheckBox("Substrate Real Lattice")
     cb_show_substrate_real_lattice.setChecked(True)
     display_options_form.addRow(cb_show_substrate_real_lattice)
+
+    cb_show_stm_vectors = QCheckBox("Show STM lattice vectors")
+    cb_show_stm_vectors.setChecked(True)
+    display_options_form.addRow(cb_show_stm_vectors)
 
     cb_show_fft_axes = QCheckBox("Show FFT axes & ticks")
     cb_show_fft_axes.setChecked(True)
@@ -399,6 +419,9 @@ def build_real_space_visualizer_ui(
 
     return RealSpaceVisualizerWidgets(
         main_splitter=main_splitter,
+        stm_panel_widget=stm_panel_widget,
+        stm_view_box=stm_view_box,
+        stm_image_item=stm_image_item,
         fft_panel_widget=fft_panel_widget,
         fft_view_box=fft_view_box,
         fft_image_item_vis=fft_image_item_vis,
@@ -406,6 +429,7 @@ def build_real_space_visualizer_ui(
         real_space_view_box=real_space_view_box,
         display_options_form=display_options_form,
         cb_show_substrate_real_lattice=cb_show_substrate_real_lattice,
+        cb_show_stm_vectors=cb_show_stm_vectors,
         cb_show_fft_axes=cb_show_fft_axes,
         adsorbate_display_checkbox_layout=adsorbate_display_checkbox_layout,
         custom_adsorbate_visibility_checkbox=custom_adsorbate_visibility_checkbox,
