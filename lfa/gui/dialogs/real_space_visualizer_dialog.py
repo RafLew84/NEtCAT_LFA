@@ -132,6 +132,8 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         self.g_adsorbate_vector_lines: List[PlotItem] = []
         self.g_adsorbate_vector_labels: List[TextItem] = []
         self.fft_overlay_misc_items: List[PlotItem | TextItem] = []
+        self.stm_vector_lines: List[PlotItem] = []
+        self.stm_vector_labels: List[TextItem] = []
         self.real_space_substrate_lattice_item: Optional[ScatterPlotItem] = None
         self.real_space_substrate_vector_items: List[PlotItem] = []
         self.real_space_adsorbate_lattice_items: Dict[int, ScatterPlotItem] = {}
@@ -219,6 +221,8 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         self.substrate_offset_y_spin.valueChanged.connect(self._on_substrate_offset_value_changed)
         self.adsorbate_offset_x_spin.valueChanged.connect(self._on_adsorbate_offset_value_changed)
         self.adsorbate_offset_y_spin.valueChanged.connect(self._on_adsorbate_offset_value_changed)
+        if self.stm_view_box and self.stm_view_box.scene():
+            self.stm_view_box.scene().sigMouseClicked.connect(self._on_stm_mouse_clicked)
 
     @pyqtSlot()
     def _on_3d_settings_changed(self):
@@ -382,6 +386,7 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         """
         logger.debug("Visualizer: Redraw all visuals requested by checkbox/combo change.")
         preserve_force_flag = self._real_space_force_autorange
+        self._redraw_stm_overlays()
         self._redraw_fft_overlays()
         if not preserve_force_flag:
             self._real_space_force_autorange = False
@@ -405,6 +410,7 @@ class RealSpaceFFTVisualizerDialog(QDialog):
             logger.debug(f"Visualizer: Selected adsorbate set in combo changed to index {set_index}")
             self._update_offset_controls_from_state()
             self._update_real_space_param_labels()
+            self._redraw_stm_overlays()
             self._redraw_fft_overlays()
             self._real_space_force_autorange = True
             self._redraw_real_space_lattices()
@@ -471,6 +477,7 @@ class RealSpaceFFTVisualizerDialog(QDialog):
             self.info_sub_rmse_label.setText("-")
 
         self._populate_adsorbate_set_combo_and_checkboxes()
+        self._redraw_stm_overlays()
         self._redraw_fft_overlays()
         self._real_space_force_autorange = True
         self._redraw_real_space_lattices()
@@ -714,7 +721,122 @@ class RealSpaceFFTVisualizerDialog(QDialog):
 
                 self.fft_overlay_misc_items.extend(tick_items + tick_labels)
 
+    def _redraw_stm_overlays(self) -> None:
+        """Draw lattice vectors on the STM image."""
+        if not self.stm_view_box:
+            return
 
+        for item in getattr(self, "stm_vector_lines", []):
+            self.stm_view_box.removeItem(item)
+        for item in getattr(self, "stm_vector_labels", []):
+            self.stm_view_box.removeItem(item)
+        self.stm_vector_lines.clear()
+        self.stm_vector_labels.clear()
+
+        if not self.cb_show_stm_vectors.isChecked():
+            return
+        if self.stm_data_to_display is None:
+            return
+        root_node = self.history_manager.get_root_node_for_node(self.current_fft_node_id) if self.history_manager else None
+        if not (root_node and root_node.parameters):
+            return
+        lx = root_node.parameters.get("size_nm_x")
+        ly = root_node.parameters.get("size_nm_y")
+        if not (lx and ly and lx > 0 and ly > 0):
+            return
+
+        rows, cols = self.stm_data_to_display.shape
+        sx = cols / float(lx)
+        sy = rows / float(ly)
+        origin = np.array([cols / 2.0, rows / 2.0], dtype=float)
+
+        def _nm_to_px(vec_nm: Tuple[float, float]) -> np.ndarray:
+            return np.array([vec_nm[0] * sx, vec_nm[1] * sy], dtype=float)
+
+        sub_params = getattr(self.app_controller, "substrate_real_space_results", None)
+        if sub_params and "a1_vec_nm" in sub_params and "a2_vec_nm" in sub_params:
+            offset_nm = self._offset_state.get_substrate_offset()
+            offset_px = _nm_to_px(offset_nm)
+            origin_sub = origin + offset_px
+            a1_px = _nm_to_px(sub_params["a1_vec_nm"])
+            a2_px = _nm_to_px(sub_params["a2_vec_nm"])
+            pen_a1 = pg.mkPen(color=(220, 20, 60), width=2.2)
+            pen_a2 = pg.mkPen(color=(200, 120, 20), width=2.2)
+            line_a1 = pg.PlotDataItem(x=[origin_sub[0], origin_sub[0] + a1_px[0]], y=[origin_sub[1], origin_sub[1] + a1_px[1]], pen=pen_a1)
+            line_a2 = pg.PlotDataItem(x=[origin_sub[0], origin_sub[0] + a2_px[0]], y=[origin_sub[1], origin_sub[1] + a2_px[1]], pen=pen_a2)
+            self.stm_view_box.addItem(line_a1); self.stm_view_box.addItem(line_a2)
+            self.stm_vector_lines.extend([line_a1, line_a2])
+            label_a1 = pg.TextItem("S-a1", color=pg.mkColor(220, 20, 60), anchor=(0.2, 1.1))
+            label_a1.setPos(origin_sub[0] + a1_px[0], origin_sub[1] + a1_px[1])
+            label_a2 = pg.TextItem("S-a2", color=pg.mkColor(200, 120, 20), anchor=(0.2, -0.2))
+            label_a2.setPos(origin_sub[0] + a2_px[0], origin_sub[1] + a2_px[1])
+            self.stm_view_box.addItem(label_a1); self.stm_view_box.addItem(label_a2)
+            self.stm_vector_labels.extend([label_a1, label_a2])
+
+        current_ads_set_idx_vis = self.ads_set_combo_vis.currentData()
+        ads_params = None
+        if current_ads_set_idx_vis is not None:
+            ads_params = getattr(self.app_controller, "adsorbate_real_space_results", {}).get(current_ads_set_idx_vis)
+        if ads_params and "a1_vec_nm" in ads_params and "a2_vec_nm" in ads_params:
+            a1_ads = np.array(ads_params["a1_vec_nm"], dtype=float)
+            a2_ads = np.array(ads_params["a2_vec_nm"], dtype=float)
+            if self.cb_visual_align.isChecked():
+                theta = self.visual_alignment_angle_rad
+                rot = np.array([[np.cos(theta), -np.sin(theta)], [np.sin(theta), np.cos(theta)]])
+                a1_ads = rot.dot(a1_ads)
+                a2_ads = rot.dot(a2_ads)
+            offset_nm_ads = self._offset_state.get_adsorbate_offset(current_ads_set_idx_vis)
+            origin_ads = origin + _nm_to_px(offset_nm_ads)
+            a1_ads_px = _nm_to_px(a1_ads)
+            a2_ads_px = _nm_to_px(a2_ads)
+            pen_ads1 = pg.mkPen(color=(100, 180, 255), width=2.0)
+            pen_ads2 = pg.mkPen(color=(80, 200, 180), width=2.0)
+            line_ads1 = pg.PlotDataItem(x=[origin_ads[0], origin_ads[0] + a1_ads_px[0]], y=[origin_ads[1], origin_ads[1] + a1_ads_px[1]], pen=pen_ads1)
+            line_ads2 = pg.PlotDataItem(x=[origin_ads[0], origin_ads[0] + a2_ads_px[0]], y=[origin_ads[1], origin_ads[1] + a2_ads_px[1]], pen=pen_ads2)
+            self.stm_view_box.addItem(line_ads1); self.stm_view_box.addItem(line_ads2)
+            self.stm_vector_lines.extend([line_ads1, line_ads2])
+            label_ads1 = pg.TextItem(f"A{current_ads_set_idx_vis + 1}-a1", color=pg.mkColor(100, 180, 255), anchor=(0.2, 1.1))
+            label_ads1.setPos(origin_ads[0] + a1_ads_px[0], origin_ads[1] + a1_ads_px[1])
+            label_ads2 = pg.TextItem(f"A{current_ads_set_idx_vis + 1}-a2", color=pg.mkColor(80, 200, 180), anchor=(0.2, -0.2))
+            label_ads2.setPos(origin_ads[0] + a2_ads_px[0], origin_ads[1] + a2_ads_px[1])
+            self.stm_view_box.addItem(label_ads1); self.stm_view_box.addItem(label_ads2)
+            self.stm_vector_labels.extend([label_ads1, label_ads2])
+
+
+
+    def _on_stm_mouse_clicked(self, event) -> None:
+        """Allow the user to set the STM anchor by clicking on the STM image."""
+        if event.button() != Qt.MouseButton.LeftButton:
+            return
+        if not self.stm_view_box or self.stm_data_to_display is None or not self.history_manager or not self.current_fft_node_id:
+            return
+        root_node = self.history_manager.get_root_node_for_node(self.current_fft_node_id)
+        if not (root_node and root_node.parameters):
+            return
+        lx = root_node.parameters.get("size_nm_x")
+        ly = root_node.parameters.get("size_nm_y")
+        if not (lx and ly and lx > 0 and ly > 0):
+            return
+
+        rows, cols = self.stm_data_to_display.shape
+        px_per_nm_x = cols / float(lx)
+        px_per_nm_y = rows / float(ly)
+        center_x = cols / 2.0
+        center_y = rows / 2.0
+
+        view_pos = self.stm_view_box.mapSceneToView(event.scenePos())
+        offset_nm = (
+            (view_pos.x() - center_x) / px_per_nm_x,
+            (view_pos.y() - center_y) / px_per_nm_y,
+        )
+        updated = self._offset_state.set_substrate_offset(offset_nm)
+        current_set_idx = self.ads_set_combo_vis.currentData()
+        if current_set_idx is not None:
+            updated = self._offset_state.set_adsorbate_offset(current_set_idx, offset_nm) or updated
+        if updated:
+            self._update_offset_controls_from_state()
+            self._trigger_redraw_all_visuals()
+        event.accept()
 
     def _on_real_space_view_range_changed(self, view_box: ViewBox, view_range):
         """
@@ -1012,6 +1134,7 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         if self._offset_state.set_substrate_offset(new_offset):
             logger.debug("Updated substrate visual offset to %s.", new_offset)
             self._refresh_3d_plotter_if_open()
+            self._trigger_redraw_all_visuals()
 
     @pyqtSlot(float)
     def _on_adsorbate_offset_value_changed(self, _value: float):
@@ -1023,6 +1146,7 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         if self._offset_state.set_adsorbate_offset(set_index, new_offset):
             logger.debug("Updated adsorbate set %s visual offset to %s.", set_index, new_offset)
             self._refresh_3d_plotter_if_open()
+            self._trigger_redraw_all_visuals()
 
     def _update_offset_controls_from_state(self):
         """Sync spin boxes with controller-stored offsets."""

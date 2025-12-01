@@ -412,10 +412,16 @@ def build_real_space_visualizer_ui(
     controls_panel_layout.addLayout(button_layout_final)
 
     main_splitter.addWidget(controls_panel_widget)
-    main_splitter.setSizes([500, 400, 300])
-    main_splitter.setStretchFactor(0, 1)
-    main_splitter.setStretchFactor(1, 1)
-    main_splitter.setStretchFactor(2, 0)
+    sizes: list[int] = []
+    for panel in (stm_panel_widget, fft_panel_widget, real_space_plot_widget):
+        if panel:
+            sizes.append(520)
+    sizes.append(max(380, controls_panel_widget.minimumWidth()))
+    if sizes:
+        main_splitter.setSizes(sizes)
+    for idx in range(main_splitter.count()):
+        main_splitter.setCollapsible(idx, False)
+        main_splitter.setStretchFactor(idx, 0 if idx == main_splitter.count() - 1 else 1)
 
     return RealSpaceVisualizerWidgets(
         main_splitter=main_splitter,
