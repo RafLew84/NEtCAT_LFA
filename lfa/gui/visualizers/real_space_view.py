@@ -48,6 +48,8 @@ class RealSpaceVisualizerWidgets:
     display_options_form: QFormLayout
     cb_show_substrate_real_lattice: QCheckBox
     cb_show_stm_vectors: QCheckBox
+    cb_mirror_stm_image: QCheckBox
+    cb_use_transformed_stm: QCheckBox
     cb_show_fft_axes: QCheckBox
     adsorbate_display_checkbox_layout: QVBoxLayout
     custom_adsorbate_visibility_checkbox: QCheckBox
@@ -176,6 +178,14 @@ def build_real_space_visualizer_ui(
     cb_show_stm_vectors = QCheckBox("Show STM lattice vectors")
     cb_show_stm_vectors.setChecked(True)
     display_options_form.addRow(cb_show_stm_vectors)
+
+    cb_mirror_stm_image = QCheckBox("Mirror STM image vertically")
+    cb_mirror_stm_image.setChecked(False)
+    display_options_form.addRow(cb_mirror_stm_image)
+
+    cb_use_transformed_stm = QCheckBox("Show transformed STM (if available)")
+    cb_use_transformed_stm.setChecked(True)
+    display_options_form.addRow(cb_use_transformed_stm)
 
     cb_show_fft_axes = QCheckBox("Show FFT axes & ticks")
     cb_show_fft_axes.setChecked(True)
@@ -436,6 +446,8 @@ def build_real_space_visualizer_ui(
         display_options_form=display_options_form,
         cb_show_substrate_real_lattice=cb_show_substrate_real_lattice,
         cb_show_stm_vectors=cb_show_stm_vectors,
+        cb_mirror_stm_image=cb_mirror_stm_image,
+        cb_use_transformed_stm=cb_use_transformed_stm,
         cb_show_fft_axes=cb_show_fft_axes,
         adsorbate_display_checkbox_layout=adsorbate_display_checkbox_layout,
         custom_adsorbate_visibility_checkbox=custom_adsorbate_visibility_checkbox,

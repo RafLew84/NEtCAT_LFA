@@ -5,6 +5,7 @@ import logging
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import numpy as np
+from scipy.ndimage import affine_transform
 from PyQt6.QtCore import Qt, pyqtSlot
 from PyQt6.QtWidgets import (
     QCheckBox,
@@ -134,6 +135,8 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         self.fft_overlay_misc_items: List[PlotItem | TextItem] = []
         self.stm_vector_lines: List[PlotItem] = []
         self.stm_vector_labels: List[TextItem] = []
+        self.stm_data_to_display: Optional[np.ndarray] = None
+        self.stm_transformed_to_display: Optional[np.ndarray] = None
         self.real_space_substrate_lattice_item: Optional[ScatterPlotItem] = None
         self.real_space_substrate_vector_items: List[PlotItem] = []
         self.real_space_adsorbate_lattice_items: Dict[int, ScatterPlotItem] = {}
@@ -144,11 +147,6 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         self._real_space_force_autorange: bool = True
 
         self.fft_data_to_display: Optional[np.ndarray] = None
-        self.stm_data_to_display: Optional[np.ndarray] = None
-        if self.current_fft_node_id and self.history_manager:
-            root_node = self.history_manager.get_root_node_for_node(self.current_fft_node_id)
-            if root_node and root_node.data_type == "STM" and root_node.image_data is not None:
-                self.stm_data_to_display = root_node.image_data.copy()
         if self.current_fft_node_id and self.history_manager:
             node = self.history_manager.get_node_by_id(self.current_fft_node_id)
             if node and node.data_type == "FFT" and node.image_data is not None:
@@ -200,6 +198,8 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         self.close_button.clicked.connect(self.accept)
         self.cb_show_substrate_real_lattice.stateChanged.connect(self._trigger_redraw_all_visuals)
         self.cb_show_stm_vectors.stateChanged.connect(self._trigger_redraw_all_visuals)
+        self.cb_mirror_stm_image.stateChanged.connect(self._trigger_redraw_all_visuals)
+        self.cb_use_transformed_stm.stateChanged.connect(self._trigger_redraw_all_visuals)
         self.cb_show_fft_axes.stateChanged.connect(self._trigger_redraw_all_visuals)
         self.cb_visual_align.stateChanged.connect(self._trigger_redraw_all_visuals)
         self.cb_show_g_substrate_fft.stateChanged.connect(self._trigger_redraw_all_visuals)
@@ -386,6 +386,10 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         """
         logger.debug("Visualizer: Redraw all visuals requested by checkbox/combo change.")
         preserve_force_flag = self._real_space_force_autorange
+        if not self.cb_use_transformed_stm.isChecked():
+            self.stm_transformed_to_display = None
+        self._maybe_compute_stm_transform()
+        self._refresh_stm_image()
         self._redraw_stm_overlays()
         self._redraw_fft_overlays()
         if not preserve_force_flag:
@@ -438,18 +442,23 @@ class RealSpaceFFTVisualizerDialog(QDialog):
             root_node = self.history_manager.get_root_node_for_node(self.current_fft_node_id)
             if root_node and root_node.data_type == "STM" and root_node.image_data is not None:
                 self.stm_data_to_display = root_node.image_data.copy()
+                transformed = root_node.parameters.get("transformed_image_data") if root_node.parameters else None
+                self.stm_transformed_to_display = (
+                    transformed.copy() if hasattr(transformed, "copy") else transformed
+                )
             else:
                 self.stm_data_to_display = None
+                self.stm_transformed_to_display = None
         
         if current_hist_node and current_hist_node.data_type == "FFT" and current_hist_node.image_data is not None:
             self.fft_image_item_vis.setImage(current_hist_node.image_data.T)
         else: self.fft_image_item_vis.clear()
         logger.warning("Could not display FFT image in visualizer.")
 
-        if self.stm_image_item and self.stm_data_to_display is not None:
-            self.stm_image_item.setImage(self.stm_data_to_display.T)
-        elif self.stm_image_item:
-            self.stm_image_item.clear()
+        if not self.cb_use_transformed_stm.isChecked():
+            self.stm_transformed_to_display = None
+        self._maybe_compute_stm_transform()
+        self._refresh_stm_image()
 
         if self.app_controller.substrate_transform_analysis_m2i:
             analysis = self.app_controller.substrate_transform_analysis_m2i
@@ -735,7 +744,8 @@ class RealSpaceFFTVisualizerDialog(QDialog):
 
         if not self.cb_show_stm_vectors.isChecked():
             return
-        if self.stm_data_to_display is None:
+        current_img = self._get_current_stm_image()
+        if current_img is None:
             return
         root_node = self.history_manager.get_root_node_for_node(self.current_fft_node_id) if self.history_manager else None
         if not (root_node and root_node.parameters):
@@ -745,7 +755,7 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         if not (lx and ly and lx > 0 and ly > 0):
             return
 
-        rows, cols = self.stm_data_to_display.shape
+        rows, cols = current_img.shape
         sx = cols / float(lx)
         sy = rows / float(ly)
         origin = np.array([cols / 2.0, rows / 2.0], dtype=float)
@@ -808,7 +818,8 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         """Allow the user to set the STM anchor by clicking on the STM image."""
         if event.button() != Qt.MouseButton.LeftButton:
             return
-        if not self.stm_view_box or self.stm_data_to_display is None or not self.history_manager or not self.current_fft_node_id:
+        current_img = self._get_current_stm_image()
+        if not self.stm_view_box or current_img is None or not self.history_manager or not self.current_fft_node_id:
             return
         root_node = self.history_manager.get_root_node_for_node(self.current_fft_node_id)
         if not (root_node and root_node.parameters):
@@ -818,7 +829,7 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         if not (lx and ly and lx > 0 and ly > 0):
             return
 
-        rows, cols = self.stm_data_to_display.shape
+        rows, cols = current_img.shape
         px_per_nm_x = cols / float(lx)
         px_per_nm_y = rows / float(ly)
         center_x = cols / 2.0
@@ -837,6 +848,64 @@ class RealSpaceFFTVisualizerDialog(QDialog):
             self._update_offset_controls_from_state()
             self._trigger_redraw_all_visuals()
         event.accept()
+
+    def _get_current_stm_image(self) -> Optional[np.ndarray]:
+        """Return the STM image to display based on toggle state."""
+        if self.cb_use_transformed_stm.isChecked() and self.stm_transformed_to_display is not None:
+            return self.stm_transformed_to_display
+        return self.stm_data_to_display
+
+    def _refresh_stm_image(self) -> None:
+        """Update STM image display with optional mirroring."""
+        if not self.stm_image_item:
+            return
+        img = self._get_current_stm_image()
+        if img is None:
+            self.stm_image_item.clear()
+            return
+        arr = img.T
+        if self.cb_mirror_stm_image.isChecked():
+            arr = arr[:, ::-1]
+        self.stm_image_item.setImage(arr)
+
+    def _maybe_compute_stm_transform(self) -> None:
+        """Compute transformed STM if requested and not already available."""
+        if not self.cb_use_transformed_stm.isChecked():
+            return
+        if self.stm_transformed_to_display is not None:
+            return
+        if self.stm_data_to_display is None:
+            return
+        F_m2i = getattr(self.app_controller, "substrate_F_m2i", None)
+        if F_m2i is None:
+            return
+        try:
+            F_eff_xy = np.linalg.inv(F_m2i)
+            F_eff_rc = np.array([[F_eff_xy[1, 1], F_eff_xy[1, 0]], [F_eff_xy[0, 1], F_eff_xy[0, 0]]])
+            h, w = self.stm_data_to_display.shape
+            corners_rc = np.array([[0, 0], [0, w], [h, w], [h, 0]], dtype=float) - np.array([h / 2.0, w / 2.0])
+            transformed_corners_rc = corners_rc @ F_eff_rc.T
+            min_coords = transformed_corners_rc.min(axis=0)
+            max_coords = transformed_corners_rc.max(axis=0)
+            new_h, new_w = (max_coords - min_coords)
+            output_shape = (int(np.ceil(new_h)), int(np.ceil(new_w)))
+            c_in_rc = np.array([h / 2.0, w / 2.0])
+            c_out_rc = np.array(output_shape) / 2.0
+            F_eff_rc_inv = np.linalg.inv(F_eff_rc)
+            offset = c_in_rc - np.dot(F_eff_rc_inv, c_out_rc)
+            transformed_image = affine_transform(
+                self.stm_data_to_display,
+                matrix=F_eff_rc_inv,
+                offset=offset,
+                output_shape=output_shape,
+                order=3,
+                cval=float(np.min(self.stm_data_to_display)),
+            )
+            self.stm_transformed_to_display = transformed_image
+            logger.info("Computed transformed STM for display.")
+        except Exception as exc:
+            logger.exception("Failed to compute transformed STM image: %s", exc)
+            self.stm_transformed_to_display = None
 
     def _on_real_space_view_range_changed(self, view_box: ViewBox, view_range):
         """
