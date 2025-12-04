@@ -5,6 +5,7 @@ Provides functionality for analyzing crystal structures, calculating reciprocal 
 and determining real-space parameters from FFT data.
 """
 import logging
+import math
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
@@ -203,16 +204,49 @@ def get_reciprocal_vectors(lattice_info: Dict) -> Optional[Tuple[np.ndarray, np.
         except Exception:  # pragma: no cover
             logger.exception("Failed parsing manual lattice vectors.")
             return None
+
+        align_to_x = bool(lattice_info.get("align_basis_to_x", False))
+        a_len = lattice_info.get("a_length_nm")
+        b_len = lattice_info.get("b_length_nm")
+        gamma_deg = lattice_info.get("gamma_deg")
+        if (
+            align_to_x
+            and a_len
+            and b_len
+            and gamma_deg is not None
+            and math.isclose(a_len, b_len, rel_tol=1e-3, abs_tol=1e-6)
+            and math.isclose(gamma_deg, 60.0, rel_tol=1e-3, abs_tol=1e-3)
+        ):
+            b_mag = (1.0 / a_len) * (2.0 / np.sqrt(3))
+            b1_star = np.array([b_mag, 0.0])
+            b2_star = np.array([b_mag * np.cos(np.pi / 3), b_mag * np.sin(np.pi / 3)])
+            return b1_star, b2_star
+
         return _compute_reciprocal_from_direct_vectors(a_vec, b_vec)
 
     if l_type == LATTICE_TYPE_CUSTOM:
-        direct_vectors = _build_direct_vectors_from_lengths(
-            lattice_info.get("a_length_nm"),
-            lattice_info.get("b_length_nm"),
-            lattice_info.get("gamma_deg")
-        )
+        a_len = lattice_info.get("a_length_nm")
+        b_len = lattice_info.get("b_length_nm")
+        gamma_deg = lattice_info.get("gamma_deg")
+        align_to_x = bool(lattice_info.get("align_basis_to_x", False))
+        direct_vectors = _build_direct_vectors_from_lengths(a_len, b_len, gamma_deg)
         if direct_vectors is None:
             return None
+        if (
+            a_len
+            and b_len
+            and gamma_deg is not None
+            and math.isclose(a_len, b_len, rel_tol=1e-3, abs_tol=1e-6)
+            and math.isclose(gamma_deg, 60.0, rel_tol=1e-3, abs_tol=1e-3)
+        ):
+            b_mag = (1.0 / a_len) * (2.0 / np.sqrt(3))
+            b1_star = np.array([b_mag, 0.0])
+            b2_star = np.array([b_mag * np.cos(np.pi / 3), b_mag * np.sin(np.pi / 3)])
+            if not align_to_x:
+                # Use the default orientation derived from direct vectors (equivalent hex basis)
+                direct_a, direct_b = direct_vectors
+                return _compute_reciprocal_from_direct_vectors(direct_a, direct_b)
+            return b1_star, b2_star
         a_vec, b_vec = direct_vectors
         return _compute_reciprocal_from_direct_vectors(a_vec, b_vec)
 

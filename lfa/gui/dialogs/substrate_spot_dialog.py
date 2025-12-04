@@ -359,9 +359,14 @@ class SubstrateSpotSelectionDialog(QDialog):
         self.custom_vec_angle_spinbox.setValue(60.0)
         substrate_def_layout.addRow(self.custom_vec_angle_label, self.custom_vec_angle_spinbox)
 
+        self.custom_align_x_checkbox = QCheckBox("Align hex basis to +X (g1* on X)")
+        self.custom_align_x_checkbox.setChecked(True)
+        substrate_def_layout.addRow(self.custom_align_x_checkbox)
+
         for widget in (self.custom_vec_a_label, self.custom_vec_a_spinbox,
                        self.custom_vec_b_label, self.custom_vec_b_spinbox,
-                       self.custom_vec_angle_label, self.custom_vec_angle_spinbox):
+                       self.custom_vec_angle_label, self.custom_vec_angle_spinbox,
+                       self.custom_align_x_checkbox):
             widget.setVisible(False)
 
         self.show_ideal_lattice_checkbox = QCheckBox("Show Ideal Lattice Overlay")
@@ -535,6 +540,7 @@ class SubstrateSpotSelectionDialog(QDialog):
         self.custom_vec_a_spinbox.valueChanged.connect(self._on_custom_vectors_changed)
         self.custom_vec_b_spinbox.valueChanged.connect(self._on_custom_vectors_changed)
         self.custom_vec_angle_spinbox.valueChanged.connect(self._on_custom_vectors_changed)
+        self.custom_align_x_checkbox.stateChanged.connect(lambda _state: self._on_custom_vectors_changed(0.0))
         self.show_ideal_lattice_checkbox.stateChanged.connect(self._redraw_ideal_lattice_overlay)
 
         self.add_spot_button.clicked.connect(self._add_current_roi_spot)
@@ -591,6 +597,7 @@ class SubstrateSpotSelectionDialog(QDialog):
                 self.custom_vec_a_spinbox.setValue(self._initial_custom_definition.get("a_length_nm", 0.300))
                 self.custom_vec_b_spinbox.setValue(self._initial_custom_definition.get("b_length_nm", 0.300))
                 self.custom_vec_angle_spinbox.setValue(self._initial_custom_definition.get("gamma_deg", 60.0))
+                self.custom_align_x_checkbox.setChecked(self._initial_custom_definition.get("align_basis_to_x", True))
                 self.custom_vec_a_spinbox.blockSignals(False)
                 self.custom_vec_b_spinbox.blockSignals(False)
                 self.custom_vec_angle_spinbox.blockSignals(False)
@@ -707,6 +714,7 @@ class SubstrateSpotSelectionDialog(QDialog):
             "a_length_nm": float(a_length),
             "b_length_nm": float(b_length),
             "gamma_deg": float(gamma_deg),
+            "align_basis_to_x": bool(self.custom_align_x_checkbox.isChecked()),
             "a_vec_nm": a_vec,
             "b_vec_nm": b_vec,
             "preferred_point_count": max(len(self.selected_spots), 6) if self.selected_spots else 6
@@ -735,7 +743,8 @@ class SubstrateSpotSelectionDialog(QDialog):
         for widget in (
             self.custom_vec_a_label, self.custom_vec_a_spinbox,
             self.custom_vec_b_label, self.custom_vec_b_spinbox,
-            self.custom_vec_angle_label, self.custom_vec_angle_spinbox
+            self.custom_vec_angle_label, self.custom_vec_angle_spinbox,
+            self.custom_align_x_checkbox
         ):
             widget.setVisible(show_vectors)
 
