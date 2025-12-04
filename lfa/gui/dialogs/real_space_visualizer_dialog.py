@@ -200,6 +200,7 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         self.cb_show_stm_vectors.stateChanged.connect(self._trigger_redraw_all_visuals)
         self.cb_mirror_stm_image.stateChanged.connect(self._trigger_redraw_all_visuals)
         self.cb_use_transformed_stm.stateChanged.connect(self._trigger_redraw_all_visuals)
+        self.cb_rotate_stm_vectors.stateChanged.connect(self._trigger_redraw_all_visuals)
         self.cb_show_fft_axes.stateChanged.connect(self._trigger_redraw_all_visuals)
         self.cb_visual_align.stateChanged.connect(self._trigger_redraw_all_visuals)
         self.cb_show_g_substrate_fft.stateChanged.connect(self._trigger_redraw_all_visuals)
@@ -764,12 +765,38 @@ class RealSpaceFFTVisualizerDialog(QDialog):
             return np.array([vec_nm[0] * sx, vec_nm[1] * sy], dtype=float)
 
         sub_params = getattr(self.app_controller, "substrate_real_space_results", None)
+        rotation_rad = 0.0
+        rotation_label_text = "-"
+        if self.cb_rotate_stm_vectors.isChecked():
+            # Align the visual a1 vector to +X based on substrate if available, else adsorbate.
+            if sub_params and "a1_vec_nm" in sub_params:
+                a1_sub = np.array(sub_params["a1_vec_nm"], dtype=float)
+                if np.linalg.norm(a1_sub) > 0:
+                    rotation_rad = -np.arctan2(a1_sub[1], a1_sub[0])
+            if rotation_rad == 0.0 and ads_params and "a1_vec_nm" in ads_params:
+                a1_ads_for_rot = np.array(ads_params["a1_vec_nm"], dtype=float)
+                if np.linalg.norm(a1_ads_for_rot) > 0:
+                    rotation_rad = -np.arctan2(a1_ads_for_rot[1], a1_ads_for_rot[0])
+            rotation_label_text = f"{np.degrees(rotation_rad):.2f}°"
+
+        rot_matrix = np.array(
+            [[np.cos(rotation_rad), -np.sin(rotation_rad)], [np.sin(rotation_rad), np.cos(rotation_rad)]]
+        )
+
+        def _maybe_rotate_vec(vec_nm: Tuple[float, float]) -> np.ndarray:
+            vec = np.array(vec_nm, dtype=float)
+            if self.cb_rotate_stm_vectors.isChecked():
+                vec = rot_matrix.dot(vec)
+            return vec
+        if hasattr(self, "stm_rotation_info_label"):
+            self.stm_rotation_info_label.setText(rotation_label_text)
+
         if sub_params and "a1_vec_nm" in sub_params and "a2_vec_nm" in sub_params:
             offset_nm = self._offset_state.get_substrate_offset()
             offset_px = _nm_to_px(offset_nm)
             origin_sub = origin + offset_px
-            a1_px = _nm_to_px(sub_params["a1_vec_nm"])
-            a2_px = _nm_to_px(sub_params["a2_vec_nm"])
+            a1_px = _nm_to_px(_maybe_rotate_vec(sub_params["a1_vec_nm"]))
+            a2_px = _nm_to_px(_maybe_rotate_vec(sub_params["a2_vec_nm"]))
             pen_a1 = pg.mkPen(color=(220, 20, 60), width=2.2)
             pen_a2 = pg.mkPen(color=(200, 120, 20), width=2.2)
             line_a1 = pg.PlotDataItem(x=[origin_sub[0], origin_sub[0] + a1_px[0]], y=[origin_sub[1], origin_sub[1] + a1_px[1]], pen=pen_a1)
@@ -788,8 +815,8 @@ class RealSpaceFFTVisualizerDialog(QDialog):
         if current_ads_set_idx_vis is not None:
             ads_params = getattr(self.app_controller, "adsorbate_real_space_results", {}).get(current_ads_set_idx_vis)
         if ads_params and "a1_vec_nm" in ads_params and "a2_vec_nm" in ads_params:
-            a1_ads = np.array(ads_params["a1_vec_nm"], dtype=float)
-            a2_ads = np.array(ads_params["a2_vec_nm"], dtype=float)
+            a1_ads = _maybe_rotate_vec(ads_params["a1_vec_nm"])
+            a2_ads = _maybe_rotate_vec(ads_params["a2_vec_nm"])
             if self.cb_visual_align.isChecked():
                 theta = self.visual_alignment_angle_rad
                 rot = np.array([[np.cos(theta), -np.sin(theta)], [np.sin(theta), np.cos(theta)]])

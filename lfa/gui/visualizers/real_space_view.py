@@ -50,6 +50,8 @@ class RealSpaceVisualizerWidgets:
     cb_show_stm_vectors: QCheckBox
     cb_mirror_stm_image: QCheckBox
     cb_use_transformed_stm: QCheckBox
+    cb_rotate_stm_vectors: QCheckBox
+    stm_rotation_info_label: QLabel
     cb_show_fft_axes: QCheckBox
     adsorbate_display_checkbox_layout: QVBoxLayout
     custom_adsorbate_visibility_checkbox: QCheckBox
@@ -186,6 +188,13 @@ def build_real_space_visualizer_ui(
     cb_use_transformed_stm = QCheckBox("Show transformed STM (if available)")
     cb_use_transformed_stm.setChecked(True)
     display_options_form.addRow(cb_use_transformed_stm)
+
+    cb_rotate_stm_vectors = QCheckBox("Rotate STM vectors by 30° (visual only)")
+    cb_rotate_stm_vectors.setChecked(False)
+    display_options_form.addRow(cb_rotate_stm_vectors)
+
+    stm_rotation_info_label = QLabel("-")
+    display_options_form.addRow("STM visual rotation:", stm_rotation_info_label)
 
     cb_show_fft_axes = QCheckBox("Show FFT axes & ticks")
     cb_show_fft_axes.setChecked(True)
@@ -448,6 +457,8 @@ def build_real_space_visualizer_ui(
         cb_show_stm_vectors=cb_show_stm_vectors,
         cb_mirror_stm_image=cb_mirror_stm_image,
         cb_use_transformed_stm=cb_use_transformed_stm,
+        cb_rotate_stm_vectors=cb_rotate_stm_vectors,
+        stm_rotation_info_label=stm_rotation_info_label,
         cb_show_fft_axes=cb_show_fft_axes,
         adsorbate_display_checkbox_layout=adsorbate_display_checkbox_layout,
         custom_adsorbate_visibility_checkbox=custom_adsorbate_visibility_checkbox,
