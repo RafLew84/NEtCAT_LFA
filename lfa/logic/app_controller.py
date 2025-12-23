@@ -60,6 +60,7 @@ class FFTPanelState:
 
 try:
     from ..analysis.lattice import (
+        apply_k_resolution_floor_to_covariance,
         augment_covariance_with_calibration,
         calculate_real_space_vectors_from_g,
         compute_real_space_metric_uncertainty,
@@ -73,6 +74,7 @@ except ImportError:
     LATTICE_ANALYSIS_FUNCTIONS_AVAILABLE = False
     def get_real_space_lattice_parameters(*args, **kwargs): return None
     def augment_covariance_with_calibration(*args, **kwargs): return None
+    def apply_k_resolution_floor_to_covariance(*args, **kwargs): return None
 
 class AppController(QObject):
     """
@@ -726,7 +728,6 @@ class AppController(QObject):
         fft_rows_ky, fft_cols_kx = self.current_fft_data_shape
         center_kx_ideal_px = fft_cols_kx / 2.0
         center_ky_ideal_px = fft_rows_ky / 2.0
-        
         g_vectors_adsorbate_relative_px = [
             (spot_abs_kx - center_kx_ideal_px, spot_abs_ky - center_ky_ideal_px)
             for spot_abs_kx, spot_abs_ky in corrected_spots_ideal_px_abs
@@ -844,6 +845,8 @@ class AppController(QObject):
             sigma_Lx_nm,
             sigma_Ly_nm,
         )
+        g1_cov_ads_nm = apply_k_resolution_floor_to_covariance(g1_cov_ads_nm, Lx_nm, Ly_nm)
+        g2_cov_ads_nm = apply_k_resolution_floor_to_covariance(g2_cov_ads_nm, Lx_nm, Ly_nm)
 
         metrics_uncertainty = None
         if g1_cov_ads_nm is not None and g2_cov_ads_nm is not None:
@@ -877,8 +880,9 @@ class AppController(QObject):
         if g2_cov_ads_nm is not None:
             results["g2_vec_cov_nm_inv"] = g2_cov_ads_nm
         if metrics_uncertainty is not None:
-            results["real_space_metric_covariance"] = metrics_uncertainty.covariance
-            diag_entries = np.clip(np.diag(metrics_uncertainty.covariance), 0.0, None)
+            metric_cov = np.array(metrics_uncertainty.covariance, dtype=float)
+            results["real_space_metric_covariance"] = metric_cov
+            diag_entries = np.clip(np.diag(metric_cov), 0.0, None)
             if diag_entries.size >= 3:
                 results["a1_nm_sigma"] = float(np.sqrt(diag_entries[0]))
                 results["a2_nm_sigma"] = float(np.sqrt(diag_entries[1]))

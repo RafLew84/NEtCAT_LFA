@@ -66,6 +66,35 @@ def augment_covariance_with_calibration(
         return None
     return cov
 
+
+def apply_k_resolution_floor_to_covariance(
+    covariance_nm_inv: Optional[np.ndarray],
+    Lx_nm: float,
+    Ly_nm: float,
+) -> Optional[np.ndarray]:
+    """
+    Enforce a k-space resolution floor on the covariance (minimum variance).
+
+    The FFT grid spacing is Δk = 1/L. We model quantization as uniform in
+    [-Δk/2, Δk/2], giving σ = Δk / sqrt(12).
+    """
+    if not (Lx_nm > 0.0 and Ly_nm > 0.0):
+        return covariance_nm_inv
+
+    sigma_kx = 1.0 / (math.sqrt(12.0) * Lx_nm)
+    sigma_ky = 1.0 / (math.sqrt(12.0) * Ly_nm)
+
+    if covariance_nm_inv is not None:
+        cov = np.array(covariance_nm_inv, dtype=float)
+        if cov.shape != (2, 2):
+            cov = np.zeros((2, 2), dtype=float)
+    else:
+        cov = np.zeros((2, 2), dtype=float)
+
+    cov[0, 0] = max(float(cov[0, 0]), sigma_kx ** 2)
+    cov[1, 1] = max(float(cov[1, 1]), sigma_ky ** 2)
+    return cov
+
 KNOWN_LATTICES: Dict[str, Dict] = {
     "Au(111)": {
         "type": LATTICE_TYPE_HEXAGONAL,
@@ -872,6 +901,8 @@ def get_real_space_lattice_parameters(
         Lx_sigma_nm,
         Ly_sigma_nm,
     )
+    g1_cov_nm_inv = apply_k_resolution_floor_to_covariance(g1_cov_nm_inv, Lx_nm, Ly_nm)
+    g2_cov_nm_inv = apply_k_resolution_floor_to_covariance(g2_cov_nm_inv, Lx_nm, Ly_nm)
 
     metrics_uncertainty: Optional[PropagationResult] = None
     if g1_cov_nm_inv is not None and g2_cov_nm_inv is not None:
@@ -886,7 +917,6 @@ def get_real_space_lattice_parameters(
             )
         except ValueError as exc:  # pragma: no cover
             logger.warning("Unable to propagate lattice parameter uncertainties: %s", exc)
-
     results = {
         "a1_nm": a1_s_mag_nm,
         "a2_nm": a2_s_mag_nm,

@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
-from ....analysis.drift_correction import apply_affine_transform
+from ....analysis.drift_correction import apply_affine_transform, propagate_affine_point_covariance
 from ....core.constants import (
     ADSORBATE_LATTICE_TYPE_HEXAGONAL,
     ADSORBATE_LATTICE_TYPE_SQUARE,
@@ -198,27 +198,41 @@ class AdsorbateSpotPresenter:
 
         corrected_covariances: List[Optional[np.ndarray]] = []
         raw_covariances = list(self.state.raw_spot_covariances)
-        if raw_covariances and self.state.substrate_matrix_F is not None:
+        param_covariance = None
+        if self.state.substrate_analysis:
+            fit_diag = self.state.substrate_analysis.get("fit_diagnostics") or {}
+            param_covariance = fit_diag.get("parameter_covariance")
+            if param_covariance is not None:
+                param_covariance = np.asarray(param_covariance, dtype=float)
+                if param_covariance.shape != (6, 6):
+                    param_covariance = None
+        if self.state.substrate_matrix_F is not None:
             F = np.asarray(self.state.substrate_matrix_F, dtype=float)
-            for cov in raw_covariances:
-                if cov is None:
-                    corrected_covariances.append(None)
-                    continue
+            for idx, spot in enumerate(self.state.raw_spots):
+                cov = raw_covariances[idx] if idx < len(raw_covariances) else None
+                cov_arr: Optional[np.ndarray] = None
+                if cov is not None:
+                    try:
+                        cov_arr = np.asarray(cov, dtype=float)
+                    except (TypeError, ValueError):
+                        cov_arr = None
+                    else:
+                        if cov_arr.shape != (2, 2):
+                            cov_arr = None
                 try:
-                    cov_arr = np.asarray(cov, dtype=float)
-                except (TypeError, ValueError):
-                    corrected_covariances.append(None)
-                    continue
-                if cov_arr.shape != (2, 2):
-                    corrected_covariances.append(None)
-                    continue
-                try:
-                    corrected_covariances.append(F @ cov_arr @ F.T)
+                    corrected_covariances.append(
+                        propagate_affine_point_covariance(
+                            spot,
+                            F,
+                            param_covariance=param_covariance,
+                            point_covariance=cov_arr,
+                        )
+                    )
                 except Exception as exc:  # pragma: no cover
                     logger.warning("Failed to propagate adsorbate covariance: %s", exc)
                     corrected_covariances.append(None)
         else:
-            corrected_covariances = [None] * len(raw_covariances)
+            corrected_covariances = [None] * len(self.state.raw_spots)
 
         if len(corrected_covariances) < len(corrected):
             corrected_covariances.extend([None] * (len(corrected) - len(corrected_covariances)))

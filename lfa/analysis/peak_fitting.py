@@ -29,6 +29,21 @@ DEFAULT_CURVE_FIT_MAXFEV = 5000
 MC_SAMPLE_COUNT = 256
 MC_SAMPLE_COUNT_FAST = 128
 _MIN_NOISE_SIGMA = 1e-8
+POSITION_SIGMA_FLOOR_PX = 0.25
+
+
+def _apply_position_sigma_floor(
+    center_std: Optional[Tuple[float, float]],
+    floor_px: float = POSITION_SIGMA_FLOOR_PX,
+) -> Optional[Tuple[float, float]]:
+    if center_std is None:
+        return None
+    if floor_px <= 0.0:
+        return center_std
+    return (
+        float(np.hypot(center_std[0], floor_px)),
+        float(np.hypot(center_std[1], floor_px)),
+    )
 
 
 @dataclass
@@ -108,6 +123,7 @@ def _run_monte_carlo_max_pixel(
         lambda noisy: _max_pixel_from_patch(noisy, y_start, x_start),
         runs=runs,
     )
+    std = _apply_position_sigma_floor(std)
 
     return PeakRefinementResult(
         center=center,
@@ -276,6 +292,13 @@ def fit_2d_gaussian_in_roi(
     model_flat = _gaussian_2d(xy_roi_flat, *popt)
     residuals = data_roi_flat - model_flat
     residual_rms = float(np.sqrt(np.mean(residuals**2)))
+    chi2_red = None
+    if noise_sigma_eff > 0.0:
+        dof = max(int(data_roi_flat.size) - int(len(popt)), 1)
+        chi2 = float(np.sum((residuals / noise_sigma_eff) ** 2))
+        chi2_red = chi2 / float(dof)
+        if pcov is not None and np.isfinite(chi2_red) and chi2_red > 1.0:
+            pcov = pcov * float(chi2_red)
 
     center_std: Optional[Tuple[float, float]] = None
     if compute_uncertainty:
@@ -291,6 +314,7 @@ def fit_2d_gaussian_in_roi(
                 lambda noisy: _gaussian_fit_estimator(noisy, y_start, x_start, p0),
                 runs=MC_SAMPLE_COUNT_FAST,
             )
+        center_std = _apply_position_sigma_floor(center_std)
 
     metadata: Dict[str, Any] = {
         "sigma_y_fit": float(popt[3]),
@@ -298,6 +322,8 @@ def fit_2d_gaussian_in_roi(
         "theta_fit": float(popt[5]),
         "noise_sigma": float(noise_sigma),
         "residual_rms": residual_rms,
+        "chi2_reduced": float(chi2_red) if chi2_red is not None else None,
+        "position_sigma_floor_px": float(POSITION_SIGMA_FLOOR_PX),
         "roi_origin": (int(y_start), int(x_start)),
         "initial_params": tuple(float(param) for param in p0),
     }
@@ -401,6 +427,7 @@ def refine_peak_parabola_3x3(
         lambda noisy: _parabola_estimator(noisy, y_start, x_start),
         runs=MC_SAMPLE_COUNT_FAST,
     )
+    std = _apply_position_sigma_floor(std)
 
     return PeakRefinementResult(
         center=(float(refined_y), float(refined_x)),
@@ -473,6 +500,7 @@ def refine_peak_local_dft(
         lambda noisy: _local_dft_peak(noisy, y_start, x_start, upsample_factor),
         runs=MC_SAMPLE_COUNT_FAST,
     )
+    std = _apply_position_sigma_floor(std)
 
     return PeakRefinementResult(
         center=(float(refined_y), float(refined_x)),
@@ -545,7 +573,9 @@ def derive_gaussian_center_std(
     if pcov is not None and pcov.shape[0] >= 3:
         diag = np.diag(pcov)
         if np.all(np.isfinite(diag[1:3])) and np.all(diag[1:3] >= 0.0):
-            return float(np.sqrt(diag[1])), float(np.sqrt(diag[2]))
+            return _apply_position_sigma_floor(
+                (float(np.sqrt(diag[1])), float(np.sqrt(diag[2]))),
+            )
 
     roi_origin = (result.metadata or {}).get("roi_origin")
     initial_params = (result.metadata or {}).get("initial_params")
@@ -556,12 +586,13 @@ def derive_gaussian_center_std(
     noise_sigma = max(float(result.noise_sigma), _MIN_NOISE_SIGMA)
     y_start, x_start = roi_origin
     p0 = list(initial_params)
-    return _monte_carlo_uncertainty(
+    center_std = _monte_carlo_uncertainty(
         roi_patch,
         noise_sigma,
         lambda noisy: _gaussian_fit_estimator(noisy, y_start, x_start, p0),
         runs=MC_SAMPLE_COUNT_FAST,
     )
+    return _apply_position_sigma_floor(center_std)
 
 
 __all__ = [

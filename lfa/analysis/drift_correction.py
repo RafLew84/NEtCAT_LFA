@@ -145,6 +145,55 @@ def apply_affine_transform(
         logger.exception(f"Error applying affine transform: {e}")
         return None
 
+
+def propagate_affine_point_covariance(
+    point_xy: Sequence[float],
+    F: np.ndarray,
+    *,
+    param_covariance: Optional[np.ndarray] = None,
+    point_covariance: Optional[np.ndarray] = None,
+) -> Optional[np.ndarray]:
+    """
+    Propagate affine parameter and measurement uncertainty to a single transformed point.
+
+    For y = F @ x + t with params [F11, F12, F21, F22, t1, t2], the Jacobian is:
+    [[x, y, 0, 0, 1, 0],
+     [0, 0, x, y, 0, 1]]
+    """
+    if param_covariance is None and point_covariance is None:
+        return None
+
+    try:
+        x, y = float(point_xy[0]), float(point_xy[1])
+    except Exception:  # pragma: no cover
+        logger.warning("Invalid point for covariance propagation: %s", point_xy)
+        return None
+
+    F = np.asarray(F, dtype=float)
+    if F.shape != (2, 2):
+        logger.warning("Affine covariance propagation requires 2x2 F matrix.")
+        return None
+
+    cov_total = np.zeros((2, 2), dtype=float)
+
+    if point_covariance is not None:
+        cov_point = np.asarray(point_covariance, dtype=float)
+        if cov_point.shape == (2, 2):
+            cov_total += F @ cov_point @ F.T
+
+    if param_covariance is not None:
+        cov_params = np.asarray(param_covariance, dtype=float)
+        if cov_params.shape == (6, 6):
+            jac = np.array(
+                [[x, y, 0.0, 0.0, 1.0, 0.0], [0.0, 0.0, x, y, 0.0, 1.0]],
+                dtype=float,
+            )
+            cov_total += jac @ cov_params @ jac.T
+
+    if not np.any(np.isfinite(cov_total)):
+        return None
+    return cov_total
+
 def analyze_affine_transform(F: np.ndarray) -> Optional[Dict[str, Any]]:
     """
     Analyze a 2x2 affine transformation matrix F.
@@ -353,18 +402,35 @@ def match_and_fit_transform(
         analysis_results["rmse"] = None
 
     transformed_covariances: Optional[List[Optional[np.ndarray]]] = None
-    if matched_covariances is not None:
+    param_covariance = None
+    if fit_diagnostics is not None:
+        param_covariance = fit_diagnostics.get("parameter_covariance")
+        if param_covariance is not None:
+            param_covariance = np.asarray(param_covariance, dtype=float)
+            if param_covariance.shape != (6, 6):
+                param_covariance = None
+
+    if matched_covariances is not None or param_covariance is not None:
         transformed_covariances = []
-        for cov in matched_covariances:
-            if cov is None:
+        for idx, point in enumerate(final_measured_pts):
+            base_cov = None
+            if matched_covariances is not None and idx < len(matched_covariances):
+                base_cov = matched_covariances[idx]
+            try:
+                transformed_covariances.append(
+                    propagate_affine_point_covariance(
+                        point,
+                        F,
+                        param_covariance=param_covariance,
+                        point_covariance=base_cov,
+                    )
+                )
+            except Exception as exc:  # pragma: no cover
+                logger.warning("Failed to propagate covariance through affine transform: %s", exc)
                 transformed_covariances.append(None)
-            else:
-                try:
-                    transformed_covariances.append(F @ cov @ F.T)
-                except Exception as exc:  # pragma: no cover
-                    logger.warning("Failed to propagate covariance through affine transform: %s", exc)
-                    transformed_covariances.append(None)
-        analysis_results["matched_measured_covariances_px"] = matched_covariances
+
+        if matched_covariances is not None:
+            analysis_results["matched_measured_covariances_px"] = matched_covariances
         analysis_results["fitted_spot_covariances_px"] = transformed_covariances
 
     return F, t, analysis_results, point_pairs_indices, transformed_covariances
