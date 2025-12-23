@@ -5,8 +5,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
-from ....analysis.lattice import calculate_real_space_vectors_from_g
-from ....analysis.uncertainty import propagate_linear, propagate_monte_carlo
+from ....analysis.lattice import compute_misorientation_uncertainty_deg
 from ...utils.display import format_float, format_value_with_sigma
 
 
@@ -245,91 +244,43 @@ class RealSpaceVisualizerPresenter:
         substrate_params: Dict[str, Any],
         adsorbate_params: Dict[str, Any],
     ) -> Optional[float]:
-        def _as_vec(params: Dict[str, Any], key: str) -> Optional[np.ndarray]:
-            vec = params.get(key)
-            if vec is None:
-                return None
-            arr = np.asarray(vec, dtype=float)
-            if arr.shape != (2,) or not np.all(np.isfinite(arr)):
-                return None
-            return arr
+        sub_g1 = substrate_params.get("g1_vec_nm_inv")
+        sub_g2 = substrate_params.get("g2_vec_nm_inv")
+        sub_g1_cov = substrate_params.get("g1_vec_cov_nm_inv")
+        sub_g2_cov = substrate_params.get("g2_vec_cov_nm_inv")
 
-        def _as_cov(params: Dict[str, Any], key: str) -> Optional[np.ndarray]:
-            cov = params.get(key)
-            if cov is None:
-                return None
-            arr = np.asarray(cov, dtype=float)
-            if arr.shape != (2, 2) or not np.all(np.isfinite(arr)):
-                return None
-            return arr
-
-        g1_s = _as_vec(substrate_params, "g1_vec_nm_inv")
-        g2_s = _as_vec(substrate_params, "g2_vec_nm_inv")
-        g1_a = _as_vec(adsorbate_params, "g1_vec_nm_inv")
-        g2_a = _as_vec(adsorbate_params, "g2_vec_nm_inv")
-        g1_s_cov = _as_cov(substrate_params, "g1_vec_cov_nm_inv")
-        g2_s_cov = _as_cov(substrate_params, "g2_vec_cov_nm_inv")
-        g1_a_cov = _as_cov(adsorbate_params, "g1_vec_cov_nm_inv")
-        g2_a_cov = _as_cov(adsorbate_params, "g2_vec_cov_nm_inv")
+        ads_g1 = adsorbate_params.get("g1_vec_nm_inv")
+        ads_g2 = adsorbate_params.get("g2_vec_nm_inv")
+        ads_g1_cov = adsorbate_params.get("g1_vec_cov_nm_inv")
+        ads_g2_cov = adsorbate_params.get("g2_vec_cov_nm_inv")
 
         if any(
             item is None
-            for item in (g1_s, g2_s, g1_a, g2_a, g1_s_cov, g2_s_cov, g1_a_cov, g2_a_cov)
+            for item in (sub_g1, sub_g2, sub_g1_cov, sub_g2_cov, ads_g1, ads_g2, ads_g1_cov, ads_g2_cov)
         ):
             return None
 
-        cov = np.zeros((8, 8), dtype=float)
-        cov[0:2, 0:2] = g1_s_cov
-        cov[2:4, 2:4] = g2_s_cov
-        cov[4:6, 4:6] = g1_a_cov
-        cov[6:8, 6:8] = g2_a_cov
-
-        def _misorientation_from_g(vec: np.ndarray) -> np.ndarray:
-            g1_s_vec = (float(vec[0]), float(vec[1]))
-            g2_s_vec = (float(vec[2]), float(vec[3]))
-            g1_a_vec = (float(vec[4]), float(vec[5]))
-            g2_a_vec = (float(vec[6]), float(vec[7]))
-
-            real_s = calculate_real_space_vectors_from_g(g1_s_vec, g2_s_vec)
-            real_a = calculate_real_space_vectors_from_g(g1_a_vec, g2_a_vec)
-            if real_s is None or real_a is None:
-                raise ValueError("Real-space vectors undefined for propagation.")
-
-            a1_s_vec = np.asarray(real_s[0], dtype=float)
-            a1_a_vec = np.asarray(real_a[0], dtype=float)
-            norm_s = float(np.linalg.norm(a1_s_vec))
-            norm_a = float(np.linalg.norm(a1_a_vec))
-            if norm_s < 1e-12 or norm_a < 1e-12:
-                raise ValueError("Real-space vector norm too small for propagation.")
-
-            cos_theta = float(np.dot(a1_s_vec, a1_a_vec) / (norm_s * norm_a))
-            cos_theta = float(np.clip(cos_theta, -1.0, 1.0))
-            angle_deg = float(np.degrees(np.arccos(cos_theta)))
-            return np.array([angle_deg], dtype=float)
-
-        x0 = np.array(
-            [
-                g1_s[0], g1_s[1],
-                g2_s[0], g2_s[1],
-                g1_a[0], g1_a[1],
-                g2_a[0], g2_a[1],
-            ],
-            dtype=float,
-        )
-
         try:
-            propagation = propagate_linear(_misorientation_from_g, x0, cov)
-        except ValueError:
-            try:
-                propagation = propagate_monte_carlo(_misorientation_from_g, x0, cov, samples=1024)
-            except Exception:  # pragma: no cover
-                return None
-
-        cov = np.asarray(propagation.covariance, dtype=float)
-        variance = float(cov) if cov.ndim == 0 else float(cov.flat[0])
-        if not np.isfinite(variance) or variance <= 0.0:
+            result = compute_misorientation_uncertainty_deg(
+                substrate_g1_nm_inv=tuple(sub_g1),
+                substrate_g2_nm_inv=tuple(sub_g2),
+                substrate_g1_cov_nm_inv=np.asarray(sub_g1_cov, dtype=float),
+                substrate_g2_cov_nm_inv=np.asarray(sub_g2_cov, dtype=float),
+                adsorbate_g1_nm_inv=tuple(ads_g1),
+                adsorbate_g2_nm_inv=tuple(ads_g2),
+                adsorbate_g1_cov_nm_inv=np.asarray(ads_g1_cov, dtype=float),
+                adsorbate_g2_cov_nm_inv=np.asarray(ads_g2_cov, dtype=float),
+                monte_carlo_samples=512,
+            )
+        except Exception:
             return None
-        return float(np.sqrt(variance))
+
+        if result is None or result.covariance.shape != (1, 1):
+            return None
+        var = float(result.covariance[0, 0])
+        if not np.isfinite(var) or var <= 0.0:
+            return None
+        return float(np.sqrt(var))
 
     @staticmethod
     def _calculate_alignment_rotation(

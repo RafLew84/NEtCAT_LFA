@@ -759,6 +759,127 @@ def compute_real_space_metric_uncertainty(
             logger.warning("Monte Carlo propagation failed: %s", exc)
             return None
 
+
+def _misorientation_deg_from_reciprocal(flat_g: np.ndarray) -> np.ndarray:
+    """Compute substrate-adsorbate misorientation angle from reciprocal vectors.
+
+    Parameters
+    ----------
+    flat_g:
+        Flattened reciprocal vectors of length 8:
+        [g1sx, g1sy, g2sx, g2sy, g1ax, g1ay, g2ax, g2ay] in nm^-1.
+
+    Returns
+    -------
+    np.ndarray
+        Array of length 1 containing misorientation angle in degrees.
+
+    Notes
+    -----
+    The angle is computed in the range [0, 180] deg using a stable atan2 form:
+    phi = atan2(|a1s x a1a|, a1s . a1a).
+    """
+    flat_g = np.asarray(flat_g, dtype=float)
+    if flat_g.size != 8:
+        raise ValueError("Expected flattened reciprocal vector array of length 8.")
+
+    g1_s = (float(flat_g[0]), float(flat_g[1]))
+    g2_s = (float(flat_g[2]), float(flat_g[3]))
+    g1_a = (float(flat_g[4]), float(flat_g[5]))
+    g2_a = (float(flat_g[6]), float(flat_g[7]))
+
+    rs_sub = calculate_real_space_vectors_from_g(g1_s, g2_s)
+    rs_ads = calculate_real_space_vectors_from_g(g1_a, g2_a)
+    if rs_sub is None or rs_ads is None:
+        raise ValueError("Real-space vectors undefined for provided reciprocal basis.")
+
+    a1_sub, _a2_sub = rs_sub
+    a1_ads, _a2_ads = rs_ads
+
+    u = np.asarray(a1_sub, dtype=float)
+    v = np.asarray(a1_ads, dtype=float)
+    if u.shape != (2,) or v.shape != (2,):
+        raise ValueError("Real-space vectors must be 2D.")
+
+    nu = float(np.linalg.norm(u))
+    nv = float(np.linalg.norm(v))
+    if nu < 1e-12 or nv < 1e-12:
+        raise ValueError("Real-space vector magnitude too small for stable angle propagation.")
+
+    dot = float(np.dot(u, v))
+    cross = float(u[0] * v[1] - u[1] * v[0])
+    angle_rad = float(np.arctan2(abs(cross), dot))
+    return np.array([float(np.degrees(angle_rad))], dtype=float)
+
+
+def compute_misorientation_uncertainty_deg(
+    substrate_g1_nm_inv: Tuple[float, float],
+    substrate_g2_nm_inv: Tuple[float, float],
+    substrate_g1_cov_nm_inv: np.ndarray,
+    substrate_g2_cov_nm_inv: np.ndarray,
+    adsorbate_g1_nm_inv: Tuple[float, float],
+    adsorbate_g2_nm_inv: Tuple[float, float],
+    adsorbate_g1_cov_nm_inv: np.ndarray,
+    adsorbate_g2_cov_nm_inv: np.ndarray,
+    *,
+    use_monte_carlo_on_failure: bool = True,
+    monte_carlo_samples: int = 512,
+) -> Optional[PropagationResult]:
+    """Estimate uncertainty of substrate-adsorbate misorientation angle (deg).
+
+    Propagates reciprocal-space uncertainties through real-space inversion and
+    the angle calculation. Cross-covariances between g1 and g2 are not modeled.
+    """
+    g1s_cov = np.asarray(substrate_g1_cov_nm_inv, dtype=float)
+    g2s_cov = np.asarray(substrate_g2_cov_nm_inv, dtype=float)
+    g1a_cov = np.asarray(adsorbate_g1_cov_nm_inv, dtype=float)
+    g2a_cov = np.asarray(adsorbate_g2_cov_nm_inv, dtype=float)
+
+    for name, cov in (
+        ("substrate_g1_cov", g1s_cov),
+        ("substrate_g2_cov", g2s_cov),
+        ("adsorbate_g1_cov", g1a_cov),
+        ("adsorbate_g2_cov", g2a_cov),
+    ):
+        if cov.shape != (2, 2):
+            raise ValueError(f"{name} must be a 2x2 matrix.")
+
+    x0 = np.array(
+        [
+            float(substrate_g1_nm_inv[0]),
+            float(substrate_g1_nm_inv[1]),
+            float(substrate_g2_nm_inv[0]),
+            float(substrate_g2_nm_inv[1]),
+            float(adsorbate_g1_nm_inv[0]),
+            float(adsorbate_g1_nm_inv[1]),
+            float(adsorbate_g2_nm_inv[0]),
+            float(adsorbate_g2_nm_inv[1]),
+        ],
+        dtype=float,
+    )
+
+    cov8 = np.zeros((8, 8), dtype=float)
+    cov8[:2, :2] = g1s_cov
+    cov8[2:4, 2:4] = g2s_cov
+    cov8[4:6, 4:6] = g1a_cov
+    cov8[6:8, 6:8] = g2a_cov
+
+    try:
+        return propagate_linear(_misorientation_deg_from_reciprocal, x0, cov8)
+    except ValueError:
+        if not use_monte_carlo_on_failure:
+            raise
+        try:
+            return propagate_monte_carlo(
+                _misorientation_deg_from_reciprocal,
+                x0,
+                cov8,
+                samples=monte_carlo_samples,
+            )
+        except Exception as exc:  # pragma: no cover
+            logger.warning("Monte Carlo misorientation propagation failed: %s", exc)
+            return None
+
 def get_real_space_lattice_parameters(
     selected_g_vectors_relative_px: List[Tuple[float, float]],
     lattice_type: str,
