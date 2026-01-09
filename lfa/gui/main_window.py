@@ -10,8 +10,10 @@ from typing import Any, Dict, Optional
 from PyQt6.QtCore import QPointF, Qt, pyqtSlot
 from PyQt6.QtWidgets import (
     QApplication,
+    QCheckBox,
     QDialog,
     QFileDialog,
+    QGroupBox,
     QHBoxLayout,
     QListWidget,
     QListWidgetItem,
@@ -189,7 +191,7 @@ class MainWindow(QMainWindow):
 
         self.dock_manager = DockPanelManager(
             main_window=self,
-            history_list_widget=self.history_list_widget,
+            history_list_widget=self.history_panel_widget,
             metadata_widget=self.metadata_widget,
             fft_analysis_panel_widget=self.fft_analysis_panel_widget
         )
@@ -270,6 +272,21 @@ class MainWindow(QMainWindow):
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
         self.history_list_widget = QListWidget()
         self.history_list_widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.history_panel_widget = QWidget()
+        history_panel_layout = QVBoxLayout(self.history_panel_widget)
+        history_panel_layout.setContentsMargins(6, 6, 6, 6)
+        history_panel_layout.setSpacing(6)
+
+        self.display_transform_group = QGroupBox("Display Transform")
+        display_transform_layout = QVBoxLayout(self.display_transform_group)
+        self.display_rotate_180_checkbox = QCheckBox("Rotate 180 deg")
+        self.display_mirror_x_checkbox = QCheckBox("Mirror X")
+        self.display_mirror_y_checkbox = QCheckBox("Mirror Y")
+        display_transform_layout.addWidget(self.display_rotate_180_checkbox)
+        display_transform_layout.addWidget(self.display_mirror_x_checkbox)
+        display_transform_layout.addWidget(self.display_mirror_y_checkbox)
+        history_panel_layout.addWidget(self.display_transform_group)
+        history_panel_layout.addWidget(self.history_list_widget, 1)
 
         image_view_container = QWidget()
         image_view_layout = QVBoxLayout(image_view_container)
@@ -340,6 +357,12 @@ class MainWindow(QMainWindow):
 
         if hasattr(self, 'visualization_manager') and self.visualization_manager:
             self.visualization_manager.fft_view_clicked.connect(self._on_fft_view_clicked_from_visualizer)
+
+        if hasattr(self, "display_rotate_180_checkbox"):
+            self.display_rotate_180_checkbox.stateChanged.connect(self._on_display_transform_changed)
+            self.display_mirror_x_checkbox.stateChanged.connect(self._on_display_transform_changed)
+            self.display_mirror_y_checkbox.stateChanged.connect(self._on_display_transform_changed)
+            self._apply_display_transform()
 
     def _clear_all_spot_markers_from_view(self, view_box: Optional[pg.ViewBox]):
         if hasattr(self, "history_view_handler"):
@@ -687,6 +710,22 @@ class MainWindow(QMainWindow):
         """Handles the update of adsorbate spots visibility in AppController."""
         logger.debug(f"MainWindow: Adsorbate spots visibility changed to {is_visible} via panel.")
         self.app_controller.show_adsorbate_spots_markers = is_visible
+
+    @pyqtSlot()
+    def _on_display_transform_changed(self) -> None:
+        self._apply_display_transform()
+
+    def _apply_display_transform(self) -> None:
+        if not hasattr(self, "visualization_manager") or not self.visualization_manager:
+            return
+        rotate_180 = self.display_rotate_180_checkbox.isChecked()
+        mirror_x = self.display_mirror_x_checkbox.isChecked()
+        mirror_y = self.display_mirror_y_checkbox.isChecked()
+        self.visualization_manager.set_display_transform(
+            rotate_180=rotate_180,
+            mirror_x=mirror_x,
+            mirror_y=mirror_y,
+        )
     
     def request_spot_markers_update(self):
         """Requests the update of spot markers in VisualizationManager."""

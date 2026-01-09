@@ -2,7 +2,7 @@
 import logging
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QDockWidget, QListWidget, QMainWindow, QWidget
+from PyQt6.QtWidgets import QDockWidget, QMainWindow, QWidget
 
 try:
     from ..panels.fft_analysis_panel import FFTAnalysisPanel
@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 class DockPanelManager:
     def __init__(self,
                  main_window: QMainWindow,
-                 history_list_widget: QListWidget,
+                 history_list_widget: QWidget,
                  metadata_widget: MetadataWidget | None, 
                  fft_analysis_panel_widget: FFTAnalysisPanel | None
                  ):
@@ -27,7 +27,7 @@ class DockPanelManager:
 
         Args:
             main_window (QMainWindow): The main window instance.
-            history_list_widget (QListWidget): The widget for the history dock.
+            history_list_widget (QWidget): The widget for the history dock.
             metadata_widget (MetadataWidget): The widget for the metadata dock.
             fft_analysis_panel_widget (FFTAnalysisPanel): The widget for the FFT analysis dock.
         """

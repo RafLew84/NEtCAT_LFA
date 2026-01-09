@@ -74,6 +74,10 @@ class VisualizationManager(QObject):
         self.superstructure_line: Optional[pg.PlotDataItem] = None
         self._superstructure_visible: bool = True
         self._last_superstructure_results: Optional[Dict[str, Any]] = None
+        self._display_rotate_180: bool = False
+        self._display_mirror_x: bool = False
+        self._display_mirror_y: bool = False
+        self._base_invert_y: bool = True
 
         self._current_fft_mouse_click_connection = None 
         self._current_node_data_type: Optional[str] = None
@@ -548,18 +552,42 @@ class VisualizationManager(QObject):
 
     def _set_image_display(self, image_data: np.ndarray, data_type: str):
         """Sets the image data in the ImageItem with the appropriate orientation and scaling."""
-        if not self.image_item or not self.view_box: return
+        if not self.image_item or not self.view_box:
+            return
 
+        self._base_invert_y = True
         if data_type == "STM":
-            self.view_box.invertY(True)
             self.image_item.setImage(image_data.astype(np.float32).T)
         elif data_type == "FFT":
-            self.view_box.invertY(True)
             self.image_item.setImage(image_data.astype(np.float32).T)
-        else: 
-            logger.warning(f"VisualizationManager: Unknown data type '{data_type}', displaying like STM.")
-            self.view_box.invertY(True)
+        else:
+            logger.warning("VisualizationManager: Unknown data type '%s', displaying like STM.", data_type)
             self.image_item.setImage(image_data.astype(np.float32).T, autoLevels=True)
+        self._apply_view_transform()
+
+    def set_display_transform(
+        self,
+        *,
+        rotate_180: Optional[bool] = None,
+        mirror_x: Optional[bool] = None,
+        mirror_y: Optional[bool] = None,
+    ) -> None:
+        """Update visual-only transforms for the main view (image + overlays)."""
+        if rotate_180 is not None:
+            self._display_rotate_180 = bool(rotate_180)
+        if mirror_x is not None:
+            self._display_mirror_x = bool(mirror_x)
+        if mirror_y is not None:
+            self._display_mirror_y = bool(mirror_y)
+        self._apply_view_transform()
+
+    def _apply_view_transform(self) -> None:
+        if not self.view_box:
+            return
+        invert_x = self._display_mirror_x ^ self._display_rotate_180
+        invert_y = self._base_invert_y ^ self._display_mirror_y ^ self._display_rotate_180
+        self.view_box.invertX(invert_x)
+        self.view_box.invertY(invert_y)
 
     def _connect_fft_click_handler(self):
         """Connects the internal slot _handle_fft_view_mouse_click to the ImageItem scene click signal."""
