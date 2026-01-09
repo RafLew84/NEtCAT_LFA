@@ -43,6 +43,10 @@ class OverlayVisibilityBinder:
         self._controller.set_substrate_transformed_visibility(self._panel.is_show_substrate_transformed_checked())
         self._controller.set_adsorbate_raw_visibility(self._panel.is_show_adsorbate_raw_checked())
         self._controller.set_adsorbate_transformed_visibility(self._panel.is_show_adsorbate_transformed_checked())
+        if hasattr(self._panel, "is_show_superstructure_checked"):
+            self._controller.set_superstructure_spots_visibility(
+                self._panel.is_show_superstructure_checked()
+            )
 
     def handle_current_adsorbate_set_changed(self, set_index: int) -> None:
         self.ensure_adsorbate_defaults()
@@ -76,12 +80,20 @@ class OverlayVisibilityBinder:
             self._panel.substrate_transformed_visibility_changed.connect(self._on_panel_substrate_transformed_changed)
             self._panel.adsorbate_raw_visibility_changed.connect(self._on_panel_adsorbate_raw_changed)
             self._panel.adsorbate_transformed_visibility_changed.connect(self._on_panel_adsorbate_transformed_changed)
+            if hasattr(self._panel, "superstructure_spots_visibility_changed"):
+                self._panel.superstructure_spots_visibility_changed.connect(
+                    self._on_panel_superstructure_visibility_changed
+                )
 
         if self._controller:
             self._controller.substrate_raw_visibility_updated.connect(self._on_controller_substrate_raw_updated)
             self._controller.substrate_transformed_visibility_updated.connect(self._on_controller_substrate_transformed_updated)
             self._controller.adsorbate_raw_visibility_updated.connect(self._on_controller_adsorbate_raw_updated)
             self._controller.adsorbate_transformed_visibility_updated.connect(self._on_controller_adsorbate_transformed_updated)
+            if hasattr(self._controller, "superstructure_spots_visibility_updated"):
+                self._controller.superstructure_spots_visibility_updated.connect(
+                    self._on_controller_superstructure_visibility_updated
+                )
             self._controller.adsorbate_set_updated.connect(self._on_adsorbate_set_updated)
             self._controller.adsorbate_sets_structure_changed.connect(self._on_adsorbate_sets_structure_changed)
 
@@ -114,6 +126,10 @@ class OverlayVisibilityBinder:
         if self._visualization:
             self._visualization.set_adsorbate_transformed_visible_for_set(current_set, is_visible)
 
+    def _on_panel_superstructure_visibility_changed(self, is_visible: bool) -> None:
+        if self._controller:
+            self._controller.set_superstructure_spots_visibility(is_visible)
+
     # ------------------------------------------------------------------ Controller -> Panel/Viz callbacks
     def _on_controller_substrate_raw_updated(self, is_visible: bool) -> None:
         if self._visualization:
@@ -144,6 +160,12 @@ class OverlayVisibilityBinder:
             self._visualization.set_adsorbate_transformed_visible(is_visible)
         if self._panel:
             self._panel.set_show_adsorbate_transformed_checked(is_visible)
+
+    def _on_controller_superstructure_visibility_updated(self, is_visible: bool) -> None:
+        if self._visualization:
+            self._visualization.set_superstructure_visible(is_visible)
+        if self._panel and hasattr(self._panel, "set_show_superstructure_checked"):
+            self._panel.set_show_superstructure_checked(is_visible)
 
     def _on_adsorbate_set_updated(self, set_index: int) -> None:
         self.ensure_adsorbate_defaults()

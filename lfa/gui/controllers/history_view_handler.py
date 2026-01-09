@@ -12,6 +12,11 @@ try:
 except Exception:  # pragma: no cover
     pg = None  # type: ignore
 
+from ...core.constants import (
+    SPOT_SELECTION_ADSORBATE,
+    SPOT_SELECTION_SUBSTRATE,
+    SPOT_SELECTION_SUPERSTRUCTURE,
+)
 from ...core.history import HistoryNode
 
 logger = logging.getLogger(__name__)
@@ -166,7 +171,7 @@ class HistoryViewHandler:
         substrate_spots = controller.substrate_spots
         adsorbate_spot_sets = controller.adsorbate_spot_sets
 
-        if spot_selection_mode == "Substrate":
+        if spot_selection_mode == SPOT_SELECTION_SUBSTRATE:
             current_selection_status = "Selecting: Substrate Spots"
             text_output.append("Substrate Spots:")
             if substrate_spots:
@@ -174,7 +179,7 @@ class HistoryViewHandler:
                     text_output.append(f"  S{i+1}: (kx={kx}, ky={ky})")
             else:
                 text_output.append("  None selected.")
-        elif spot_selection_mode == "Adsorbate":
+        elif spot_selection_mode == SPOT_SELECTION_ADSORBATE:
             set_name = self._fft_panel.adsorbate_set_combo.itemText(current_adsorbate_set_idx) if current_adsorbate_set_idx < self._fft_panel.adsorbate_set_combo.count() else f"Set {current_adsorbate_set_idx + 1}"
             current_selection_status = f"Selecting: Adsorbate {set_name}"
             text_output.append(f"Adsorbate {set_name}:")
@@ -188,6 +193,18 @@ class HistoryViewHandler:
                     text_output.append("  No spots selected for this set.")
             else:
                 text_output.append("  Invalid adsorbate set selected.")
+        elif spot_selection_mode == SPOT_SELECTION_SUPERSTRUCTURE:
+            current_selection_status = "Viewing: Superstructure Peaks"
+            text_output.append("Superstructure Peaks:")
+            results = controller.superstructure_periodicity_results or {}
+            main_peak = results.get("main_peak_raw_px")
+            satellite_peak = results.get("satellite_peak_raw_px")
+            if main_peak:
+                text_output.append(f"  Main: (kx={main_peak[0]}, ky={main_peak[1]})")
+            if satellite_peak:
+                text_output.append(f"  Satellite: (kx={satellite_peak[0]}, ky={satellite_peak[1]})")
+            if not main_peak and not satellite_peak:
+                text_output.append("  None selected.")
 
         if hasattr(self._fft_panel, "current_selection_label") and self._fft_panel.current_selection_label:
             self._fft_panel.current_selection_label.setText(current_selection_status)

@@ -29,6 +29,9 @@ from ...core.constants import (
     ADSORBATE_LATTICE_TYPE_HEXAGONAL,
     ADSORBATE_LATTICE_TYPE_SQUARE,
     ADSORBATE_LATTICE_TYPE_UNKNOWN,
+    SPOT_SELECTION_ADSORBATE,
+    SPOT_SELECTION_SUBSTRATE,
+    SPOT_SELECTION_SUPERSTRUCTURE,
 )
 from ..utils.display import (
     format_float,
@@ -68,6 +71,7 @@ class FFTAnalysisPanel(QWidget):
     substrate_transformed_visibility_changed = pyqtSignal(bool)
     adsorbate_raw_visibility_changed = pyqtSignal(bool)
     adsorbate_transformed_visibility_changed = pyqtSignal(bool)
+    superstructure_spots_visibility_changed = pyqtSignal(bool)
 
     calculate_substrate_real_space_params_requested = pyqtSignal()
     calculate_adsorbate_real_space_params_requested = pyqtSignal(int)
@@ -252,8 +256,10 @@ class FFTAnalysisPanel(QWidget):
         self.rb_select_substrate = QRadioButton("Substrate")
         self.rb_select_substrate.setChecked(True)
         self.rb_select_adsorbate = QRadioButton("Adsorbate")
+        self.rb_select_superstructure = QRadioButton("Superstructure")
         spot_type_layout.addWidget(self.rb_select_substrate)
         spot_type_layout.addWidget(self.rb_select_adsorbate)
+        spot_type_layout.addWidget(self.rb_select_superstructure)
         spot_selection_layout.addLayout(spot_type_layout)
 
         self.substrate_set_panel = QWidget()
@@ -320,6 +326,17 @@ class FFTAnalysisPanel(QWidget):
         spot_selection_layout.addWidget(self.adsorbate_set_panel)
         self.adsorbate_set_panel.setVisible(False)
 
+        self.superstructure_set_panel = QWidget()
+        superstructure_set_form_layout = QFormLayout(self.superstructure_set_panel)
+        superstructure_set_form_layout.setContentsMargins(0, 5, 0, 5)
+
+        self.cb_show_superstructure_spots = QCheckBox("Show Superstructure Spots")
+        self.cb_show_superstructure_spots.setChecked(True)
+        superstructure_set_form_layout.addRow(self.cb_show_superstructure_spots)
+
+        spot_selection_layout.addWidget(self.superstructure_set_panel)
+        self.superstructure_set_panel.setVisible(False)
+
         self.spot_selection_group.setLayout(spot_selection_layout)
         parent_layout.addWidget(self.spot_selection_group)
 
@@ -357,6 +374,8 @@ class FFTAnalysisPanel(QWidget):
         )
 
         self.rb_select_substrate.toggled.connect(self._handle_spot_selection_mode_toggle)
+        self.rb_select_adsorbate.toggled.connect(self._handle_spot_selection_mode_toggle)
+        self.rb_select_superstructure.toggled.connect(self._handle_spot_selection_mode_toggle)
 
         self.cb_show_substrate_raw_spots.stateChanged.connect(
             lambda state: self.substrate_raw_visibility_changed.emit(state == Qt.CheckState.Checked.value)
@@ -370,6 +389,10 @@ class FFTAnalysisPanel(QWidget):
         self.cb_show_adsorbate_transformed_spots.stateChanged.connect(
             lambda state: self.adsorbate_transformed_visibility_changed.emit(state == Qt.CheckState.Checked.value)
         )
+        if hasattr(self, "cb_show_superstructure_spots"):
+            self.cb_show_superstructure_spots.stateChanged.connect(
+                lambda state: self.superstructure_spots_visibility_changed.emit(state == Qt.CheckState.Checked.value)
+            )
 
         self.adsorbate_set_combo.currentTextChanged.connect(self._handle_adsorbate_set_combo_change)
 
@@ -401,16 +424,26 @@ class FFTAnalysisPanel(QWidget):
             self.substrate_changed.emit(text)
 
     def _handle_spot_selection_mode_toggle(self, checked: bool):
-        if checked: 
+        if not checked:
+            return
+        if self.rb_select_substrate.isChecked():
             self.substrate_set_panel.setVisible(True)
             self.adsorbate_set_panel.setVisible(False)
-            self.spot_selection_mode_changed.emit("Substrate")
+            self.superstructure_set_panel.setVisible(False)
+            self.spot_selection_mode_changed.emit(SPOT_SELECTION_SUBSTRATE)
             logger.debug("FFTAnalysisPanel: Mode changed to Substrate")
-        else:
+        elif self.rb_select_adsorbate.isChecked():
             self.substrate_set_panel.setVisible(False)
             self.adsorbate_set_panel.setVisible(True)
-            self.spot_selection_mode_changed.emit("Adsorbate")
+            self.superstructure_set_panel.setVisible(False)
+            self.spot_selection_mode_changed.emit(SPOT_SELECTION_ADSORBATE)
             logger.debug("FFTAnalysisPanel: Mode changed to Adsorbate")
+        elif self.rb_select_superstructure.isChecked():
+            self.substrate_set_panel.setVisible(False)
+            self.adsorbate_set_panel.setVisible(False)
+            self.superstructure_set_panel.setVisible(True)
+            self.spot_selection_mode_changed.emit(SPOT_SELECTION_SUPERSTRUCTURE)
+            logger.debug("FFTAnalysisPanel: Mode changed to Superstructure")
 
     def _handle_adsorbate_set_combo_change(self, text: str):
         if text == "<Add New Set...>":
@@ -559,6 +592,9 @@ class FFTAnalysisPanel(QWidget):
     def is_show_adsorbate_transformed_checked(self) -> bool:
         return self.cb_show_adsorbate_transformed_spots.isChecked()
 
+    def is_show_superstructure_checked(self) -> bool:
+        return self.cb_show_superstructure_spots.isChecked()
+
     def set_show_substrate_raw_checked(self, checked: bool) -> None:
         self.cb_show_substrate_raw_spots.blockSignals(True)
         self.cb_show_substrate_raw_spots.setChecked(checked)
@@ -578,30 +614,47 @@ class FFTAnalysisPanel(QWidget):
         self.cb_show_adsorbate_transformed_spots.blockSignals(True)
         self.cb_show_adsorbate_transformed_spots.setChecked(checked)
         self.cb_show_adsorbate_transformed_spots.blockSignals(False)
+
+    def set_show_superstructure_checked(self, checked: bool) -> None:
+        self.cb_show_superstructure_spots.blockSignals(True)
+        self.cb_show_superstructure_spots.setChecked(checked)
+        self.cb_show_superstructure_spots.blockSignals(False)
     
     def get_spot_selection_mode(self) -> str:
-        """Returns the current spot selection mode ('Substrate' or 'Adsorbate')."""
+        """Returns the current spot selection mode."""
         if self.rb_select_substrate.isChecked():
-            return "Substrate"
-        else:
-            return "Adsorbate"
+            return SPOT_SELECTION_SUBSTRATE
+        if self.rb_select_adsorbate.isChecked():
+            return SPOT_SELECTION_ADSORBATE
+        if self.rb_select_superstructure.isChecked():
+            return SPOT_SELECTION_SUPERSTRUCTURE
+        return SPOT_SELECTION_SUBSTRATE
     
     def set_spot_selection_mode(self, mode: str):
-        """Sets the spot selection mode (Substrate/Adsorbate)."""
+        """Sets the spot selection mode (Substrate/Adsorbate/Superstructure)."""
         self.rb_select_substrate.blockSignals(True)
         self.rb_select_adsorbate.blockSignals(True)
-        if mode == "Substrate":
+        self.rb_select_superstructure.blockSignals(True)
+        if mode == SPOT_SELECTION_SUBSTRATE:
             self.rb_select_substrate.setChecked(True)
             self.substrate_set_panel.setVisible(True)
             self.adsorbate_set_panel.setVisible(False)
-        elif mode == "Adsorbate":
+            self.superstructure_set_panel.setVisible(False)
+        elif mode == SPOT_SELECTION_ADSORBATE:
             self.rb_select_adsorbate.setChecked(True)
             self.substrate_set_panel.setVisible(False)
             self.adsorbate_set_panel.setVisible(True)
+            self.superstructure_set_panel.setVisible(False)
+        elif mode == SPOT_SELECTION_SUPERSTRUCTURE:
+            self.rb_select_superstructure.setChecked(True)
+            self.substrate_set_panel.setVisible(False)
+            self.adsorbate_set_panel.setVisible(False)
+            self.superstructure_set_panel.setVisible(True)
         else:
             logger.warning(f"FFTAnalysisPanel: Unknown spot selection mode '{mode}'")
         self.rb_select_substrate.blockSignals(False)
         self.rb_select_adsorbate.blockSignals(False)
+        self.rb_select_superstructure.blockSignals(False)
     
     def set_edit_substrate_spots_button_enabled(self, enabled: bool): # Nowa nazwa
         if hasattr(self, 'edit_substrate_spots_button'):

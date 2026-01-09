@@ -237,6 +237,7 @@ class ControllerState:
     show_adsorbate_transformed_spots: bool = True
     show_substrate_spots_markers: bool = True
     show_adsorbate_spots_markers: bool = True
+    show_superstructure_spots: bool = True
     substrate_real_space_results: Optional[Dict[str, Any]] = None
     adsorbate_spot_sets: List[Any] = field(default_factory=lambda: [[]])
     corrected_adsorbate_spot_sets: List[Any] = field(default_factory=lambda: [[]])
@@ -314,6 +315,7 @@ class ControllerState:
             show_adsorbate_transformed_spots=bool(getattr(controller, "show_adsorbate_transformed_spots", True)),
             show_substrate_spots_markers=bool(getattr(controller, "show_substrate_spots_markers", True)),
             show_adsorbate_spots_markers=bool(getattr(controller, "show_adsorbate_spots_markers", True)),
+            show_superstructure_spots=bool(getattr(controller, "show_superstructure_spots", True)),
             substrate_real_space_results=getattr(controller, "substrate_real_space_results", None),
             adsorbate_spot_sets=list(getattr(controller, "adsorbate_spot_sets", [[]])),
             corrected_adsorbate_spot_sets=list(getattr(controller, "corrected_adsorbate_spot_sets", [[]])),
@@ -378,6 +380,7 @@ class ControllerState:
         controller.show_adsorbate_transformed_spots = self.show_adsorbate_transformed_spots
         controller.show_substrate_spots_markers = self.show_substrate_spots_markers
         controller.show_adsorbate_spots_markers = self.show_adsorbate_spots_markers
+        controller.show_superstructure_spots = self.show_superstructure_spots
         controller.substrate_real_space_results = self.substrate_real_space_results
         controller.adsorbate_spot_sets = list(self.adsorbate_spot_sets)
         controller.corrected_adsorbate_spot_sets = list(self.corrected_adsorbate_spot_sets)
@@ -435,6 +438,8 @@ class ControllerState:
         controller.set_substrate_transformed_visibility(self.show_substrate_transformed_spots)
         controller.set_adsorbate_raw_visibility(self.show_adsorbate_raw_spots)
         controller.set_adsorbate_transformed_visibility(self.show_adsorbate_transformed_spots)
+        if hasattr(controller, "set_superstructure_spots_visibility"):
+            controller.set_superstructure_spots_visibility(self.show_superstructure_spots)
 
     @classmethod
     def from_payload(cls, payload: Dict[str, Any]) -> "ControllerState":
@@ -496,6 +501,7 @@ class ControllerState:
             show_adsorbate_transformed_spots=bool(payload.get("show_adsorbate_transformed_spots", True)),
             show_substrate_spots_markers=bool(payload.get("show_substrate_spots_markers", True)),
             show_adsorbate_spots_markers=bool(payload.get("show_adsorbate_spots_markers", True)),
+            show_superstructure_spots=bool(payload.get("show_superstructure_spots", True)),
             substrate_real_space_results=payload.get("substrate_real_space_results"),
             adsorbate_spot_sets=list(payload.get("adsorbate_spot_sets", [[]])),
             corrected_adsorbate_spot_sets=list(payload.get("corrected_adsorbate_spot_sets", [[]])),
@@ -542,6 +548,7 @@ class ControllerState:
             "show_adsorbate_transformed_spots": self.show_adsorbate_transformed_spots,
             "show_substrate_spots_markers": self.show_substrate_spots_markers,
             "show_adsorbate_spots_markers": self.show_adsorbate_spots_markers,
+            "show_superstructure_spots": self.show_superstructure_spots,
             "substrate_real_space_results": self.substrate_real_space_results,
             "adsorbate_spot_sets": self.adsorbate_spot_sets,
             "corrected_adsorbate_spot_sets": self.corrected_adsorbate_spot_sets,

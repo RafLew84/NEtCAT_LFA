@@ -104,6 +104,8 @@ class SpotSetService:
         ctrl.set_substrate_transformed_visibility(True)
         ctrl.set_adsorbate_raw_visibility(True)
         ctrl.set_adsorbate_transformed_visibility(True)
+        if hasattr(ctrl, "set_superstructure_spots_visibility"):
+            ctrl.set_superstructure_spots_visibility(True)
 
         if hasattr(ctrl, "substrate_real_space_params_updated"):
             ctrl.substrate_real_space_params_updated.emit({})

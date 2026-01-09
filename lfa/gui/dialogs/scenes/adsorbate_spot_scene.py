@@ -54,6 +54,10 @@ class AdsorbateSpotScene:
         self.raw_markers = pg.ScatterPlotItem()
         self.view_box.addItem(self.raw_markers)
 
+        self.highlight_markers = pg.ScatterPlotItem()
+        self.view_box.addItem(self.highlight_markers)
+        self.highlight_markers.setZValue(20)
+
         self.corrected_markers = pg.ScatterPlotItem()
         self.view_box.addItem(self.corrected_markers)
 
@@ -110,6 +114,22 @@ class AdsorbateSpotScene:
         else:
             self.corrected_markers.clear()
 
+    def show_highlight_spot(self, spot: Tuple[float, float] | None) -> None:
+        if spot is None:
+            self.highlight_markers.clear()
+            return
+        self.highlight_markers.setData(
+            spots=[
+                {
+                    "pos": tuple(map(float, spot)),
+                    "symbol": "o",
+                    "size": 18,
+                    "pen": pg.mkPen((255, 215, 0), width=2.5),
+                    "brush": pg.mkBrush(0, 0, 0, 0),
+                }
+            ]
+        )
+
     def show_reference_overlay(
         self,
         *,
@@ -152,6 +172,7 @@ class AdsorbateSpotScene:
 
     def clear_all(self) -> None:
         self.show_raw_spots([])
+        self.show_highlight_spot(None)
         self.show_corrected_spots([])
         self.show_reference_overlay()
 

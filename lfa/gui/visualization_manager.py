@@ -72,6 +72,8 @@ class VisualizationManager(QObject):
 
         self.superstructure_markers: Optional[pg.ScatterPlotItem] = None
         self.superstructure_line: Optional[pg.PlotDataItem] = None
+        self._superstructure_visible: bool = True
+        self._last_superstructure_results: Optional[Dict[str, Any]] = None
 
         self._current_fft_mouse_click_connection = None 
         self._current_node_data_type: Optional[str] = None
@@ -181,14 +183,18 @@ class VisualizationManager(QObject):
                 self._remove_item_from_view(line)
         self.adsorbate_pair_lines = {}
 
+        self._clear_superstructure_overlay()
+
     def update_superstructure_overlay(self, results: Optional[Dict[str, Any]]) -> None:
         """Render main/satellite peaks and their connecting vector."""
+        self._last_superstructure_results = results if results else None
         self._clear_superstructure_overlay()
         logger.debug("VisualizationManager: update_superstructure_overlay called with %s", results)
         if (
             not self.view_box
             or not results
             or self._current_node_data_type != "FFT"
+            or not self._superstructure_visible
         ):
             logger.debug(
                 "VisualizationManager: skipping overlay (view_box=%s, results=%s, data_type=%s)",
@@ -230,6 +236,15 @@ class VisualizationManager(QObject):
         )
         self.superstructure_line.setZValue(119)
         self.view_box.addItem(self.superstructure_line)
+
+    def set_superstructure_visible(self, visible: bool) -> None:
+        """Toggle visibility of superstructure overlay items."""
+        self._superstructure_visible = visible
+        if not visible:
+            self._clear_superstructure_overlay()
+            return
+        if self._last_superstructure_results:
+            self.update_superstructure_overlay(self._last_superstructure_results)
 
     def _clear_superstructure_overlay(self) -> None:
         if self.superstructure_markers:

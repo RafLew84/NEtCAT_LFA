@@ -28,6 +28,7 @@ from ..core.constants import (
     REFINEMENT_PARABOLA_3X3,
     SPOT_SELECTION_ADSORBATE,
     SPOT_SELECTION_SUBSTRATE,
+    SPOT_SELECTION_SUPERSTRUCTURE,
 )
 from ..core.data_models import OriginalImageRecord, STMImage
 from ..core.history import HistoryNode
@@ -103,6 +104,7 @@ class AppController(QObject):
     substrate_transformed_visibility_updated = pyqtSignal(bool)
     adsorbate_raw_visibility_updated = pyqtSignal(bool)
     adsorbate_transformed_visibility_updated = pyqtSignal(bool)
+    superstructure_spots_visibility_updated = pyqtSignal(bool)
 
     def __init__(self, history_manager, parent: Optional[QObject] = None):
         """
@@ -164,6 +166,7 @@ class AppController(QObject):
         self.show_adsorbate_transformed_spots: bool = True
         self.show_substrate_spots_markers: bool = True
         self.show_adsorbate_spots_markers: bool = True
+        self.show_superstructure_spots: bool = True
         self.adsorbate_spot_pairs: Dict[int, List[Tuple[Tuple[float, float], Tuple[float, float]]]] = {0: []}
 
         self.current_fft_data_shape: Optional[Tuple[int, int]] = None
@@ -1037,7 +1040,7 @@ class AppController(QObject):
 
     def set_spot_selection_mode(self, mode: str):
         """Sets the spot selection mode (Substrate/Adsorbate)."""
-        if mode in [SPOT_SELECTION_SUBSTRATE, SPOT_SELECTION_ADSORBATE]:
+        if mode in [SPOT_SELECTION_SUBSTRATE, SPOT_SELECTION_ADSORBATE, SPOT_SELECTION_SUPERSTRUCTURE]:
             if self.spot_selection_mode != mode:
                 self.spot_selection_mode = mode
                 logger.info(f"Spot selection mode set to: {self.spot_selection_mode}")
@@ -1098,6 +1101,13 @@ class AppController(QObject):
             logger.debug("AppController: Adsorbate transformed visibility changed to %s", is_visible)
         self.show_adsorbate_transformed_spots = is_visible
         self.adsorbate_transformed_visibility_updated.emit(is_visible)
+
+    def set_superstructure_spots_visibility(self, is_visible: bool) -> None:
+        """Stores superstructure spot visibility and informs listeners."""
+        if self.show_superstructure_spots != is_visible:
+            logger.debug("AppController: Superstructure spots visibility changed to %s", is_visible)
+        self.show_superstructure_spots = is_visible
+        self.superstructure_spots_visibility_updated.emit(is_visible)
 
     def clear_last_adsorbate_spot(self):
         """Removes the last added spot from the current adsorbate set."""

@@ -523,6 +523,7 @@ class SubstrateSpotSelectionDialog(QDialog):
         self.button_box.rejected.connect(self.reject)
         self.remove_spot_button.clicked.connect(self._remove_selected_spot)
         self.clear_all_spots_button.clicked.connect(self._clear_all_spots_in_dialog)
+        self.spots_list_widget.currentRowChanged.connect(self._on_spot_list_selection_changed)
 
         self.fft_view_box.scene().sigMouseClicked.connect(self._handle_fft_image_click)
         self.selection_roi.sigRegionChanged.connect(self._handle_roi_region_changing)
@@ -568,6 +569,21 @@ class SubstrateSpotSelectionDialog(QDialog):
                 item.setToolTip(tooltip)
             self.spots_list_widget.addItem(item)
         self._update_add_spot_button_state()
+        self._update_selected_spot_highlight()
+
+    @pyqtSlot(int)
+    def _on_spot_list_selection_changed(self, row: int) -> None:
+        self._update_selected_spot_highlight(row)
+
+    def _update_selected_spot_highlight(self, row: Optional[int] = None) -> None:
+        if not hasattr(self, "scene") or self.scene is None:
+            return
+        if row is None:
+            row = self.spots_list_widget.currentRow()
+        if 0 <= row < len(self.selected_spots):
+            self.scene.show_highlight_spot(self.selected_spots[row])
+        else:
+            self.scene.show_highlight_spot(None)
 
     def _populate_substrate_definition_combo(self):
         """Populates the substrate_definition_combo based on the selected lattice_type_combo."""
@@ -635,6 +651,7 @@ class SubstrateSpotSelectionDialog(QDialog):
                     self._update_custom_definition_from_inputs()
                 self._update_spots_list_widget()
                 self._redraw_all_spot_markers()
+                self._update_selected_spot_highlight()
                 logger.debug(f"Removed spot at index {row}")
             self._update_transform_button_state()
 
@@ -647,6 +664,7 @@ class SubstrateSpotSelectionDialog(QDialog):
             self._update_custom_definition_from_inputs()
         self._update_spots_list_widget()
         self._redraw_all_spot_markers()
+        self._update_selected_spot_highlight()
         self._update_transform_button_state()
         logger.debug("Cleared all substrate spots in dialog.")
 

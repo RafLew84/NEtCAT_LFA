@@ -464,6 +464,7 @@ class AdsorbateSpotSelectionDialog(QDialog):
 
         self.remove_spot_button.clicked.connect(self._remove_selected_spot)
         self.clear_all_spots_button.clicked.connect(self._clear_all_spots_in_dialog)
+        self.spots_list_widget.currentRowChanged.connect(self._on_spot_list_selection_changed)
 
         if self.fft_view_box and self.fft_view_box.scene():
             self.fft_view_box.scene().sigMouseClicked.connect(self._handle_fft_image_click)
@@ -932,6 +933,21 @@ class AdsorbateSpotSelectionDialog(QDialog):
             self.spots_list_widget.addItem(item)
         self._update_add_spot_button_state()
         self._update_correction_button_state()
+        self._update_selected_spot_highlight()
+
+    @pyqtSlot(int)
+    def _on_spot_list_selection_changed(self, row: int) -> None:
+        self._update_selected_spot_highlight(row)
+
+    def _update_selected_spot_highlight(self, row: Optional[int] = None) -> None:
+        if not hasattr(self, "scene") or self.scene is None:
+            return
+        if row is None:
+            row = self.spots_list_widget.currentRow()
+        if 0 <= row < len(self.state.raw_spots):
+            self.scene.show_highlight_spot(self.state.raw_spots[row])
+        else:
+            self.scene.show_highlight_spot(None)
 
     @pyqtSlot()
     def _remove_selected_spot(self):
@@ -942,6 +958,7 @@ class AdsorbateSpotSelectionDialog(QDialog):
         if self.presenter.remove_raw_spot(row):
             self._update_adsorbate_spots_list_widget()
             self._redraw_all_markers_in_dialog()
+            self._update_selected_spot_highlight()
             logger.debug(f"Removed adsorbate spot at idx {row}")
 
     @pyqtSlot()
@@ -950,6 +967,7 @@ class AdsorbateSpotSelectionDialog(QDialog):
         self._update_adsorbate_spots_list_widget()
         self._update_corrected_adsorbate_spots_list_widget()
         self._redraw_all_markers_in_dialog()
+        self._update_selected_spot_highlight()
         logger.debug("Cleared all adsorbate spots in dialog.")
         self._update_correction_button_state()
 
