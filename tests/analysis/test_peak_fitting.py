@@ -16,6 +16,7 @@ try:
     from lfa.analysis.peak_fitting import (
         SCIPY_AVAILABLE,
         find_max_pixel_in_roi,
+        fit_2d_gaussian_on_patch,
         fit_2d_gaussian_in_roi,
     )
 except ImportError:
@@ -213,6 +214,25 @@ def test_fit_gaussian_small_roi_on_peak(gaussian_peak_image):
         # This is also an acceptable outcome if the fit fails due to insufficient data
         logger.info("Small ROI fit returned None, indicating robust failure or poor fit quality.")
     # No strict assertion on outcome, more of an exploratory test.
+
+
+@pytest.mark.skipif(not SCIPY_AVAILABLE, reason="SciPy not available, skipping Gaussian fit tests")
+def test_fit_gaussian_on_patch_perfect_peak(gaussian_peak_image):
+    img, (y0_true, x0_true), _ = gaussian_peak_image
+
+    fit_result = fit_2d_gaussian_on_patch(img, roi_origin_yx=(20, 30))
+
+    assert fit_result is not None
+    assert np.isclose(fit_result.center[0], 20 + y0_true, atol=0.1)
+    assert np.isclose(fit_result.center[1], 30 + x0_true, atol=0.1)
+    assert fit_result.center_std is not None
+    assert fit_result.method == "gaussian_fit"
+
+
+@pytest.mark.skipif(not SCIPY_AVAILABLE, reason="SciPy not available, skipping Gaussian fit tests")
+def test_fit_gaussian_on_patch_flat_roi_returns_none():
+    img = np.zeros((8, 8), dtype=float)
+    assert fit_2d_gaussian_on_patch(img) is None
 
 def test_internal_gaussian_2d_function():
     """Test the _gaussian_2d helper function directly (optional)."""

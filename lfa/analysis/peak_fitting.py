@@ -199,75 +199,23 @@ def _gaussian_2d(xy_tuple, amplitude, y0, x0, sigma_y, sigma_x, theta, offset):
     return g.ravel()
 
 
-def fit_2d_gaussian_in_roi(
-    fft_magnitude_data: np.ndarray,
-    center_yx: Tuple[int, int],
-    roi_radius: int,
+def _fit_2d_gaussian_patch_with_initial_guess(
+    roi_patch: np.ndarray,
+    y_start: int,
+    x_start: int,
+    p0: list[float],
+    noise_sigma: float,
+    noise_sigma_eff: float,
     *,
     compute_uncertainty: bool = True,
 ) -> Optional[PeakRefinementResult]:
-    """
-    Fit a rotated 2D Gaussian to a square ROI in the FFT magnitude data.
-
-    Returns ``PeakRefinementResult`` on success, or ``None`` when the fit cannot be
-    performed (invalid ROI, missing SciPy, etc.).
-    """
-    if not SCIPY_AVAILABLE or curve_fit is None:
-        logger.error("fit_2d_gaussian_in_roi: SciPy is not available for curve_fit.")
-        return None
-    if fft_magnitude_data is None or fft_magnitude_data.ndim != 2:
-        logger.warning("fit_2d_gaussian_in_roi: Invalid input image data.")
-        return None
-
-    center_y, center_x = center_yx
-    img_rows, img_cols = fft_magnitude_data.shape
-    y_start = max(0, center_y - roi_radius)
-    y_end = min(img_rows, center_y + roi_radius + 1)
-    x_start = max(0, center_x - roi_radius)
-    x_end = min(img_cols, center_x + roi_radius + 1)
-
-    if y_start >= y_end or x_start >= x_end:
-        logger.warning("fit_2d_gaussian_in_roi: Invalid ROI for fitting (zero size).")
-        return None
-
-    roi_patch = fft_magnitude_data[y_start:y_end, x_start:x_end]
-    if roi_patch.size == 0:
-        logger.warning("fit_2d_gaussian_in_roi: Extracted ROI patch for fitting is empty.")
-        return None
-
-    roi_patch = np.asarray(roi_patch, dtype=float)
-    if not np.isfinite(roi_patch).all():
-        logger.warning("fit_2d_gaussian_in_roi: ROI patch contains non-finite values.")
-        return None
-
-    peak_to_peak = float(np.ptp(roi_patch))
-    if peak_to_peak <= 0.0:
-        logger.debug("fit_2d_gaussian_in_roi: ROI patch has no variation; skipping fit.")
-        return None
-
-    noise_sigma = _estimate_noise_sigma(roi_patch)
-    noise_sigma_eff = max(noise_sigma, _MIN_NOISE_SIGMA)
+    """Fit a 2D Gaussian on an already extracted ROI patch."""
 
     y_roi_coords = np.arange(roi_patch.shape[0], dtype=float)
     x_roi_coords = np.arange(roi_patch.shape[1], dtype=float)
     X_roi, Y_roi = np.meshgrid(x_roi_coords, y_roi_coords)
     xy_roi_flat = (Y_roi.ravel(), X_roi.ravel())
     data_roi_flat = roi_patch.ravel()
-
-    initial_y0_patch = roi_patch.shape[0] / 2.0
-    initial_x0_patch = roi_patch.shape[1] / 2.0
-    initial_amplitude = peak_to_peak
-    initial_offset = float(np.min(roi_patch))
-
-    p0 = [
-        initial_amplitude,
-        initial_y0_patch,
-        initial_x0_patch,
-        max(float(roi_radius), 1.0),
-        max(float(roi_radius), 1.0),
-        0.0,
-        initial_offset,
-    ]
 
     try:
         popt, pcov = curve_fit(
@@ -339,6 +287,139 @@ def fit_2d_gaussian_in_roi(
         popt=popt,
         pcov=pcov,
         metadata=metadata,
+    )
+
+
+def fit_2d_gaussian_in_roi(
+    fft_magnitude_data: np.ndarray,
+    center_yx: Tuple[int, int],
+    roi_radius: int,
+    *,
+    compute_uncertainty: bool = True,
+) -> Optional[PeakRefinementResult]:
+    """
+    Fit a rotated 2D Gaussian to a square ROI in the FFT magnitude data.
+
+    Returns ``PeakRefinementResult`` on success, or ``None`` when the fit cannot be
+    performed (invalid ROI, missing SciPy, etc.).
+    """
+    if not SCIPY_AVAILABLE or curve_fit is None:
+        logger.error("fit_2d_gaussian_in_roi: SciPy is not available for curve_fit.")
+        return None
+    if fft_magnitude_data is None or fft_magnitude_data.ndim != 2:
+        logger.warning("fit_2d_gaussian_in_roi: Invalid input image data.")
+        return None
+
+    center_y, center_x = center_yx
+    img_rows, img_cols = fft_magnitude_data.shape
+    y_start = max(0, center_y - roi_radius)
+    y_end = min(img_rows, center_y + roi_radius + 1)
+    x_start = max(0, center_x - roi_radius)
+    x_end = min(img_cols, center_x + roi_radius + 1)
+
+    if y_start >= y_end or x_start >= x_end:
+        logger.warning("fit_2d_gaussian_in_roi: Invalid ROI for fitting (zero size).")
+        return None
+
+    roi_patch = fft_magnitude_data[y_start:y_end, x_start:x_end]
+    if roi_patch.size == 0:
+        logger.warning("fit_2d_gaussian_in_roi: Extracted ROI patch for fitting is empty.")
+        return None
+
+    roi_patch = np.asarray(roi_patch, dtype=float)
+    if not np.isfinite(roi_patch).all():
+        logger.warning("fit_2d_gaussian_in_roi: ROI patch contains non-finite values.")
+        return None
+
+    peak_to_peak = float(np.ptp(roi_patch))
+    if peak_to_peak <= 0.0:
+        logger.debug("fit_2d_gaussian_in_roi: ROI patch has no variation; skipping fit.")
+        return None
+
+    noise_sigma = _estimate_noise_sigma(roi_patch)
+    noise_sigma_eff = max(noise_sigma, _MIN_NOISE_SIGMA)
+
+    initial_y0_patch = roi_patch.shape[0] / 2.0
+    initial_x0_patch = roi_patch.shape[1] / 2.0
+    initial_amplitude = peak_to_peak
+    initial_offset = float(np.min(roi_patch))
+
+    p0 = [
+        initial_amplitude,
+        initial_y0_patch,
+        initial_x0_patch,
+        max(float(roi_radius), 1.0),
+        max(float(roi_radius), 1.0),
+        0.0,
+        initial_offset,
+    ]
+
+    return _fit_2d_gaussian_patch_with_initial_guess(
+        roi_patch,
+        y_start,
+        x_start,
+        p0,
+        noise_sigma,
+        noise_sigma_eff,
+        compute_uncertainty=compute_uncertainty,
+    )
+
+
+def fit_2d_gaussian_on_patch(
+    roi_patch: np.ndarray,
+    *,
+    roi_origin_yx: Tuple[int, int] = (0, 0),
+    compute_uncertainty: bool = True,
+) -> Optional[PeakRefinementResult]:
+    """
+    Fit a rotated 2D Gaussian directly on an already extracted ROI patch.
+
+    The returned center coordinates are expressed in the image coordinate system
+    defined by ``roi_origin_yx``.
+    """
+    if not SCIPY_AVAILABLE or curve_fit is None:
+        logger.error("fit_2d_gaussian_on_patch: SciPy is not available for curve_fit.")
+        return None
+
+    patch = np.asarray(roi_patch, dtype=float)
+    if patch.ndim != 2:
+        logger.warning("fit_2d_gaussian_on_patch: Invalid ROI patch shape %r.", patch.shape)
+        return None
+    if patch.size == 0:
+        logger.warning("fit_2d_gaussian_on_patch: Empty ROI patch.")
+        return None
+    if not np.isfinite(patch).all():
+        logger.warning("fit_2d_gaussian_on_patch: ROI patch contains non-finite values.")
+        return None
+
+    peak_to_peak = float(np.ptp(patch))
+    if peak_to_peak <= 0.0:
+        logger.debug("fit_2d_gaussian_on_patch: ROI patch has no variation; skipping fit.")
+        return None
+
+    noise_sigma = _estimate_noise_sigma(patch)
+    noise_sigma_eff = max(noise_sigma, _MIN_NOISE_SIGMA)
+    peak_y, peak_x = np.unravel_index(np.argmax(patch), patch.shape)
+    sigma_y_guess = max(float(patch.shape[0]) / 4.0, 1.0)
+    sigma_x_guess = max(float(patch.shape[1]) / 4.0, 1.0)
+    p0 = [
+        peak_to_peak,
+        float(peak_y),
+        float(peak_x),
+        sigma_y_guess,
+        sigma_x_guess,
+        0.0,
+        float(np.min(patch)),
+    ]
+
+    return _fit_2d_gaussian_patch_with_initial_guess(
+        patch,
+        int(roi_origin_yx[0]),
+        int(roi_origin_yx[1]),
+        p0,
+        noise_sigma,
+        noise_sigma_eff,
+        compute_uncertainty=compute_uncertainty,
     )
 
 
@@ -599,6 +680,7 @@ __all__ = [
     "PeakRefinementResult",
     "find_max_pixel_in_roi",
     "fit_2d_gaussian_in_roi",
+    "fit_2d_gaussian_on_patch",
     "fit_2d_gaussian_in_roi_with_all_data",
     "derive_gaussian_center_std",
     "refine_peak_parabola_3x3",

@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 
 from AtomMapper.app.controller import AtomMapperController
-from AtomMapper.app.models import LoadedImage
+from AtomMapper.app.models import LoadedImage, ROIState
 
 
 def _make_loaded_image(name: str, width: int = 8, height: int = 6) -> LoadedImage:
@@ -50,3 +50,21 @@ def test_controller_rejects_invalid_selection():
 
     with pytest.raises(IndexError, match="out of range"):
         controller.select_image(5)
+
+
+def test_controller_creates_and_updates_active_roi_state():
+    controller = AtomMapperController()
+    image = _make_loaded_image("roi.stp", width=100, height=80)
+
+    controller.set_loaded_images([image])
+
+    default_roi = controller.active_roi_state
+    assert default_roi is not None
+    assert default_roi.width == 16
+    assert default_roi.height == 16
+    assert default_roi.x == 42
+    assert default_roi.y == 32
+
+    updated = controller.update_active_roi_state(ROIState(x=90, y=70, width=30, height=30))
+    assert updated == ROIState(x=70, y=50, width=30, height=30)
+    assert controller.active_roi_state == updated

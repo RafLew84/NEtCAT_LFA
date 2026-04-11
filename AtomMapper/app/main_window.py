@@ -8,6 +8,7 @@ from typing import Any
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
+    QCheckBox,
     QFileDialog,
     QHBoxLayout,
     QLabel,
@@ -21,8 +22,12 @@ from PyQt6.QtWidgets import (
 )
 
 from .controller import AtomMapperController
+from .gaussian_fit import fit_gaussian_to_roi_patch
+from .gaussian_preview import GaussianFitPreviewWidget
 from .image_view import STMImageViewport
+from .image_utils import extract_roi_patch
 from .io import SUPPORTED_STM_EXTENSIONS
+from .roi_preview import ROIPreviewWidget
 
 logger = logging.getLogger(__name__)
 
@@ -84,13 +89,29 @@ class AtomMapperMainWindow(QMainWindow):
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
         )
         self.active_image_label.setStyleSheet("font-size: 13px; color: palette(mid);")
+        self.show_gaussian_fit_checkbox = QCheckBox("Show Gaussian Fit", right_panel)
+        self.show_gaussian_fit_checkbox.setChecked(True)
+        self.workflow_status_label = QLabel("Workflow status: load an STM image to begin.")
+        self.workflow_status_label.setWordWrap(True)
+        self.workflow_status_label.setStyleSheet("font-size: 12px; color: palette(mid);")
 
         self.image_viewport = STMImageViewport(right_panel)
+        self.roi_preview = ROIPreviewWidget(right_panel)
+        self.gaussian_fit_preview = GaussianFitPreviewWidget(right_panel)
+        previews_panel = QWidget(right_panel)
+        previews_layout = QHBoxLayout(previews_panel)
+        previews_layout.setContentsMargins(0, 0, 0, 0)
+        previews_layout.setSpacing(12)
+        previews_layout.addWidget(self.roi_preview, 1)
+        previews_layout.addWidget(self.gaussian_fit_preview, 1)
 
         right_layout.addWidget(title)
         right_layout.addWidget(subtitle)
         right_layout.addWidget(self.active_image_label)
+        right_layout.addWidget(self.show_gaussian_fit_checkbox)
+        right_layout.addWidget(self.workflow_status_label)
         right_layout.addWidget(self.image_viewport, 1)
+        right_layout.addWidget(previews_panel)
 
         root_layout.addWidget(left_panel)
         root_layout.addWidget(right_panel, 1)
@@ -101,6 +122,10 @@ class AtomMapperMainWindow(QMainWindow):
         self._refresh_file_list()
         self._update_active_image_label(self.controller.active_image)
         self.image_viewport.set_loaded_image(self.controller.active_image)
+        self.image_viewport.set_roi_state(self.controller.active_roi_state)
+        self.roi_preview.set_loaded_image(self.controller.active_image)
+        self.roi_preview.set_roi_state(self.controller.active_roi_state)
+        self._update_gaussian_fit_preview()
 
     def _connect_signals(self) -> None:
         self.load_button.clicked.connect(self._open_file_dialog)
@@ -108,6 +133,13 @@ class AtomMapperMainWindow(QMainWindow):
         self.controller.loaded_images_changed.connect(self._refresh_file_list)
         self.controller.active_image_changed.connect(self._update_active_image_label)
         self.controller.active_image_changed.connect(self.image_viewport.set_loaded_image)
+        self.controller.active_image_changed.connect(self.roi_preview.set_loaded_image)
+        self.controller.active_image_changed.connect(self._update_gaussian_fit_preview)
+        self.controller.roi_state_changed.connect(self.image_viewport.set_roi_state)
+        self.controller.roi_state_changed.connect(self.roi_preview.set_roi_state)
+        self.controller.roi_state_changed.connect(self._update_gaussian_fit_preview)
+        self.show_gaussian_fit_checkbox.stateChanged.connect(self._on_show_gaussian_fit_changed)
+        self.image_viewport.roi_state_edited.connect(self.controller.update_active_roi_state)
 
     def _build_file_dialog_filter(self) -> str:
         patterns = " ".join(f"*{suffix}" for suffix in sorted(SUPPORTED_STM_EXTENSIONS))
@@ -176,7 +208,9 @@ class AtomMapperMainWindow(QMainWindow):
     def _on_current_row_changed(self, row: int) -> None:
         if row < 0:
             return
-        self.controller.select_image(row)
+        image = self.controller.select_image(row)
+        if image is not None:
+            self.statusBar().showMessage(f"Selected {image.display_name}.", 3000)
 
     def _update_active_image_label(self, active_image: Any) -> None:
         if active_image is None:
@@ -186,3 +220,61 @@ class AtomMapperMainWindow(QMainWindow):
             f"Active image: {active_image.display_name} "
             f"({active_image.pixels_x}x{active_image.pixels_y} px)"
         )
+
+    def _update_gaussian_fit_preview(self, *_args: Any) -> None:
+        image = self.controller.active_image
+        roi = self.controller.active_roi_state
+
+        if image is None:
+            self.gaussian_fit_preview.set_fit_result(None)
+            self.workflow_status_label.setText("Workflow status: load an STM image to begin.")
+            return
+
+        if roi is None:
+            self.gaussian_fit_preview.set_fit_result(None)
+            self.workflow_status_label.setText(
+                f"Workflow status: {image.display_name} loaded. Waiting for ROI geometry."
+            )
+            return
+
+        if not self.show_gaussian_fit_checkbox.isChecked():
+            self.gaussian_fit_preview.set_fit_result(None)
+            self.workflow_status_label.setText(
+                f"Workflow status: ROI preview active for {image.display_name}. Gaussian fit preview hidden."
+            )
+            return
+
+        patch = extract_roi_patch(image.image_data, roi)
+        if patch is None:
+            self.gaussian_fit_preview.set_fit_result(None)
+            self.workflow_status_label.setText(
+                f"Workflow status: ROI for {image.display_name} is outside image bounds."
+            )
+            return
+
+        fit_result = fit_gaussian_to_roi_patch(
+            patch,
+            roi_origin_yx=(roi.y, roi.x),
+            compute_uncertainty=False,
+        )
+        self.gaussian_fit_preview.set_fit_result(fit_result)
+        if fit_result.success and fit_result.center_patch_yx is not None:
+            self.workflow_status_label.setText(
+                "Workflow status: "
+                f"ROI {patch.shape[1]}x{patch.shape[0]} px ready. "
+                f"Gaussian center y={fit_result.center_patch_yx[0]:.2f} "
+                f"x={fit_result.center_patch_yx[1]:.2f}."
+            )
+        else:
+            self.workflow_status_label.setText(
+                "Workflow status: "
+                f"ROI {patch.shape[1]}x{patch.shape[0]} px ready. "
+                f"{fit_result.error_message or 'Gaussian fit unavailable.'}"
+            )
+
+    def _on_show_gaussian_fit_changed(self, state: int) -> None:
+        is_visible = state == int(Qt.CheckState.Checked.value)
+        self.gaussian_fit_preview.setVisible(is_visible)
+        message = "Gaussian fit preview shown." if is_visible else "Gaussian fit preview hidden."
+        self.statusBar().showMessage(message, 3000)
+        self._update_gaussian_fit_preview()

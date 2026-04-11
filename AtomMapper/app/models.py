@@ -10,6 +10,29 @@ import numpy as np
 
 
 @dataclass(frozen=True)
+class ROIState:
+    """Image-space rectangular ROI stored in pixel coordinates."""
+
+    x: int
+    y: int
+    width: int
+    height: int
+
+    def clamped(self, image_width: int, image_height: int, minimum_size: int = 8) -> "ROIState":
+        """Return an ROI clamped to image bounds."""
+
+        max_width = max(1, int(image_width))
+        max_height = max(1, int(image_height))
+        min_size = max(1, int(minimum_size))
+
+        width = min(max_width, max(min_size, int(round(self.width))))
+        height = min(max_height, max(min_size, int(round(self.height))))
+        x = min(max(0, int(round(self.x))), max(0, max_width - width))
+        y = min(max(0, int(round(self.y))), max(0, max_height - height))
+        return ROIState(x=x, y=y, width=width, height=height)
+
+
+@dataclass(frozen=True)
 class LoadedImage:
     """Normalized STM image payload used by AtomMapper."""
 
@@ -45,4 +68,3 @@ class LoadedImage:
         if self.pixels_y <= 0 or self.size_nm_y <= 0.0:
             return None
         return self.size_nm_y / self.pixels_y
-
