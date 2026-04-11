@@ -3,22 +3,62 @@
 from .controller import AtomMapperController
 from .gaussian_fit import GaussianPatchFitResult, fit_gaussian_to_roi_patch
 from .gaussian_preview import GaussianFitPreviewWidget
-from .image_view import STMImageViewport
 from .io import SUPPORTED_STM_EXTENSIONS, load_loaded_image
 from .main_window import AtomMapperMainWindow
 from .models import LoadedImage, ROIState
+from .pyqtgraph_image_view import PyQtGraphSTMViewport
+from .pyqtgraph_preview_bridge import PyQtGraphPreviewBridge
+from .preprocessing import (
+    apply_bm3d,
+    apply_blur,
+    apply_non_local_means,
+    build_bm3d_metadata,
+    build_blur_metadata,
+    build_nlm_metadata,
+    is_bm3d_available,
+)
+from .preprocessing_dialog import PreprocessingDialog
+from .preprocessing_preview import PreprocessingImagePreview
+from .preprocessing_state import (
+    BM3DParameters,
+    BlurParameters,
+    NonLocalMeansParameters,
+    PreviewViewport,
+    PreprocessingMethod,
+    PreprocessingPreviewRequest,
+    PreprocessingPreviewResult,
+    PreprocessingState,
+)
 from .roi_preview import ROIPreviewWidget
 
 __all__ = [
     "AtomMapperController",
     "AtomMapperMainWindow",
+    "BM3DParameters",
+    "BlurParameters",
     "GaussianPatchFitResult",
     "GaussianFitPreviewWidget",
     "LoadedImage",
+    "NonLocalMeansParameters",
+    "PreprocessingDialog",
+    "PreprocessingImagePreview",
+    "PreprocessingMethod",
+    "PreprocessingPreviewRequest",
+    "PreprocessingPreviewResult",
+    "PreprocessingState",
+    "PyQtGraphSTMViewport",
+    "PyQtGraphPreviewBridge",
+    "PreviewViewport",
     "ROIState",
     "ROIPreviewWidget",
     "SUPPORTED_STM_EXTENSIONS",
-    "STMImageViewport",
+    "apply_bm3d",
+    "apply_blur",
+    "apply_non_local_means",
+    "build_bm3d_metadata",
+    "build_blur_metadata",
+    "build_nlm_metadata",
     "fit_gaussian_to_roi_patch",
+    "is_bm3d_available",
     "load_loaded_image",
 ]

@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 from typing import Any, Dict
+from uuid import NAMESPACE_URL, uuid4, uuid5
 
 import numpy as np
 
@@ -37,6 +38,8 @@ def _build_loaded_image(stm_image: STMImage, source_path: Path) -> LoadedImage:
     }
 
     raw_metadata = dict(stm_image.raw_header) if stm_image.raw_header else {}
+    resolved_path = source_path.expanduser().resolve(strict=False)
+    source_group_id = uuid5(NAMESPACE_URL, resolved_path.as_posix()).hex
 
     return LoadedImage(
         source_path=str(source_path),
@@ -47,6 +50,10 @@ def _build_loaded_image(stm_image: STMImage, source_path: Path) -> LoadedImage:
         pixels_y=int(stm_image.pixels_y),
         size_nm_x=float(stm_image.size_nm_x),
         size_nm_y=float(stm_image.size_nm_y),
+        image_id=uuid4().hex,
+        source_group_id=source_group_id,
+        parent_image_id=None,
+        variant_name="original",
         metadata=metadata,
         raw_metadata=raw_metadata,
     )

@@ -60,8 +60,8 @@ def test_main_window_syncs_file_list_with_controller(qtbot):
     assert controlled_window.file_list_widget.item(1).text() == "second.stp"
     assert controller.active_image_index == 0
     assert controlled_window.image_viewport.current_loaded_image == first
-    assert controlled_window.image_viewport.image_label.pixmap() is not None
-    assert not controlled_window.image_viewport.image_label.pixmap().isNull()
+    assert controlled_window.image_viewport.image_item is not None
+    assert controlled_window.image_viewport.image_item.image is not None
 
     controlled_window.file_list_widget.setCurrentRow(1)
 

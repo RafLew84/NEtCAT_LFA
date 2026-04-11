@@ -6,13 +6,22 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QMessageBox
+from PyQt6.QtCore import QTimer, Qt
+from PyQt6.QtWidgets import QDialog, QMessageBox
 
 from AtomMapper.app.controller import AtomMapperController
 from AtomMapper.app.main import create_main_window
 from AtomMapper.app.main_window import AtomMapperMainWindow
 from AtomMapper.app.models import LoadedImage, ROIState
+from AtomMapper.app.preprocessing import is_bm3d_available
+from AtomMapper.app.preprocessing_dialog import PreprocessingDialog
+from AtomMapper.app.preprocessing_state import (
+    BM3DParameters,
+    BlurParameters,
+    NonLocalMeansParameters,
+    PreprocessingMethod,
+    PreprocessingState,
+)
 
 pytest.importorskip("PyQt6", reason="PyQt6 is required for AtomMapper GUI tests")
 pytest.importorskip("pytestqt", reason="pytest-qt is required for AtomMapper GUI tests")
@@ -74,8 +83,9 @@ def test_main_window_loads_sample_file_via_button(qtbot, monkeypatch):
     assert window.controller.active_image.display_name == "8343.stp"
     assert window.image_viewport.current_loaded_image is not None
     assert window.image_viewport.current_loaded_image.display_name == "8343.stp"
-    assert window.image_viewport.image_label.pixmap() is not None
-    assert not window.image_viewport.image_label.pixmap().isNull()
+    assert window.image_viewport.image_item is not None
+    assert window.image_viewport.image_item.image is not None
+    assert window.image_viewport.stack.currentWidget() == window.image_viewport.plot_widget
     assert window.roi_preview.current_loaded_image is not None
     assert window.roi_preview.current_patch_data is not None
     assert window.roi_preview.preview_label.pixmap() is not None
@@ -223,6 +233,8 @@ def test_main_window_end_to_end_roi_fit_workflow(qtbot, monkeypatch):
     assert window.file_list_widget.count() == 2
     assert window.controller.active_image is not None
     assert window.controller.active_image.display_name == "fake-first.stp"
+    assert window.image_viewport.image_item is not None
+    assert window.image_viewport.image_item.image is not None
     assert window.roi_preview.current_patch_data is not None
     assert window.gaussian_fit_preview.current_fit_result is not None
     assert window.gaussian_fit_preview.current_fit_result.success is True
@@ -249,3 +261,287 @@ def test_main_window_end_to_end_roi_fit_workflow(qtbot, monkeypatch):
     assert not window.gaussian_fit_preview.isHidden()
     assert window.gaussian_fit_preview.current_fit_result is not None
     assert "Gaussian center" in window.workflow_status_label.text()
+
+
+def test_main_window_groups_variants_under_original_and_keeps_selection_stable(qtbot):
+    controller = AtomMapperController()
+    first = _make_gaussian_image("first.stp", size=40, amplitude=18.0, offset=1.0)
+    second = _make_gaussian_image("second.stp", size=44, amplitude=15.0, offset=2.0)
+    controller.set_loaded_images([first, second])
+
+    window = AtomMapperMainWindow(controller=controller)
+    qtbot.addWidget(window)
+
+    variant = controller.create_blur_variant_for_active_image(sigma_px=1.2, make_active=False)
+
+    assert window.file_list_widget.count() == 3
+    assert window.file_list_widget.item(0).text() == "first.stp"
+    assert window.file_list_widget.item(1).text() == f"  - {variant.display_name}"
+    assert window.file_list_widget.item(1).toolTip().startswith("Variant: blur")
+    assert window.file_list_widget.item(2).text() == "second.stp"
+
+    window.file_list_widget.setCurrentRow(1)
+    assert window.controller.active_image == variant
+    assert window.roi_preview.current_loaded_image == variant
+
+    window.file_list_widget.setCurrentRow(2)
+    assert window.controller.active_image == second
+    assert window.statusBar().currentMessage() == "Selected second.stp."
+
+
+def test_main_window_can_open_preprocessing_dialog_for_active_image(qtbot):
+    controller = AtomMapperController()
+    original = _make_gaussian_image("origin.stp", size=40, amplitude=18.0, offset=1.0)
+    controller.set_loaded_images([original])
+
+    window = AtomMapperMainWindow(controller=controller)
+    qtbot.addWidget(window)
+
+    opened: dict[str, object] = {}
+
+    class FakeDialog:
+        def __init__(self, loaded_image, parent):
+            opened["image"] = loaded_image
+            opened["parent"] = parent
+
+        def exec(self):
+            return int(QDialog.DialogCode.Rejected)
+
+    window._preprocessing_dialog_class = FakeDialog
+
+    assert window.preprocessing_button.isEnabled()
+
+    qtbot.mouseClick(window.preprocessing_button, Qt.MouseButton.LeftButton)
+
+    assert opened["image"] == original
+    assert opened["parent"] == window
+    assert len(window.controller.loaded_images) == 1
+    assert window.controller.active_image == original
+    assert window.statusBar().currentMessage() == "Preprocessing cancelled."
+    assert "closed without changes" in window.workflow_status_label.text()
+
+
+def test_main_window_real_preprocessing_dialog_cancel_keeps_state(qtbot):
+    controller = AtomMapperController()
+    original = _make_gaussian_image("origin.stp", size=40, amplitude=18.0, offset=1.0)
+    controller.set_loaded_images([original])
+
+    window = AtomMapperMainWindow(controller=controller)
+    qtbot.addWidget(window)
+
+    class AutoCancelDialog(PreprocessingDialog):
+        def __init__(self, loaded_image, parent):
+            super().__init__(loaded_image, parent)
+            QTimer.singleShot(0, self.reject)
+
+    window._preprocessing_dialog_class = AutoCancelDialog
+
+    qtbot.mouseClick(window.preprocessing_button, Qt.MouseButton.LeftButton)
+
+    assert len(window.controller.loaded_images) == 1
+    assert window.controller.active_image == original
+    assert window.statusBar().currentMessage() == "Preprocessing cancelled."
+    assert "closed without changes" in window.workflow_status_label.text()
+
+
+def test_main_window_applies_blur_variant_from_preprocessing_dialog(qtbot):
+    controller = AtomMapperController()
+    original = _make_gaussian_image("origin.stp", size=40, amplitude=18.0, offset=1.0)
+    controller.set_loaded_images([original])
+
+    window = AtomMapperMainWindow(controller=controller)
+    qtbot.addWidget(window)
+
+    class FakeDialog:
+        def __init__(self, loaded_image, parent):
+            self.preprocessing_state = PreprocessingState(
+                method=PreprocessingMethod.BLUR,
+                blur=BlurParameters(sigma_px=1.75),
+            )
+
+        def exec(self):
+            return int(QDialog.DialogCode.Accepted)
+
+    window._preprocessing_dialog_class = FakeDialog
+
+    qtbot.mouseClick(window.preprocessing_button, Qt.MouseButton.LeftButton)
+
+    assert len(window.controller.loaded_images) == 2
+    variant = window.controller.active_image
+    assert variant is not None
+    assert variant is not original
+    assert variant.variant_name == "blur"
+    assert variant.metadata["preprocess"] == "blur"
+    assert variant.metadata["blur_sigma_px"] == pytest.approx(1.75)
+    assert window.file_list_widget.count() == 2
+    assert window.file_list_widget.item(1).text() == f"  - {variant.display_name}"
+    assert "Created blur variant" in window.statusBar().currentMessage()
+    assert "created blur variant" in window.workflow_status_label.text()
+
+
+def test_main_window_real_preprocessing_dialog_apply_blur_creates_variant(qtbot):
+    controller = AtomMapperController()
+    original = _make_gaussian_image("origin.stp", size=40, amplitude=18.0, offset=1.0)
+    controller.set_loaded_images([original])
+
+    window = AtomMapperMainWindow(controller=controller)
+    qtbot.addWidget(window)
+
+    class AutoApplyBlurDialog(PreprocessingDialog):
+        def __init__(self, loaded_image, parent):
+            super().__init__(loaded_image, parent)
+            self.blur_sigma_spinbox.setValue(1.35)
+            QTimer.singleShot(0, self.apply_button.click)
+
+    window._preprocessing_dialog_class = AutoApplyBlurDialog
+
+    qtbot.mouseClick(window.preprocessing_button, Qt.MouseButton.LeftButton)
+
+    assert len(window.controller.loaded_images) == 2
+    variant = window.controller.active_image
+    assert variant is not None
+    assert variant is not original
+    assert variant.variant_name == "blur"
+    assert variant.metadata["preprocess"] == "blur"
+    assert variant.metadata["blur_sigma_px"] == pytest.approx(1.35)
+    assert window.file_list_widget.item(1).text() == f"  - {variant.display_name}"
+    assert "Created blur variant" in window.statusBar().currentMessage()
+    assert "created blur variant" in window.workflow_status_label.text()
+
+
+def test_main_window_applies_nlm_variant_from_preprocessing_dialog(qtbot):
+    controller = AtomMapperController()
+    original = _make_gaussian_image("origin.stp", size=40, amplitude=18.0, offset=1.0)
+    controller.set_loaded_images([original])
+
+    window = AtomMapperMainWindow(controller=controller)
+    qtbot.addWidget(window)
+
+    class FakeDialog:
+        def __init__(self, loaded_image, parent):
+            self.preprocessing_state = PreprocessingState(
+                method=PreprocessingMethod.NLM,
+                blur=BlurParameters(),
+                nlm=NonLocalMeansParameters(
+                    h=0.18,
+                    patch_size=7,
+                    patch_distance=8,
+                    fast_mode=False,
+                ),
+            )
+
+        def exec(self):
+            return int(QDialog.DialogCode.Accepted)
+
+    window._preprocessing_dialog_class = FakeDialog
+
+    qtbot.mouseClick(window.preprocessing_button, Qt.MouseButton.LeftButton)
+
+    assert len(window.controller.loaded_images) == 2
+    variant = window.controller.active_image
+    assert variant is not None
+    assert variant is not original
+    assert variant.variant_name == "nlm"
+    assert variant.metadata["preprocess"] == "nlm"
+    assert variant.metadata["nlm_h"] == pytest.approx(0.18)
+    assert variant.metadata["nlm_patch_size"] == 7
+    assert variant.metadata["nlm_patch_distance"] == 8
+    assert variant.metadata["nlm_fast_mode"] is False
+    assert window.file_list_widget.count() == 2
+    assert window.file_list_widget.item(1).text() == f"  - {variant.display_name}"
+    assert "Created nlm variant" in window.statusBar().currentMessage()
+    assert "created nlm variant" in window.workflow_status_label.text()
+
+
+def test_main_window_applies_bm3d_variant_from_preprocessing_dialog(qtbot):
+    if not is_bm3d_available():
+        pytest.skip("bm3d package not available in test environment")
+
+    controller = AtomMapperController()
+    original = _make_gaussian_image("origin.stp", size=24, amplitude=18.0, offset=1.0)
+    controller.set_loaded_images([original])
+
+    window = AtomMapperMainWindow(controller=controller)
+    qtbot.addWidget(window)
+
+    class FakeDialog:
+        def __init__(self, loaded_image, parent):
+            self.preprocessing_state = PreprocessingState(
+                method=PreprocessingMethod.BM3D,
+                bm3d=BM3DParameters(sigma_psd=0.07, stage="all_stages"),
+            )
+
+        def exec(self):
+            return int(QDialog.DialogCode.Accepted)
+
+    window._preprocessing_dialog_class = FakeDialog
+
+    qtbot.mouseClick(window.preprocessing_button, Qt.MouseButton.LeftButton)
+
+    assert len(window.controller.loaded_images) == 2
+    variant = window.controller.active_image
+    assert variant is not None
+    assert variant is not original
+    assert variant.variant_name == "bm3d"
+    assert variant.metadata["preprocess"] == "bm3d"
+    assert variant.metadata["bm3d_sigma_psd"] == pytest.approx(0.07)
+    assert variant.metadata["bm3d_stage"] == "all_stages"
+    assert window.file_list_widget.count() == 2
+    assert window.file_list_widget.item(1).text() == f"  - {variant.display_name}"
+    assert "Created bm3d variant" in window.statusBar().currentMessage()
+    assert "created bm3d variant" in window.workflow_status_label.text()
+
+
+def test_main_window_reports_bm3d_failure_without_crashing(qtbot, monkeypatch):
+    controller = AtomMapperController()
+    original = _make_gaussian_image("origin.stp", size=24, amplitude=18.0, offset=1.0)
+    controller.set_loaded_images([original])
+
+    window = AtomMapperMainWindow(controller=controller)
+    qtbot.addWidget(window)
+
+    class FakeDialog:
+        def __init__(self, loaded_image, parent):
+            self.preprocessing_state = PreprocessingState(
+                method=PreprocessingMethod.BM3D,
+                bm3d=BM3DParameters(sigma_psd=0.07, stage="all_stages"),
+            )
+
+        def exec(self):
+            return int(QDialog.DialogCode.Accepted)
+
+    window._preprocessing_dialog_class = FakeDialog
+    monkeypatch.setattr(
+        window.controller,
+        "create_bm3d_variant_for_active_image",
+        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("BM3D missing")),
+    )
+
+    captured: dict[str, str] = {}
+
+    def fake_warning(parent, title, text):
+        captured["title"] = title
+        captured["text"] = text
+        return QMessageBox.StandardButton.Ok
+
+    monkeypatch.setattr("AtomMapper.app.main_window.QMessageBox.warning", fake_warning)
+
+    qtbot.mouseClick(window.preprocessing_button, Qt.MouseButton.LeftButton)
+
+    assert len(window.controller.loaded_images) == 1
+    assert captured["title"] == "AtomMapper - Preprocessing Error"
+    assert "Could not create BM3D variant" in captured["text"]
+    assert "BM3D preprocessing failed." in window.statusBar().currentMessage()
+    assert "BM3D preprocessing failed." in window.workflow_status_label.text()
+
+
+def test_main_window_does_not_open_preprocessing_dialog_without_active_image(qtbot):
+    window = create_main_window()
+    qtbot.addWidget(window)
+
+    assert window.preprocessing_button.isEnabled() is False
+
+    window._open_preprocessing_dialog()
+
+    assert window.statusBar().currentMessage() == "Select an STM image before preprocessing."
+    assert "before opening preprocessing" in window.workflow_status_label.text()

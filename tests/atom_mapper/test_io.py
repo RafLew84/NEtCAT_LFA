@@ -34,6 +34,11 @@ def test_load_loaded_image_from_sample_stp():
     assert loaded.pixel_size_nm_x is not None
     assert loaded.pixel_size_nm_y is not None
     assert loaded.metadata["image_type"] == "Topo"
+    assert loaded.image_id
+    assert loaded.source_group_id
+    assert loaded.parent_image_id is None
+    assert loaded.variant_name == "original"
+    assert loaded.is_original is True
 
 
 def test_load_loaded_image_from_sample_s94():
@@ -51,6 +56,10 @@ def test_load_loaded_image_from_sample_s94():
     assert loaded.size_nm_y > 0.0
     assert loaded.metadata["image_type"] in {"Topography", "Current", "Unknown (0)", "Unknown (1)"}
     assert "Bias_Voltage_mV" in loaded.raw_metadata
+    assert loaded.image_id
+    assert loaded.source_group_id
+    assert loaded.parent_image_id is None
+    assert loaded.variant_name == "original"
 
 
 def test_load_loaded_image_rejects_unsupported_extension(tmp_path: Path):
@@ -91,3 +100,6 @@ def test_load_loaded_image_keeps_original_row_and_col_orientation(monkeypatch, t
     assert loaded.metadata["offset_nm_x"] == 7.0
     assert loaded.metadata["offset_nm_y"] == 9.0
     assert "transposed_for_display" not in loaded.metadata
+    assert loaded.variant_name == "original"
+    assert loaded.parent_image_id is None
+    assert loaded.source_group_id

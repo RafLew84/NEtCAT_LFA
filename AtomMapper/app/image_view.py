@@ -1,4 +1,4 @@
-"""Image viewport widget for displaying STM images in AtomMapper."""
+"""Legacy QLabel/QScrollArea STM viewport kept only as a fallback backend for tests."""
 
 from __future__ import annotations
 

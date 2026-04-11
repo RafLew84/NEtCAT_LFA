@@ -239,6 +239,36 @@ def test_image_viewport_clamps_roi_drag_to_image_bounds(qtbot):
     assert refreshed_rect.bottom() <= viewport.image_label.height()
 
 
+def test_image_viewport_resize_can_shrink_roi_to_4px_minimum(qtbot):
+    viewport = STMImageViewport()
+    qtbot.addWidget(viewport)
+    viewport.resize(420, 320)
+    viewport.show()
+
+    image = _make_loaded_image(
+        "roi-minimum.stp",
+        np.arange(12000, dtype=float).reshape((100, 120)),
+    )
+    viewport.set_loaded_image(image)
+    viewport.set_roi_state(ROIState(x=40, y=30, width=18, height=18))
+
+    emitted: list[ROIState] = []
+    viewport.roi_state_edited.connect(emitted.append)
+
+    qtbot.waitUntil(lambda: viewport.image_label._resize_handle.isVisible())
+    handle_pos = viewport.image_label._resize_handle.geometry().center()
+    resize_end = QPoint(1, 1)
+
+    qtbot.mousePress(viewport.image_label, Qt.MouseButton.LeftButton, pos=handle_pos)
+    qtbot.mouseMove(viewport.image_label, pos=resize_end)
+    qtbot.mouseRelease(viewport.image_label, Qt.MouseButton.LeftButton, pos=resize_end)
+
+    assert emitted
+    resized_roi = emitted[-1]
+    assert resized_roi.width == 4
+    assert resized_roi.height == 4
+
+
 def test_image_viewport_supports_panning_by_dragging_background(qtbot):
     viewport = STMImageViewport()
     qtbot.addWidget(viewport)
