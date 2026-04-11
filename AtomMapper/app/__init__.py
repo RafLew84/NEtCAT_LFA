@@ -5,7 +5,7 @@ from .gaussian_fit import GaussianPatchFitResult, fit_gaussian_to_roi_patch
 from .gaussian_preview import GaussianFitPreviewWidget
 from .io import SUPPORTED_STM_EXTENSIONS, load_loaded_image
 from .main_window import AtomMapperMainWindow
-from .models import LoadedImage, ROIState
+from .models import AtomPoint, AtomRow, LoadedImage, ROIState
 from .pyqtgraph_image_view import PyQtGraphSTMViewport
 from .pyqtgraph_preview_bridge import PyQtGraphPreviewBridge
 from .preprocessing import (
@@ -34,6 +34,8 @@ from .roi_preview import ROIPreviewWidget
 __all__ = [
     "AtomMapperController",
     "AtomMapperMainWindow",
+    "AtomPoint",
+    "AtomRow",
     "BM3DParameters",
     "BlurParameters",
     "GaussianPatchFitResult",

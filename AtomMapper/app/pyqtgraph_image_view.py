@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Optional, Sequence
 
 import numpy as np
 
 from PyQt6.QtCore import QRectF, Qt, pyqtSignal
 from PyQt6.QtWidgets import QLabel, QStackedWidget, QVBoxLayout, QWidget
 
-from .models import LoadedImage, ROIState
+from .models import AtomPoint, AtomRow, LoadedImage, ROIState
 
 try:
     import pyqtgraph as pg
@@ -21,13 +21,20 @@ class PyQtGraphSTMViewport(QWidget):
     """STM viewport backed by pyqtgraph.ImageView, mirroring the LFA display control."""
 
     roi_state_edited = pyqtSignal(object)
+    point_selected = pyqtSignal(object)
+    point_move_requested = pyqtSignal(object)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self.current_loaded_image: Optional[LoadedImage] = None
         self.current_roi_state: Optional[ROIState] = None
+        self.current_atom_rows: tuple[AtomRow, ...] = ()
+        self.current_active_row_id: Optional[str] = None
+        self.current_active_image_id: Optional[str] = None
+        self.current_active_point_id: Optional[str] = None
         self.backend_available: bool = pg is not None
         self._syncing_roi_overlay = False
+        self._syncing_active_point_target = False
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -51,6 +58,8 @@ class PyQtGraphSTMViewport(QWidget):
         self.image_item = None
         self.histogram_widget = None
         self.roi_item = None
+        self.point_scatter_item = None
+        self.active_point_target = None
         if self.backend_available:
             self.image_view = pg.ImageView(self)
             self.image_view.setObjectName("atommapper_pg_image_view")
@@ -58,6 +67,32 @@ class PyQtGraphSTMViewport(QWidget):
             self.image_item = self.image_view.getImageItem()
             self.histogram_widget = self.image_view.getHistogramWidget()
             self.view_box.invertY(True)
+
+            self.point_scatter_item = pg.ScatterPlotItem(
+                size=11,
+                pen=pg.mkPen(color=(20, 20, 20, 220), width=1.5),
+                brush=pg.mkBrush(255, 210, 60, 220),
+                hoverable=True,
+                pxMode=True,
+            )
+            self.point_scatter_item.sigClicked.connect(self._on_point_scatter_clicked)
+            self.view_box.addItem(self.point_scatter_item)
+
+            self.active_point_target = pg.TargetItem(
+                pos=(0.0, 0.0),
+                size=14,
+                symbol="crosshair",
+                pen=pg.mkPen(color=(30, 30, 30, 255), width=2.2),
+                brush=pg.mkBrush(110, 255, 140, 120),
+                hoverPen=pg.mkPen(color=(255, 255, 255, 255), width=2.4),
+                hoverBrush=pg.mkBrush(110, 255, 140, 180),
+                movable=True,
+            )
+            self.active_point_target.hide()
+            self.active_point_target.sigPositionChangeFinished.connect(
+                self._on_active_point_target_move_finished
+            )
+            self.view_box.addItem(self.active_point_target)
 
             self.roi_item = pg.RectROI(
                 [0.0, 0.0],
@@ -115,6 +150,8 @@ class PyQtGraphSTMViewport(QWidget):
         self.image_item.setImage(image_array.T, autoLevels=True)
         self.reset_view()
         self._update_roi_overlay_from_state()
+        self._update_point_overlay()
+        self._update_active_point_target()
         self.stack.setCurrentWidget(self.image_view)
         self.info_label.setText(
             f"{loaded_image.display_name} | "
@@ -127,6 +164,23 @@ class PyQtGraphSTMViewport(QWidget):
 
         self.current_roi_state = roi_state
         self._update_roi_overlay_from_state()
+
+    def set_atom_rows(
+        self,
+        atom_rows: Sequence[AtomRow],
+        *,
+        active_row_id: Optional[str] = None,
+        active_image_id: Optional[str] = None,
+        active_point_id: Optional[str] = None,
+    ) -> None:
+        """Render saved-point markers for the current image family."""
+
+        self.current_atom_rows = tuple(atom_rows)
+        self.current_active_row_id = active_row_id
+        self.current_active_image_id = active_image_id
+        self.current_active_point_id = active_point_id
+        self._update_point_overlay()
+        self._update_active_point_target()
 
     def reset_view(self) -> None:
         """Reset the visible range to the full image bounds."""
@@ -185,6 +239,116 @@ class PyQtGraphSTMViewport(QWidget):
         self._update_roi_overlay_from_state()
         self.roi_state_edited.emit(roi_state)
 
+    def _update_point_overlay(self) -> None:
+        if self.point_scatter_item is None:
+            return
+
+        image = self.current_loaded_image
+        if image is None:
+            self.point_scatter_item.setData([], [])
+            return
+
+        points_payload: list[dict[str, object]] = []
+        for row in self.current_atom_rows:
+            for point in row.points:
+                if point.source_group_id != image.source_group_id:
+                    continue
+
+                is_active_row = row.row_id == self.current_active_row_id
+                is_active_image = point.image_id == self.current_active_image_id
+                is_active_point = point.point_id == self.current_active_point_id
+
+                if is_active_point:
+                    brush = pg.mkBrush(110, 255, 140, 250)
+                    pen = pg.mkPen(color=(20, 20, 20, 250), width=2.2)
+                    size = 15
+                elif is_active_row and is_active_image:
+                    brush = pg.mkBrush(255, 210, 60, 240)
+                    pen = pg.mkPen(color=(30, 30, 30, 240), width=1.8)
+                    size = 13
+                elif is_active_row:
+                    brush = pg.mkBrush(255, 120, 120, 220)
+                    pen = pg.mkPen(color=(30, 30, 30, 220), width=1.5)
+                    size = 11
+                elif is_active_image:
+                    brush = pg.mkBrush(120, 220, 255, 210)
+                    pen = pg.mkPen(color=(30, 30, 30, 210), width=1.4)
+                    size = 10
+                else:
+                    brush = pg.mkBrush(180, 180, 180, 180)
+                    pen = pg.mkPen(color=(30, 30, 30, 180), width=1.2)
+                    size = 9
+
+                points_payload.append(
+                    {
+                        "pos": (float(point.x_px), float(point.y_px)),
+                        "data": {
+                            "row_id": row.row_id,
+                            "point_id": point.point_id,
+                            "image_id": point.image_id,
+                        },
+                        "size": size,
+                        "brush": brush,
+                        "pen": pen,
+                    }
+                )
+
+        self.point_scatter_item.setData(points_payload)
+
+    def _on_point_scatter_clicked(self, _scatter_item, points, _event) -> None:
+        if not points:
+            return
+        payload = points[0].data()
+        if not isinstance(payload, dict):
+            return
+        self.point_selected.emit(dict(payload))
+
+    def _update_active_point_target(self) -> None:
+        if self.active_point_target is None:
+            return
+
+        active_point = self._find_active_point()
+        if active_point is None:
+            self.active_point_target.hide()
+            return
+
+        self._syncing_active_point_target = True
+        try:
+            self.active_point_target.setPos((float(active_point.x_px), float(active_point.y_px)))
+            self.active_point_target.show()
+        finally:
+            self._syncing_active_point_target = False
+
+    def _find_active_point(self) -> Optional[AtomPoint]:
+        active_point_id = self.current_active_point_id
+        if active_point_id is None:
+            return None
+        for row in self.current_atom_rows:
+            for point in row.points:
+                if point.point_id == active_point_id:
+                    return point
+        return None
+
+    def _on_active_point_target_move_finished(self) -> None:
+        if self._syncing_active_point_target or self.active_point_target is None:
+            return
+
+        active_point = self._find_active_point()
+        if active_point is None:
+            return
+
+        position = self.active_point_target.pos()
+        self.point_move_requested.emit(
+            {
+                "row_id": active_point.row_id,
+                "point_id": active_point.point_id,
+                "image_id": active_point.image_id,
+                "x_px": float(position.x()),
+                "y_px": float(position.y()),
+                "source": "drag",
+            }
+        )
+
     def image_bounding_rect(self) -> Optional[QRectF]:
         """Return the current image bounding rectangle in image coordinates."""
 
@@ -202,6 +366,26 @@ class PyQtGraphSTMViewport(QWidget):
     def _clear_image_view(self, detach: bool = False) -> None:
         """Clear image/ROI state and optionally detach graphics items during teardown."""
 
+        if self.point_scatter_item is not None:
+            try:
+                self.point_scatter_item.setData([], [])
+            except Exception:
+                pass
+            if detach:
+                try:
+                    self.point_scatter_item.setParentItem(None)
+                except Exception:
+                    pass
+        if self.active_point_target is not None:
+            try:
+                self.active_point_target.hide()
+            except Exception:
+                pass
+            if detach:
+                try:
+                    self.active_point_target.setParentItem(None)
+                except Exception:
+                    pass
         if self.roi_item is not None:
             try:
                 self.roi_item.hide()

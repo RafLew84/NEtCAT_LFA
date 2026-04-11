@@ -3,14 +3,18 @@
 from __future__ import annotations
 
 import logging
+import math
 from pathlib import Path
 from typing import Any
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
+    QAbstractItemView,
     QCheckBox,
+    QDockWidget,
     QFileDialog,
     QDialog,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QListWidget,
@@ -18,6 +22,8 @@ from PyQt6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QPushButton,
+    QTableWidget,
+    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -25,6 +31,7 @@ from PyQt6.QtWidgets import (
 from .controller import AtomMapperController
 from .gaussian_preview import GaussianFitPreviewWidget
 from .io import SUPPORTED_STM_EXTENSIONS
+from .models import AtomPoint
 from .pyqtgraph_image_view import PyQtGraphSTMViewport
 from .pyqtgraph_preview_bridge import PyQtGraphPreviewBridge
 from .preprocessing_dialog import PreprocessingDialog
@@ -65,12 +72,43 @@ class AtomMapperMainWindow(QMainWindow):
         self.file_list_hint_label.setStyleSheet("font-size: 12px; color: palette(mid);")
         self.file_list_widget = QListWidget()
         self.file_list_widget.setObjectName("atommapper_file_list")
+        rows_title = QLabel("Atom rows")
+        rows_title.setStyleSheet("font-size: 16px; font-weight: 600;")
+        self.active_row_label = QLabel("Active row: none")
+        self.active_row_label.setWordWrap(True)
+        self.active_row_label.setStyleSheet("font-size: 12px; color: palette(mid);")
+        self.new_row_button = QPushButton("New Row")
+        self.new_row_button.setObjectName("atommapper_new_row_button")
+        self.delete_row_button = QPushButton("Delete Row")
+        self.delete_row_button.setObjectName("atommapper_delete_row_button")
+        self.add_point_button = QPushButton("Add Point")
+        self.add_point_button.setObjectName("atommapper_add_point_button")
+        self.delete_point_button = QPushButton("Delete Point")
+        self.delete_point_button.setObjectName("atommapper_delete_point_button")
+        row_button_panel = QWidget(left_panel)
+        row_button_layout = QHBoxLayout(row_button_panel)
+        row_button_layout.setContentsMargins(0, 0, 0, 0)
+        row_button_layout.setSpacing(8)
+        row_button_layout.addWidget(self.new_row_button)
+        row_button_layout.addWidget(self.delete_row_button)
+        row_button_layout.addWidget(self.add_point_button)
+        row_button_layout.addWidget(self.delete_point_button)
+        self.row_list_hint_label = QLabel("Load or select an STM image to manage rows.")
+        self.row_list_hint_label.setWordWrap(True)
+        self.row_list_hint_label.setStyleSheet("font-size: 12px; color: palette(mid);")
+        self.row_list_widget = QListWidget()
+        self.row_list_widget.setObjectName("atommapper_row_list")
 
         left_layout.addWidget(left_title)
         left_layout.addWidget(self.load_button)
         left_layout.addWidget(self.preprocessing_button)
         left_layout.addWidget(self.file_list_hint_label)
         left_layout.addWidget(self.file_list_widget, 1)
+        left_layout.addWidget(rows_title)
+        left_layout.addWidget(self.active_row_label)
+        left_layout.addWidget(row_button_panel)
+        left_layout.addWidget(self.row_list_hint_label)
+        left_layout.addWidget(self.row_list_widget, 1)
         left_panel.setMinimumWidth(280)
         left_panel.setMaximumWidth(360)
 
@@ -109,44 +147,122 @@ class AtomMapperMainWindow(QMainWindow):
             self.gaussian_fit_preview,
             self,
         )
-        previews_panel = QWidget(right_panel)
-        previews_layout = QHBoxLayout(previews_panel)
-        previews_layout.setContentsMargins(0, 0, 0, 0)
-        previews_layout.setSpacing(12)
-        previews_layout.addWidget(self.roi_preview, 1)
-        previews_layout.addWidget(self.gaussian_fit_preview, 1)
+        points_title = QLabel("Saved points")
+        points_title.setStyleSheet("font-size: 16px; font-weight: 600;")
+        self.points_table_hint_label = QLabel(
+            "Saved points for the selected STM file family will appear here."
+        )
+        self.points_table_hint_label.setWordWrap(True)
+        self.points_table_hint_label.setStyleSheet("font-size: 12px; color: palette(mid);")
+        self.points_table_widget = QTableWidget(0, 7, right_panel)
+        self.points_table_widget.setObjectName("atommapper_points_table")
+        self.points_table_widget.setHorizontalHeaderLabels(
+            ["row", "index", "x_px", "y_px", "sigma_x", "sigma_y", "status"]
+        )
+        self.points_table_widget.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.points_table_widget.setSelectionBehavior(
+            QAbstractItemView.SelectionBehavior.SelectRows
+        )
+        self.points_table_widget.setSelectionMode(
+            QAbstractItemView.SelectionMode.SingleSelection
+        )
+        self.points_table_widget.verticalHeader().setVisible(False)
+        self.points_table_widget.setAlternatingRowColors(True)
+        self.points_table_widget.setMinimumHeight(220)
+        self.points_table_widget.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.points_table_widget.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.points_table_widget.horizontalHeader().setStretchLastSection(True)
+        self.saved_points_panel = QWidget(right_panel)
+        self.saved_points_panel.setObjectName("atommapper_saved_points_panel")
+        saved_points_layout = QVBoxLayout(self.saved_points_panel)
+        saved_points_layout.setContentsMargins(0, 0, 0, 0)
+        saved_points_layout.setSpacing(8)
+        saved_points_layout.addWidget(points_title)
+        saved_points_layout.addWidget(self.points_table_hint_label)
+        saved_points_layout.addWidget(self.points_table_widget)
+
+        self.analysis_grid_panel = QWidget(right_panel)
+        self.analysis_grid_panel.setObjectName("atommapper_analysis_grid_panel")
+        analysis_grid_layout = QGridLayout(self.analysis_grid_panel)
+        analysis_grid_layout.setContentsMargins(0, 0, 0, 0)
+        analysis_grid_layout.setHorizontalSpacing(12)
+        analysis_grid_layout.setVerticalSpacing(12)
+        analysis_grid_layout.addWidget(self.roi_preview, 0, 0)
+        analysis_grid_layout.addWidget(self.gaussian_fit_preview, 1, 0)
+        analysis_grid_layout.addWidget(self.image_viewport, 0, 1, 2, 1)
+        analysis_grid_layout.setColumnStretch(0, 2)
+        analysis_grid_layout.setColumnStretch(1, 3)
+        analysis_grid_layout.setRowStretch(0, 1)
+        analysis_grid_layout.setRowStretch(1, 1)
 
         right_layout.addWidget(title)
         right_layout.addWidget(subtitle)
         right_layout.addWidget(self.active_image_label)
         right_layout.addWidget(self.show_gaussian_fit_checkbox)
         right_layout.addWidget(self.workflow_status_label)
-        right_layout.addWidget(self.image_viewport, 1)
-        right_layout.addWidget(previews_panel)
+        right_layout.addWidget(self.analysis_grid_panel, 1)
 
         root_layout.addWidget(left_panel)
         root_layout.addWidget(right_panel, 1)
 
         self.setCentralWidget(central)
+        self.analysis_dock = QDockWidget("Analysis", self)
+        self.analysis_dock.setObjectName("atommapper_analysis_dock")
+        self.analysis_dock.setAllowedAreas(
+            Qt.DockWidgetArea.BottomDockWidgetArea
+            | Qt.DockWidgetArea.LeftDockWidgetArea
+            | Qt.DockWidgetArea.RightDockWidgetArea
+        )
+        self.analysis_dock.setFeatures(
+            QDockWidget.DockWidgetFeature.DockWidgetMovable
+            | QDockWidget.DockWidgetFeature.DockWidgetFloatable
+        )
+        self.analysis_dock.setWidget(self.saved_points_panel)
+        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.analysis_dock)
         self._preprocessing_dialog_class = PreprocessingDialog
+        self._active_point_id_by_source_group: dict[str, str] = {}
         self.statusBar().showMessage("Ready. Load an STM file to begin.", 5000)
         self._connect_signals()
         self._refresh_file_list()
+        self._refresh_row_list()
+        self._refresh_points_table()
+        self._refresh_image_point_overlay()
         self._update_active_image_label(self.controller.active_image)
         self._update_preprocess_controls(self.controller.active_image)
+        self._update_active_row_label(self.controller.active_row)
+        self._update_row_controls(self.controller.active_image, self.controller.active_row)
+        self._update_point_controls()
         self._handle_active_image_changed(self.controller.active_image)
 
     def _connect_signals(self) -> None:
         self.load_button.clicked.connect(self._open_file_dialog)
         self.preprocessing_button.clicked.connect(self._open_preprocessing_dialog)
+        self.new_row_button.clicked.connect(self._create_new_row)
+        self.delete_row_button.clicked.connect(self._delete_active_row)
+        self.add_point_button.clicked.connect(self._add_point_from_current_roi)
+        self.delete_point_button.clicked.connect(self._delete_active_point)
         self.file_list_widget.currentRowChanged.connect(self._on_current_row_changed)
+        self.row_list_widget.currentRowChanged.connect(self._on_current_row_changed_for_rows)
+        self.points_table_widget.itemSelectionChanged.connect(self._on_points_table_selection_changed)
         self.controller.loaded_images_changed.connect(self._refresh_file_list)
+        self.controller.loaded_images_changed.connect(self._refresh_row_list)
         self.controller.active_image_changed.connect(self._update_active_image_label)
         self.controller.active_image_changed.connect(self._update_preprocess_controls)
         self.controller.active_image_changed.connect(self._handle_active_image_changed)
+        self.controller.active_image_changed.connect(self._handle_active_image_changed_for_rows)
+        self.controller.active_image_changed.connect(self._refresh_points_table)
+        self.controller.active_image_changed.connect(self._refresh_image_point_overlay)
         self.controller.roi_state_changed.connect(self._handle_roi_state_changed)
+        self.controller.rows_changed.connect(self._refresh_row_list)
+        self.controller.rows_changed.connect(self._handle_rows_changed)
+        self.controller.rows_changed.connect(self._refresh_points_table)
+        self.controller.rows_changed.connect(self._refresh_image_point_overlay)
+        self.controller.active_row_changed.connect(self._handle_active_row_changed)
+        self.controller.row_points_changed.connect(self._handle_row_points_changed)
         self.show_gaussian_fit_checkbox.stateChanged.connect(self._on_show_gaussian_fit_changed)
         self.preview_bridge.roi_state_edited.connect(self.controller.update_active_roi_state)
+        self.image_viewport.point_selected.connect(self._handle_viewport_point_selected)
+        self.image_viewport.point_move_requested.connect(self._handle_viewport_point_move_requested)
 
     def _build_file_dialog_filter(self) -> str:
         patterns = " ".join(f"*{suffix}" for suffix in sorted(SUPPORTED_STM_EXTENSIONS))
@@ -231,6 +347,137 @@ class AtomMapperMainWindow(QMainWindow):
         if image is not None:
             self.statusBar().showMessage(f"Selected {image.display_name}.", 3000)
 
+    def _refresh_row_list(self, *_args: Any) -> None:
+        self.row_list_widget.blockSignals(True)
+        self.row_list_widget.clear()
+
+        active_group = self.controller.active_source_group_id
+        active_row = self.controller.active_row
+        rows = self.controller.rows_for_source_group(active_group) if active_group is not None else ()
+        active_index = None
+
+        for row_index, row in enumerate(rows):
+            item = QListWidgetItem(self._format_row_list_label(row))
+            item.setToolTip(self._build_row_list_tooltip(row))
+            item.setData(Qt.ItemDataRole.UserRole, row.row_id)
+            self.row_list_widget.addItem(item)
+            if active_row is not None and row.row_id == active_row.row_id:
+                active_index = row_index
+
+        if active_index is not None and 0 <= active_index < self.row_list_widget.count():
+            self.row_list_widget.setCurrentRow(active_index)
+
+        row_count = self.row_list_widget.count()
+        self.row_list_widget.setEnabled(row_count > 0)
+        if active_group is None:
+            self.row_list_hint_label.setText("Load or select an STM image to manage rows.")
+        elif row_count == 0:
+            self.row_list_hint_label.setText(
+                "No rows for the selected STM file family. Use 'New Row' to create one."
+            )
+        else:
+            noun = "row" if row_count == 1 else "rows"
+            self.row_list_hint_label.setText(f"{row_count} atom {noun} for the selected STM file family.")
+
+        self.row_list_widget.blockSignals(False)
+
+    def _on_current_row_changed_for_rows(self, row_index: int) -> None:
+        if row_index < 0:
+            return
+        item = self.row_list_widget.item(row_index)
+        if item is None:
+            return
+        row_id = item.data(Qt.ItemDataRole.UserRole)
+        if not row_id:
+            return
+        selected_row = self.controller.select_row(str(row_id))
+        if selected_row is not None:
+            self.statusBar().showMessage(f"Selected {selected_row.display_name}.", 3000)
+
+    def _refresh_points_table(self, *_args: Any) -> None:
+        self.points_table_widget.blockSignals(True)
+        self.points_table_widget.setRowCount(0)
+        active_group = self.controller.active_source_group_id
+        if active_group is None:
+            self.points_table_widget.clearSelection()
+            self.points_table_hint_label.setText(
+                "Load or select an STM image to inspect saved points."
+            )
+            self.points_table_widget.blockSignals(False)
+            self._update_point_controls()
+            return
+
+        rows = self.controller.rows_for_source_group(active_group)
+        display_points: list[tuple[Any, Any]] = []
+        for row in rows:
+            for point in row.points:
+                display_points.append((row, point))
+
+        display_points.sort(key=lambda item: (item[0].display_name.lower(), item[1].point_index, item[1].point_id))
+        self._normalize_active_point_selection(display_points)
+        self.points_table_widget.setRowCount(len(display_points))
+
+        active_point_id = self._active_point_id_for_current_group()
+        active_row_index: int | None = None
+        for row_index, (row, point) in enumerate(display_points):
+            self._set_points_table_item(row_index, 0, row.display_name, point_id=point.point_id)
+            self._set_points_table_item(row_index, 1, str(point.point_index), point_id=point.point_id)
+            self._set_points_table_item(row_index, 2, f"{point.x_px:.3f}", point_id=point.point_id)
+            self._set_points_table_item(row_index, 3, f"{point.y_px:.3f}", point_id=point.point_id)
+            self._set_points_table_item(
+                row_index,
+                4,
+                self._format_optional_float(point.sigma_x_px),
+                point_id=point.point_id,
+            )
+            self._set_points_table_item(
+                row_index,
+                5,
+                self._format_optional_float(point.sigma_y_px),
+                point_id=point.point_id,
+            )
+            self._set_points_table_item(
+                row_index,
+                6,
+                self._format_point_status(point),
+                point_id=point.point_id,
+            )
+            if point.point_id == active_point_id:
+                active_row_index = row_index
+
+        self.points_table_widget.resizeColumnsToContents()
+        if active_row_index is not None:
+            self.points_table_widget.selectRow(active_row_index)
+            self.points_table_widget.setCurrentCell(active_row_index, 0)
+        else:
+            self.points_table_widget.clearSelection()
+
+        if not display_points:
+            self.points_table_hint_label.setText(
+                "No saved points for the selected STM file family yet."
+            )
+        else:
+            noun = "point" if len(display_points) == 1 else "points"
+            self.points_table_hint_label.setText(
+                f"Showing {len(display_points)} saved {noun} for the selected STM file family."
+            )
+        self.points_table_widget.blockSignals(False)
+        self._update_point_controls()
+
+    def _refresh_image_point_overlay(self, *_args: Any) -> None:
+        active_group = self.controller.active_source_group_id
+        rows = self.controller.rows_for_source_group(active_group) if active_group is not None else ()
+        active_image = self.controller.active_image
+        self._normalize_active_point_selection(
+            [(row, point) for row in rows for point in row.points]
+        )
+        self.image_viewport.set_atom_rows(
+            rows,
+            active_row_id=self.controller.active_row_id,
+            active_image_id=None if active_image is None else active_image.image_id,
+            active_point_id=self._active_point_id_for_current_group(),
+        )
+
     def _build_file_list_entries(self) -> list[tuple[int, Any]]:
         groups: dict[str, list[tuple[int, Any]]] = {}
         group_order: list[str] = []
@@ -265,6 +512,99 @@ class AtomMapperMainWindow(QMainWindow):
             f"Path: {image.source_path}"
         )
 
+    @staticmethod
+    def _format_row_list_label(row: Any) -> str:
+        noun = "point" if row.point_count == 1 else "points"
+        return f"{row.display_name} ({row.point_count} {noun})"
+
+    @staticmethod
+    def _build_row_list_tooltip(row: Any) -> str:
+        return (
+            f"Row id: {row.row_id}\n"
+            f"Source family: {row.source_group_id}\n"
+            f"Points: {row.point_count}"
+        )
+
+    @staticmethod
+    def _format_optional_float(value: Any) -> str:
+        if value is None:
+            return "-"
+        return f"{float(value):.3f}"
+
+    @staticmethod
+    def _format_point_status(point: AtomPoint) -> str:
+        if point.manual_override:
+            source = point.manual_override_source or "manual"
+            return f"manual ({source})"
+        if point.fit_success:
+            return "fit"
+        if point.metadata.get("fallback_used"):
+            return "fallback"
+        return "stored"
+
+    def _set_points_table_item(self, row: int, column: int, text: str, *, point_id: str | None = None) -> None:
+        item = QTableWidgetItem(text)
+        item.setTextAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+            if column > 0
+            else Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+        )
+        if point_id is not None:
+            item.setData(Qt.ItemDataRole.UserRole, point_id)
+        self.points_table_widget.setItem(row, column, item)
+
+    def _active_point_id_for_current_group(self) -> str | None:
+        active_group = self.controller.active_source_group_id
+        if active_group is None:
+            return None
+        return self._active_point_id_by_source_group.get(active_group)
+
+    def _active_point_for_current_group(self) -> AtomPoint | None:
+        active_point_id = self._active_point_id_for_current_group()
+        if active_point_id is None:
+            return None
+
+        active_group = self.controller.active_source_group_id
+        if active_group is None:
+            return None
+
+        for row in self.controller.rows_for_source_group(active_group):
+            for point in row.points:
+                if point.point_id == active_point_id:
+                    return point
+        return None
+
+    def _set_active_point_for_current_group(self, point_id: str | None) -> None:
+        active_group = self.controller.active_source_group_id
+        if active_group is None:
+            return
+
+        normalized_point_id = None if point_id is None else str(point_id).strip() or None
+        current_point_id = self._active_point_id_by_source_group.get(active_group)
+        if normalized_point_id == current_point_id:
+            return
+
+        if normalized_point_id is None:
+            self._active_point_id_by_source_group.pop(active_group, None)
+        else:
+            self._active_point_id_by_source_group[active_group] = normalized_point_id
+
+        self._refresh_points_table()
+        self._refresh_image_point_overlay()
+        self._update_point_controls()
+
+    def _normalize_active_point_selection(self, display_points: list[tuple[Any, AtomPoint]]) -> None:
+        active_group = self.controller.active_source_group_id
+        if active_group is None:
+            return
+        active_point_id = self._active_point_id_by_source_group.get(active_group)
+        if active_point_id is None:
+            return
+        if any(point.point_id == active_point_id for _row, point in display_points):
+            return
+        self._active_point_id_by_source_group.pop(active_group, None)
+        self._update_point_controls()
+
     def _update_active_image_label(self, active_image: Any) -> None:
         if active_image is None:
             self.active_image_label.setText("Active image: none")
@@ -284,6 +624,45 @@ class AtomMapperMainWindow(QMainWindow):
         else:
             self.preprocessing_button.setToolTip("Load or select an STM image first.")
 
+    def _update_active_row_label(self, active_row: Any) -> None:
+        if active_row is None:
+            self.active_row_label.setText("Active row: none")
+            return
+        noun = "point" if active_row.point_count == 1 else "points"
+        self.active_row_label.setText(
+            f"Active row: {active_row.display_name} ({active_row.point_count} {noun})"
+        )
+
+    def _update_row_controls(self, active_image: Any, active_row: Any) -> None:
+        has_image = active_image is not None
+        has_row = active_row is not None
+        self.new_row_button.setEnabled(has_image)
+        self.delete_row_button.setEnabled(has_row)
+        self.add_point_button.setEnabled(has_image and has_row)
+        if has_image:
+            self.new_row_button.setToolTip("Create a new atom row for the selected STM file family.")
+        else:
+            self.new_row_button.setToolTip("Load or select an STM image first.")
+        if has_row:
+            self.delete_row_button.setToolTip(f"Delete the active row '{active_row.display_name}'.")
+            self.add_point_button.setToolTip(
+                f"Store the current ROI center in '{active_row.display_name}' using Gaussian fit or ROI fallback."
+            )
+        else:
+            self.delete_row_button.setToolTip("Select an atom row first.")
+            self.add_point_button.setToolTip("Create or select an atom row first.")
+
+    def _update_point_controls(self) -> None:
+        active_point = self._active_point_for_current_group()
+        has_point = active_point is not None
+        self.delete_point_button.setEnabled(has_point)
+        if has_point:
+            self.delete_point_button.setToolTip(
+                f"Delete selected point {active_point.point_index} from the current STM file family."
+            )
+        else:
+            self.delete_point_button.setToolTip("Select a saved point in the table or on the image first.")
+
     def _open_preprocessing_dialog(self) -> None:
         active_image = self.controller.active_image
         if active_image is None:
@@ -298,7 +677,15 @@ class AtomMapperMainWindow(QMainWindow):
             f"Opened preprocessing dialog for {active_image.display_name}.",
             3000,
         )
-        result = dialog.exec()
+        self.analysis_grid_panel.setUpdatesEnabled(False)
+        self.image_viewport.setUpdatesEnabled(False)
+        try:
+            result = dialog.exec()
+        finally:
+            self.image_viewport.setUpdatesEnabled(True)
+            self.analysis_grid_panel.setUpdatesEnabled(True)
+            self.image_viewport.update()
+            self.analysis_grid_panel.update()
         if result == int(QDialog.DialogCode.Accepted):
             self._apply_preprocessing_dialog_result(dialog)
         else:
@@ -369,6 +756,255 @@ class AtomMapperMainWindow(QMainWindow):
         )
         self.workflow_status_label.setText(
             f"Workflow status: created {variant.variant_name} variant '{variant.display_name}' with {status_suffix}."
+        )
+
+    def _create_new_row(self) -> None:
+        active_image = self.controller.active_image
+        if active_image is None:
+            self.statusBar().showMessage("Select an STM image before creating a row.", 4000)
+            self.workflow_status_label.setText(
+                "Workflow status: select an STM image before creating an atom row."
+            )
+            return
+
+        next_index = len(self.controller.rows_for_source_group(active_image.source_group_id)) + 1
+        row = self.controller.create_row_for_active_source_group(display_name=f"Row {next_index}")
+        self.statusBar().showMessage(f"Created {row.display_name}.", 3000)
+        self.workflow_status_label.setText(
+            f"Workflow status: active row set to {row.display_name}."
+        )
+
+    def _delete_active_row(self) -> None:
+        active_row = self.controller.active_row
+        if active_row is None:
+            self.statusBar().showMessage("Select an atom row before deleting it.", 4000)
+            self.workflow_status_label.setText(
+                "Workflow status: no active row selected for deletion."
+            )
+            return
+
+        removed_row = self.controller.remove_row(active_row.row_id)
+        if removed_row is None:
+            return
+        noun = "point" if removed_row.point_count == 1 else "points"
+        self.statusBar().showMessage(
+            f"Deleted {removed_row.display_name} ({removed_row.point_count} {noun}).",
+            3000,
+        )
+        self.workflow_status_label.setText(
+            f"Workflow status: deleted {removed_row.display_name} with {removed_row.point_count} {noun}."
+        )
+
+    def _add_point_from_current_roi(self) -> None:
+        active_image = self.controller.active_image
+        active_row = self.controller.active_row
+        roi = self.controller.active_roi_state
+
+        if active_image is None or roi is None:
+            self.statusBar().showMessage("Select an STM image with a valid ROI before adding a point.", 4000)
+            self.workflow_status_label.setText(
+                "Workflow status: select an STM image and ROI before adding a point."
+            )
+            return
+
+        if active_row is None:
+            self.statusBar().showMessage("Create or select an atom row before adding a point.", 4000)
+            self.workflow_status_label.setText(
+                "Workflow status: no active row selected for point capture."
+            )
+            return
+
+        fit_result = self.preview_bridge.compute_current_fit_result()
+        fallback_used = False
+        fit_error_message = None
+        x_px: float
+        y_px: float
+        sigma_x_px = None
+        sigma_y_px = None
+        amplitude = None
+        theta_deg = None
+        offset = None
+        fit_success = False
+        fit_method = "roi_center_fallback"
+
+        if fit_result is not None and fit_result.center_image_yx is not None:
+            y_px = float(fit_result.center_image_yx[0])
+            x_px = float(fit_result.center_image_yx[1])
+            amplitude = fit_result.amplitude
+            sigma_x_px = fit_result.sigma_x
+            sigma_y_px = fit_result.sigma_y
+            theta_deg = None if fit_result.theta_rad is None else math.degrees(float(fit_result.theta_rad))
+            offset = fit_result.offset
+            fit_success = bool(fit_result.success)
+            fit_method = fit_result.method
+            fit_error_message = fit_result.error_message
+            if fit_result.center_std_yx is not None:
+                sigma_y_px = fit_result.center_std_yx[0] if fit_result.sigma_y is None else sigma_y_px
+                sigma_x_px = fit_result.center_std_yx[1] if fit_result.sigma_x is None else sigma_x_px
+        else:
+            fallback_used = True
+            x_px = roi.x + (roi.width / 2.0)
+            y_px = roi.y + (roi.height / 2.0)
+            fit_error_message = "Gaussian fit unavailable; ROI center fallback used."
+
+        if fit_result is not None and fit_result.center_image_yx is None:
+            fallback_used = True
+            x_px = roi.x + (roi.width / 2.0)
+            y_px = roi.y + (roi.height / 2.0)
+            fit_success = False
+            fit_method = f"{fit_result.method}_fallback"
+            fit_error_message = fit_result.error_message or "Gaussian fit unavailable; ROI center fallback used."
+
+        point = AtomPoint(
+            row_id=active_row.row_id,
+            image_id=active_image.image_id,
+            source_group_id=active_image.source_group_id,
+            point_index=active_row.next_point_index,
+            x_px=x_px,
+            y_px=y_px,
+            amplitude=amplitude,
+            sigma_x_px=sigma_x_px,
+            sigma_y_px=sigma_y_px,
+            theta_deg=theta_deg,
+            offset=offset,
+            fit_success=fit_success,
+            fit_error_message=fit_error_message,
+            metadata={
+                "fit_method": fit_method,
+                "roi_x": roi.x,
+                "roi_y": roi.y,
+                "roi_width": roi.width,
+                "roi_height": roi.height,
+                "fallback_used": fallback_used,
+            },
+        )
+        updated_row = self.controller.add_point_to_row(point)
+        self.statusBar().showMessage(
+            f"Added point {point.point_index} to {updated_row.display_name} at x={point.x_px:.2f}, y={point.y_px:.2f}.",
+            4000,
+        )
+        if fallback_used:
+            self.workflow_status_label.setText(
+                f"Workflow status: added point {point.point_index} to {updated_row.display_name} using ROI center fallback."
+            )
+        else:
+            self.workflow_status_label.setText(
+                f"Workflow status: added point {point.point_index} to {updated_row.display_name} from Gaussian fit."
+            )
+
+    def _delete_active_point(self) -> None:
+        active_point = self._active_point_for_current_group()
+        if active_point is None:
+            self.statusBar().showMessage("Select a saved point before deleting it.", 4000)
+            self.workflow_status_label.setText(
+                "Workflow status: no saved point selected for deletion."
+            )
+            return
+
+        row = next(
+            (
+                candidate_row
+                for candidate_row in self.controller.rows_for_source_group(active_point.source_group_id)
+                if candidate_row.row_id == active_point.row_id
+            ),
+            None,
+        )
+        row_name = row.display_name if row is not None else active_point.row_id
+        removed_point_index = active_point.point_index
+        updated_row = self.controller.remove_point_from_row(active_point.row_id, active_point.point_id)
+        self._set_active_point_for_current_group(None)
+        self.statusBar().showMessage(
+            f"Deleted point {removed_point_index} from {row_name}.",
+            4000,
+        )
+        noun = "point" if updated_row.point_count == 1 else "points"
+        self.workflow_status_label.setText(
+            f"Workflow status: deleted point {removed_point_index} from {row_name}. Active point selection cleared; {updated_row.point_count} {noun} remain."
+        )
+
+    def _handle_active_image_changed_for_rows(self, active_image: Any) -> None:
+        self._refresh_row_list()
+        self._update_row_controls(active_image, self.controller.active_row)
+
+    def _handle_rows_changed(self) -> None:
+        self._refresh_row_list()
+        self._update_row_controls(self.controller.active_image, self.controller.active_row)
+
+    def _handle_active_row_changed(self, active_row: Any) -> None:
+        self._update_active_row_label(active_row)
+        self._refresh_row_list()
+        self._refresh_points_table()
+        self._refresh_image_point_overlay()
+        self._update_row_controls(self.controller.active_image, active_row)
+        self._update_point_controls()
+
+    def _handle_row_points_changed(self, _updated_row: Any) -> None:
+        self._refresh_row_list()
+        self._refresh_points_table()
+        self._refresh_image_point_overlay()
+        self._update_active_row_label(self.controller.active_row)
+        self._update_point_controls()
+
+    def _on_points_table_selection_changed(self) -> None:
+        selected_items = self.points_table_widget.selectedItems()
+        if not selected_items:
+            self._set_active_point_for_current_group(None)
+            return
+
+        point_id = selected_items[0].data(Qt.ItemDataRole.UserRole)
+        if point_id:
+            self._set_active_point_for_current_group(str(point_id))
+
+    def _handle_viewport_point_selected(self, payload: Any) -> None:
+        if not isinstance(payload, dict):
+            return
+        point_id = payload.get("point_id")
+        if point_id:
+            self._set_active_point_for_current_group(str(point_id))
+
+    def _handle_viewport_point_move_requested(self, payload: Any) -> None:
+        if not isinstance(payload, dict):
+            return
+
+        row_id = payload.get("row_id")
+        point_id = payload.get("point_id")
+        x_px = payload.get("x_px")
+        y_px = payload.get("y_px")
+        source = payload.get("source", "drag")
+        if not row_id or not point_id or x_px is None or y_px is None:
+            return
+
+        try:
+            updated_row = self.controller.move_point_in_row(
+                row_id=str(row_id),
+                point_id=str(point_id),
+                x_px=float(x_px),
+                y_px=float(y_px),
+                source=str(source),
+            )
+        except Exception as exc:  # pragma: no cover - GUI error path
+            logger.exception("Failed to move point '%s': %s", point_id, exc)
+            self.statusBar().showMessage("Manual point move failed.", 4000)
+            self.workflow_status_label.setText(
+                "Workflow status: manual point correction failed."
+            )
+            self._refresh_image_point_overlay()
+            return
+
+        moved_point = next(
+            (point for point in updated_row.points if point.point_id == str(point_id)),
+            None,
+        )
+        self._set_active_point_for_current_group(str(point_id))
+        if moved_point is None:
+            return
+
+        self.statusBar().showMessage(
+            f"Moved point {moved_point.point_index} in {updated_row.display_name} to x={moved_point.x_px:.2f}, y={moved_point.y_px:.2f}.",
+            4000,
+        )
+        self.workflow_status_label.setText(
+            f"Workflow status: manually corrected point {moved_point.point_index} in {updated_row.display_name}; selection preserved and point marked as manual."
         )
 
     def _handle_active_image_changed(self, active_image: Any) -> None:

@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 from uuid import uuid4
 
 import numpy as np
@@ -131,4 +131,298 @@ class LoadedImage:
             size_nm_y=self.size_nm_y,
             metadata=updated_metadata,
             raw_metadata=updated_raw_metadata,
+        )
+
+
+def _normalize_optional_float(value: Optional[float], field_name: str) -> Optional[float]:
+    """Normalize optional float fields used in analytical point models."""
+
+    if value is None:
+        return None
+    normalized = float(value)
+    if not np.isfinite(normalized):
+        raise ValueError(f"{field_name} must be finite when provided.")
+    return normalized
+
+
+@dataclass(frozen=True)
+class AtomPoint:
+    """Serialized analytical point stored from the current ROI/Gaussian fit."""
+
+    row_id: str
+    image_id: str
+    source_group_id: str
+    point_index: int
+    x_px: float
+    y_px: float
+    point_id: str = ""
+    x_nm: Optional[float] = None
+    y_nm: Optional[float] = None
+    amplitude: Optional[float] = None
+    sigma_x_px: Optional[float] = None
+    sigma_y_px: Optional[float] = None
+    theta_deg: Optional[float] = None
+    offset: Optional[float] = None
+    fit_success: bool = True
+    fit_error_message: Optional[str] = None
+    manual_override: bool = False
+    manual_override_source: Optional[str] = None
+    original_x_px: Optional[float] = None
+    original_y_px: Optional[float] = None
+    metadata: Dict[str, Any] = field(default_factory=dict, repr=False)
+
+    def __post_init__(self) -> None:
+        point_id = str(self.point_id).strip() or uuid4().hex
+        row_id = str(self.row_id).strip()
+        image_id = str(self.image_id).strip()
+        source_group_id = str(self.source_group_id).strip()
+        if not row_id:
+            raise ValueError("row_id must be a non-empty string.")
+        if not image_id:
+            raise ValueError("image_id must be a non-empty string.")
+        if not source_group_id:
+            raise ValueError("source_group_id must be a non-empty string.")
+
+        point_index = int(self.point_index)
+        if point_index < 0:
+            raise ValueError("point_index must be >= 0.")
+
+        x_px = float(self.x_px)
+        y_px = float(self.y_px)
+        if not np.isfinite(x_px) or not np.isfinite(y_px):
+            raise ValueError("x_px and y_px must be finite.")
+
+        fit_error_message = None
+        if self.fit_error_message is not None:
+            fit_error_message = str(self.fit_error_message).strip() or None
+
+        manual_override_source = None
+        if self.manual_override_source is not None:
+            manual_override_source = str(self.manual_override_source).strip() or None
+
+        manual_override = bool(self.manual_override)
+        original_x_px = _normalize_optional_float(self.original_x_px, "original_x_px")
+        original_y_px = _normalize_optional_float(self.original_y_px, "original_y_px")
+        if manual_override:
+            if original_x_px is None:
+                original_x_px = x_px
+            if original_y_px is None:
+                original_y_px = y_px
+
+        object.__setattr__(self, "point_id", point_id)
+        object.__setattr__(self, "row_id", row_id)
+        object.__setattr__(self, "image_id", image_id)
+        object.__setattr__(self, "source_group_id", source_group_id)
+        object.__setattr__(self, "point_index", point_index)
+        object.__setattr__(self, "x_px", x_px)
+        object.__setattr__(self, "y_px", y_px)
+        object.__setattr__(self, "x_nm", _normalize_optional_float(self.x_nm, "x_nm"))
+        object.__setattr__(self, "y_nm", _normalize_optional_float(self.y_nm, "y_nm"))
+        object.__setattr__(self, "amplitude", _normalize_optional_float(self.amplitude, "amplitude"))
+        object.__setattr__(self, "sigma_x_px", _normalize_optional_float(self.sigma_x_px, "sigma_x_px"))
+        object.__setattr__(self, "sigma_y_px", _normalize_optional_float(self.sigma_y_px, "sigma_y_px"))
+        object.__setattr__(self, "theta_deg", _normalize_optional_float(self.theta_deg, "theta_deg"))
+        object.__setattr__(self, "offset", _normalize_optional_float(self.offset, "offset"))
+        object.__setattr__(self, "fit_success", bool(self.fit_success))
+        object.__setattr__(self, "fit_error_message", fit_error_message)
+        object.__setattr__(self, "manual_override", manual_override)
+        object.__setattr__(self, "manual_override_source", manual_override_source)
+        object.__setattr__(self, "original_x_px", original_x_px)
+        object.__setattr__(self, "original_y_px", original_y_px)
+        object.__setattr__(self, "metadata", dict(self.metadata))
+
+    @property
+    def fit_x_px(self) -> float:
+        """Return the original fit-derived X position preserved through manual edits."""
+
+        return self.original_x_px if self.original_x_px is not None else self.x_px
+
+    @property
+    def fit_y_px(self) -> float:
+        """Return the original fit-derived Y position preserved through manual edits."""
+
+        return self.original_y_px if self.original_y_px is not None else self.y_px
+
+    def with_manual_position(
+        self,
+        *,
+        x_px: float,
+        y_px: float,
+        x_nm: Optional[float] = None,
+        y_nm: Optional[float] = None,
+        source: str = "manual",
+    ) -> "AtomPoint":
+        """Return a copy of the point with manually corrected coordinates."""
+
+        return replace(
+            self,
+            x_px=x_px,
+            y_px=y_px,
+            x_nm=self.x_nm if x_nm is None else x_nm,
+            y_nm=self.y_nm if y_nm is None else y_nm,
+            manual_override=True,
+            manual_override_source=source,
+            original_x_px=self.fit_x_px,
+            original_y_px=self.fit_y_px,
+        )
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Return a JSON-serializable dictionary representation of the point."""
+
+        return {
+            "point_id": self.point_id,
+            "row_id": self.row_id,
+            "image_id": self.image_id,
+            "source_group_id": self.source_group_id,
+            "point_index": self.point_index,
+            "x_px": self.x_px,
+            "y_px": self.y_px,
+            "x_nm": self.x_nm,
+            "y_nm": self.y_nm,
+            "amplitude": self.amplitude,
+            "sigma_x_px": self.sigma_x_px,
+            "sigma_y_px": self.sigma_y_px,
+            "theta_deg": self.theta_deg,
+            "offset": self.offset,
+            "fit_success": self.fit_success,
+            "fit_error_message": self.fit_error_message,
+            "manual_override": self.manual_override,
+            "manual_override_source": self.manual_override_source,
+            "original_x_px": self.original_x_px,
+            "original_y_px": self.original_y_px,
+            "metadata": dict(self.metadata),
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Dict[str, Any]) -> "AtomPoint":
+        """Rebuild an AtomPoint from a serialized payload."""
+
+        return cls(
+            point_id=payload.get("point_id", ""),
+            row_id=payload["row_id"],
+            image_id=payload["image_id"],
+            source_group_id=payload["source_group_id"],
+            point_index=payload["point_index"],
+            x_px=payload["x_px"],
+            y_px=payload["y_px"],
+            x_nm=payload.get("x_nm"),
+            y_nm=payload.get("y_nm"),
+            amplitude=payload.get("amplitude"),
+            sigma_x_px=payload.get("sigma_x_px"),
+            sigma_y_px=payload.get("sigma_y_px"),
+            theta_deg=payload.get("theta_deg"),
+            offset=payload.get("offset"),
+            fit_success=payload.get("fit_success", True),
+            fit_error_message=payload.get("fit_error_message"),
+            manual_override=payload.get("manual_override", False),
+            manual_override_source=payload.get("manual_override_source"),
+            original_x_px=payload.get("original_x_px"),
+            original_y_px=payload.get("original_y_px"),
+            metadata=dict(payload.get("metadata", {})),
+        )
+
+
+@dataclass(frozen=True)
+class AtomRow:
+    """Logical atom row bound to one source-group family of STM image variants."""
+
+    source_group_id: str
+    row_id: str = ""
+    display_name: str = ""
+    color_hex: Optional[str] = None
+    points: Tuple[AtomPoint, ...] = field(default_factory=tuple, repr=False)
+    metadata: Dict[str, Any] = field(default_factory=dict, repr=False)
+
+    def __post_init__(self) -> None:
+        row_id = str(self.row_id).strip() or uuid4().hex
+        source_group_id = str(self.source_group_id).strip()
+        if not source_group_id:
+            raise ValueError("source_group_id must be a non-empty string.")
+
+        display_name = str(self.display_name).strip() or f"Row {row_id[:8]}"
+        color_hex = None if self.color_hex is None else str(self.color_hex).strip() or None
+        normalized_points: list[AtomPoint] = []
+        seen_point_ids: set[str] = set()
+        for point in self.points:
+            if point.row_id != row_id:
+                raise ValueError("Every point in AtomRow.points must have the same row_id as the row.")
+            if point.source_group_id != source_group_id:
+                raise ValueError(
+                    "Every point in AtomRow.points must have the same source_group_id as the row."
+                )
+            if point.point_id in seen_point_ids:
+                raise ValueError("Duplicate point_id detected in AtomRow.points.")
+            seen_point_ids.add(point.point_id)
+            normalized_points.append(point)
+
+        normalized_points.sort(key=lambda point: (point.point_index, point.point_id))
+
+        object.__setattr__(self, "row_id", row_id)
+        object.__setattr__(self, "source_group_id", source_group_id)
+        object.__setattr__(self, "display_name", display_name)
+        object.__setattr__(self, "color_hex", color_hex)
+        object.__setattr__(self, "points", tuple(normalized_points))
+        object.__setattr__(self, "metadata", dict(self.metadata))
+
+    @property
+    def point_count(self) -> int:
+        """Return the number of stored points."""
+
+        return len(self.points)
+
+    @property
+    def next_point_index(self) -> int:
+        """Return the next index that should be used for appending a point."""
+
+        if not self.points:
+            return 0
+        return max(point.point_index for point in self.points) + 1
+
+    def with_point(self, point: AtomPoint) -> "AtomRow":
+        """Return a new row with the provided point added or replaced."""
+
+        if point.row_id != self.row_id:
+            raise ValueError("point.row_id must match AtomRow.row_id.")
+        if point.source_group_id != self.source_group_id:
+            raise ValueError("point.source_group_id must match AtomRow.source_group_id.")
+
+        updated_points = {existing.point_id: existing for existing in self.points}
+        updated_points[point.point_id] = point
+        return replace(self, points=tuple(updated_points.values()))
+
+    def without_point(self, point_id: str) -> "AtomRow":
+        """Return a new row with the selected point removed."""
+
+        normalized_point_id = str(point_id).strip()
+        filtered_points = tuple(
+            point for point in self.points if point.point_id != normalized_point_id
+        )
+        if len(filtered_points) == len(self.points):
+            return self
+        return replace(self, points=filtered_points)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Return a JSON-serializable dictionary representation of the row."""
+
+        return {
+            "row_id": self.row_id,
+            "source_group_id": self.source_group_id,
+            "display_name": self.display_name,
+            "color_hex": self.color_hex,
+            "metadata": dict(self.metadata),
+            "points": [point.to_dict() for point in self.points],
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Dict[str, Any]) -> "AtomRow":
+        """Rebuild an AtomRow from a serialized payload."""
+
+        points = tuple(AtomPoint.from_dict(item) for item in payload.get("points", []))
+        return cls(
+            row_id=payload.get("row_id", ""),
+            source_group_id=payload["source_group_id"],
+            display_name=payload.get("display_name", ""),
+            color_hex=payload.get("color_hex"),
+            metadata=dict(payload.get("metadata", {})),
+            points=points,
         )

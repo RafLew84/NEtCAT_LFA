@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 
 from AtomMapper.app.controller import AtomMapperController
-from AtomMapper.app.models import LoadedImage, ROIState
+from AtomMapper.app.models import AtomPoint, AtomRow, LoadedImage, ROIState
 from AtomMapper.app.preprocessing import is_bm3d_available
 
 
@@ -248,3 +248,209 @@ def test_controller_rejects_bm3d_variant_without_active_image():
 
     with pytest.raises(ValueError, match="active image"):
         controller.create_bm3d_variant_for_active_image()
+
+
+def test_controller_tracks_rows_per_source_group_and_preserves_active_row_across_variants():
+    controller = AtomMapperController()
+    original = _make_loaded_image("sample.stp", width=40, height=30)
+    other = _make_loaded_image("other.stp", width=32, height=24)
+    variant = original.derive_variant(variant_name="blur", image_data=original.image_data + 1.0)
+
+    controller.set_loaded_images([original, variant, other])
+
+    first_row = controller.create_row_for_active_source_group(display_name="Row A")
+
+    assert controller.atom_rows == (first_row,)
+    assert controller.active_row == first_row
+    assert controller.rows_for_source_group(original.source_group_id) == (first_row,)
+
+    controller.select_image(1)
+    assert controller.active_image == variant
+    assert controller.active_source_group_id == original.source_group_id
+    assert controller.active_row == first_row
+
+    controller.select_image(2)
+    assert controller.active_image == other
+    assert controller.active_row is None
+
+    second_row = controller.create_row_for_active_source_group(display_name="Row B")
+    assert controller.active_row == second_row
+    assert controller.rows_for_source_group(other.source_group_id) == (second_row,)
+
+    controller.select_image(0)
+    assert controller.active_image == original
+    assert controller.active_row == first_row
+
+
+def test_controller_add_point_to_row_and_emit_row_point_signals():
+    controller = AtomMapperController()
+    original = _make_loaded_image("sample.stp", width=40, height=30)
+    controller.set_loaded_images([original])
+    row = controller.create_row_for_active_source_group(display_name="Row A")
+
+    active_row_events: list[AtomRow | None] = []
+    point_events: list[AtomRow] = []
+    controller.active_row_changed.connect(active_row_events.append)
+    controller.row_points_changed.connect(point_events.append)
+
+    point = AtomPoint(
+        row_id=row.row_id,
+        image_id=original.image_id,
+        source_group_id=original.source_group_id,
+        point_index=row.next_point_index,
+        x_px=12.5,
+        y_px=9.25,
+        sigma_x_px=1.2,
+        sigma_y_px=1.4,
+    )
+
+    updated_row = controller.add_point_to_row(point)
+
+    assert updated_row.point_count == 1
+    assert updated_row.points[0] == point
+    assert controller.active_row == updated_row
+    assert point_events[-1] == updated_row
+    assert active_row_events[-1] == updated_row
+
+
+def test_controller_remove_single_point_from_row_without_deleting_row():
+    controller = AtomMapperController()
+    original = _make_loaded_image("sample.stp", width=40, height=30)
+    controller.set_loaded_images([original])
+    row = controller.create_row_for_active_source_group(display_name="Row A")
+
+    first_point = AtomPoint(
+        row_id=row.row_id,
+        image_id=original.image_id,
+        source_group_id=original.source_group_id,
+        point_index=0,
+        x_px=10.0,
+        y_px=11.0,
+    )
+    second_point = AtomPoint(
+        row_id=row.row_id,
+        image_id=original.image_id,
+        source_group_id=original.source_group_id,
+        point_index=1,
+        x_px=20.0,
+        y_px=21.0,
+    )
+    controller.add_point_to_row(first_point)
+    controller.add_point_to_row(second_point)
+
+    updated_row = controller.remove_point_from_row(row.row_id, first_point.point_id)
+
+    assert updated_row.row_id == row.row_id
+    assert updated_row.point_count == 1
+    assert updated_row.points[0] == second_point
+    assert controller.active_row == updated_row
+    assert controller.rows_for_source_group(original.source_group_id) == (updated_row,)
+
+
+def test_controller_move_point_in_row_marks_manual_override_and_preserves_fit_origin():
+    controller = AtomMapperController()
+    original = _make_loaded_image("sample.stp", width=40, height=30)
+    controller.set_loaded_images([original])
+    row = controller.create_row_for_active_source_group(display_name="Row A")
+
+    point = AtomPoint(
+        row_id=row.row_id,
+        image_id=original.image_id,
+        source_group_id=original.source_group_id,
+        point_index=0,
+        x_px=12.5,
+        y_px=9.25,
+        sigma_x_px=1.2,
+        sigma_y_px=1.4,
+    )
+    controller.add_point_to_row(point)
+
+    updated_row = controller.move_point_in_row(
+        row_id=row.row_id,
+        point_id=point.point_id,
+        x_px=15.0,
+        y_px=8.0,
+        source="drag",
+    )
+
+    moved_point = updated_row.points[0]
+    assert moved_point.manual_override is True
+    assert moved_point.manual_override_source == "drag"
+    assert moved_point.x_px == pytest.approx(15.0)
+    assert moved_point.y_px == pytest.approx(8.0)
+    assert moved_point.fit_x_px == pytest.approx(12.5)
+    assert moved_point.fit_y_px == pytest.approx(9.25)
+    assert controller.active_row == updated_row
+
+
+def test_controller_replace_and_remove_point_validate_row_and_image_consistency():
+    controller = AtomMapperController()
+    original = _make_loaded_image("sample.stp", width=40, height=30)
+    other = _make_loaded_image("other.stp", width=20, height=20)
+    controller.set_loaded_images([original, other])
+    row = controller.create_row_for_active_source_group(display_name="Row A")
+
+    point = AtomPoint(
+        row_id=row.row_id,
+        image_id=original.image_id,
+        source_group_id=original.source_group_id,
+        point_index=0,
+        x_px=10.0,
+        y_px=11.0,
+    )
+    controller.add_point_to_row(point)
+
+    with pytest.raises(ValueError, match="Unknown row_id"):
+        controller.remove_point_from_row("missing-row", point.point_id)
+
+    with pytest.raises(ValueError, match="not present in row"):
+        controller.remove_point_from_row(row.row_id, "missing-point")
+
+    foreign_image_replacement = AtomPoint(
+        point_id=point.point_id,
+        row_id=row.row_id,
+        image_id=other.image_id,
+        source_group_id=other.source_group_id,
+        point_index=point.point_index,
+        x_px=33.0,
+        y_px=44.0,
+    )
+    with pytest.raises(ValueError, match="different source_group_id"):
+        controller.replace_point_in_row(foreign_image_replacement)
+
+
+def test_controller_rejects_rows_and_points_with_unknown_or_mismatched_source_group():
+    controller = AtomMapperController()
+    original = _make_loaded_image("sample.stp", width=40, height=30)
+    other = _make_loaded_image("other.stp", width=20, height=20)
+    controller.set_loaded_images([original, other])
+
+    foreign_row = AtomRow(
+        source_group_id="missing-group",
+        display_name="Foreign",
+    )
+    with pytest.raises(ValueError, match="source_group_id"):
+        controller.add_row(foreign_row)
+
+    row = controller.create_row_for_active_source_group(display_name="Row A")
+    wrong_group_point = AtomPoint(
+        row_id=row.row_id,
+        image_id=other.image_id,
+        source_group_id=other.source_group_id,
+        point_index=0,
+        x_px=1.0,
+        y_px=2.0,
+    )
+    with pytest.raises(ValueError, match="different source_group_id"):
+        controller.add_point_to_row(wrong_group_point)
+
+    missing_image_point = AtomPoint(
+        row_id=row.row_id,
+        image_id="missing-image",
+        source_group_id=original.source_group_id,
+        point_index=0,
+        x_px=1.0,
+        y_px=2.0,
+    )
+    with pytest.raises(ValueError, match="Unknown image_id"):
+        controller.add_point_to_row(missing_image_point)

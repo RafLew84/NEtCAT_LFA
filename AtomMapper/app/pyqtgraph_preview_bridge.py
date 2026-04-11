@@ -57,21 +57,23 @@ class PyQtGraphPreviewBridge(QObject):
         self._refresh_gaussian_preview()
         self.roi_state_edited.emit(roi_state)
 
-    def _refresh_gaussian_preview(self) -> None:
+    def compute_current_fit_result(self):
+        """Compute a fresh Gaussian-fit result for the current image/ROI state."""
+
         image = self.current_loaded_image
         roi = self.current_roi_state
         if image is None or roi is None:
-            self.gaussian_preview.set_fit_result(None)
-            return
+            return None
 
         patch = extract_roi_patch(image.image_data, roi)
         if patch is None:
-            self.gaussian_preview.set_fit_result(None)
-            return
+            return None
 
-        fit_result = fit_gaussian_to_roi_patch(
+        return fit_gaussian_to_roi_patch(
             patch,
             roi_origin_yx=(roi.y, roi.x),
             compute_uncertainty=False,
         )
-        self.gaussian_preview.set_fit_result(fit_result)
+
+    def _refresh_gaussian_preview(self) -> None:
+        self.gaussian_preview.set_fit_result(self.compute_current_fit_result())

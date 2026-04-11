@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import QDialog, QMessageBox
 from AtomMapper.app.controller import AtomMapperController
 from AtomMapper.app.main import create_main_window
 from AtomMapper.app.main_window import AtomMapperMainWindow
-from AtomMapper.app.models import LoadedImage, ROIState
+from AtomMapper.app.models import AtomPoint, LoadedImage, ROIState
 from AtomMapper.app.preprocessing import is_bm3d_available
 from AtomMapper.app.preprocessing_dialog import PreprocessingDialog
 from AtomMapper.app.preprocessing_state import (
@@ -289,6 +289,239 @@ def test_main_window_groups_variants_under_original_and_keeps_selection_stable(q
     assert window.statusBar().currentMessage() == "Selected second.stp."
 
 
+def test_main_window_syncs_active_point_selection_between_table_and_overlay(qtbot):
+    controller = AtomMapperController()
+    image = _make_gaussian_image("point-select.stp", size=40, amplitude=18.0, offset=1.0)
+    controller.set_loaded_images([image])
+    row = controller.create_row_for_active_source_group(display_name="Row 1")
+
+    first_point = AtomPoint(
+        row_id=row.row_id,
+        image_id=image.image_id,
+        source_group_id=image.source_group_id,
+        point_index=0,
+        x_px=10.0,
+        y_px=11.0,
+        point_id="point-1",
+    )
+    second_point = AtomPoint(
+        row_id=row.row_id,
+        image_id=image.image_id,
+        source_group_id=image.source_group_id,
+        point_index=1,
+        x_px=18.0,
+        y_px=19.0,
+        point_id="point-2",
+    )
+    controller.add_point_to_row(first_point)
+    controller.add_point_to_row(second_point)
+
+    window = AtomMapperMainWindow(controller=controller)
+    qtbot.addWidget(window)
+
+    window.points_table_widget.setCurrentCell(1, 0)
+    qtbot.waitUntil(lambda: window.image_viewport.current_active_point_id == "point-2")
+
+    spots = {
+        spot.data()["point_id"]: spot
+        for spot in window.image_viewport.point_scatter_item.points()
+    }
+    assert spots["point-2"].size() > spots["point-1"].size()
+
+    window.image_viewport._on_point_scatter_clicked(
+        window.image_viewport.point_scatter_item,
+        [spots["point-1"]],
+        None,
+    )
+    qtbot.waitUntil(
+        lambda: (
+            window.points_table_widget.currentItem() is not None
+            and window.points_table_widget.currentItem().data(Qt.ItemDataRole.UserRole) == "point-1"
+        )
+    )
+
+    assert window.image_viewport.current_active_point_id == "point-1"
+
+
+def test_main_window_delete_point_removes_selected_point_from_table_and_overlay(qtbot):
+    controller = AtomMapperController()
+    image = _make_gaussian_image("point-delete.stp", size=40, amplitude=18.0, offset=1.0)
+    controller.set_loaded_images([image])
+    row = controller.create_row_for_active_source_group(display_name="Row 1")
+
+    first_point = AtomPoint(
+        row_id=row.row_id,
+        image_id=image.image_id,
+        source_group_id=image.source_group_id,
+        point_index=0,
+        x_px=10.0,
+        y_px=11.0,
+        point_id="point-1",
+    )
+    second_point = AtomPoint(
+        row_id=row.row_id,
+        image_id=image.image_id,
+        source_group_id=image.source_group_id,
+        point_index=1,
+        x_px=18.0,
+        y_px=19.0,
+        point_id="point-2",
+    )
+    controller.add_point_to_row(first_point)
+    controller.add_point_to_row(second_point)
+
+    window = AtomMapperMainWindow(controller=controller)
+    qtbot.addWidget(window)
+
+    window.points_table_widget.setCurrentCell(1, 0)
+    qtbot.waitUntil(lambda: window.image_viewport.current_active_point_id == "point-2")
+
+    assert window.delete_point_button.isEnabled()
+
+    qtbot.mouseClick(window.delete_point_button, Qt.MouseButton.LeftButton)
+
+    qtbot.waitUntil(lambda: window.points_table_widget.rowCount() == 1)
+    assert controller.active_row is not None
+    assert controller.active_row.point_count == 1
+    assert controller.active_row.points[0].point_id == "point-1"
+    assert len(window.image_viewport.point_scatter_item.points()) == 1
+    assert window.image_viewport.current_active_point_id is None
+    assert window.points_table_widget.currentItem() is None
+    assert not window.delete_point_button.isEnabled()
+    assert window.statusBar().currentMessage() == "Deleted point 1 from Row 1."
+    assert "selection cleared" in window.workflow_status_label.text()
+
+
+def test_main_window_delete_point_without_selection_does_not_crash(qtbot):
+    controller = AtomMapperController()
+    image = _make_gaussian_image("point-delete-none.stp", size=40, amplitude=18.0, offset=1.0)
+    controller.set_loaded_images([image])
+    controller.create_row_for_active_source_group(display_name="Row 1")
+
+    window = AtomMapperMainWindow(controller=controller)
+    qtbot.addWidget(window)
+
+    assert not window.delete_point_button.isEnabled()
+
+    window._delete_active_point()
+
+    assert window.statusBar().currentMessage() == "Select a saved point before deleting it."
+    assert "no saved point selected" in window.workflow_status_label.text()
+
+
+def test_main_window_drag_move_updates_point_position_and_marks_manual_override(qtbot):
+    controller = AtomMapperController()
+    image = _make_gaussian_image("point-drag.stp", size=40, amplitude=18.0, offset=1.0)
+    controller.set_loaded_images([image])
+    row = controller.create_row_for_active_source_group(display_name="Row 1")
+
+    point = AtomPoint(
+        row_id=row.row_id,
+        image_id=image.image_id,
+        source_group_id=image.source_group_id,
+        point_index=0,
+        x_px=10.0,
+        y_px=11.0,
+        point_id="point-1",
+    )
+    controller.add_point_to_row(point)
+
+    window = AtomMapperMainWindow(controller=controller)
+    qtbot.addWidget(window)
+
+    window.points_table_widget.setCurrentCell(0, 0)
+    qtbot.waitUntil(lambda: window.image_viewport.current_active_point_id == "point-1")
+
+    window.image_viewport.active_point_target.setPos((16.5, 17.25))
+    window.image_viewport._on_active_point_target_move_finished()
+
+    qtbot.waitUntil(
+        lambda: controller.active_row is not None
+        and controller.active_row.points[0].manual_override is True
+    )
+
+    moved_point = controller.active_row.points[0]
+    assert moved_point.x_px == pytest.approx(16.5)
+    assert moved_point.y_px == pytest.approx(17.25)
+    assert moved_point.manual_override is True
+    assert moved_point.manual_override_source == "drag"
+    assert moved_point.fit_x_px == pytest.approx(10.0)
+    assert moved_point.fit_y_px == pytest.approx(11.0)
+    assert window.image_viewport.current_active_point_id == "point-1"
+    assert window.points_table_widget.currentItem() is not None
+    assert window.points_table_widget.currentItem().data(Qt.ItemDataRole.UserRole) == "point-1"
+    assert window.points_table_widget.item(0, 2).text() == "16.500"
+    assert window.points_table_widget.item(0, 3).text() == "17.250"
+    assert window.points_table_widget.item(0, 6).text() == "manual (drag)"
+    assert window.statusBar().currentMessage() == "Moved point 0 in Row 1 to x=16.50, y=17.25."
+    assert "selection preserved" in window.workflow_status_label.text()
+
+
+def test_main_window_end_to_end_stage3a_point_editing_workflow(qtbot):
+    controller = AtomMapperController()
+    image = _make_gaussian_image("stage3a-e2e.stp", size=40, amplitude=20.0, offset=1.0)
+    controller.set_loaded_images([image])
+
+    window = AtomMapperMainWindow(controller=controller)
+    qtbot.addWidget(window)
+
+    qtbot.mouseClick(window.new_row_button, Qt.MouseButton.LeftButton)
+    active_row = controller.active_row
+    assert active_row is not None
+
+    controller.update_active_roi_state(ROIState(x=8, y=8, width=12, height=12))
+    qtbot.mouseClick(window.add_point_button, Qt.MouseButton.LeftButton)
+    qtbot.waitUntil(lambda: window.points_table_widget.rowCount() == 1)
+
+    controller.update_active_roi_state(ROIState(x=16, y=16, width=12, height=12))
+    qtbot.mouseClick(window.add_point_button, Qt.MouseButton.LeftButton)
+    qtbot.waitUntil(lambda: window.points_table_widget.rowCount() == 2)
+
+    active_row = controller.active_row
+    assert active_row is not None
+    first_point_id = active_row.points[0].point_id
+    second_point_id = active_row.points[1].point_id
+    assert len(window.image_viewport.point_scatter_item.points()) == 2
+
+    window.points_table_widget.setCurrentCell(1, 0)
+    qtbot.waitUntil(lambda: window.image_viewport.current_active_point_id == second_point_id)
+
+    window.image_viewport.active_point_target.setPos((24.5, 23.75))
+    window.image_viewport._on_active_point_target_move_finished()
+    qtbot.waitUntil(
+        lambda: (
+            controller.active_row is not None
+            and any(
+                point.point_id == second_point_id and point.manual_override
+                for point in controller.active_row.points
+            )
+        )
+    )
+
+    moved_point = next(point for point in controller.active_row.points if point.point_id == second_point_id)
+    assert moved_point.manual_override is True
+    assert moved_point.manual_override_source == "drag"
+    assert window.points_table_widget.item(1, 6).text() == "manual (drag)"
+
+    window.points_table_widget.setCurrentCell(0, 0)
+    qtbot.waitUntil(lambda: window.image_viewport.current_active_point_id == first_point_id)
+    qtbot.mouseClick(window.delete_point_button, Qt.MouseButton.LeftButton)
+
+    qtbot.waitUntil(lambda: window.points_table_widget.rowCount() == 1)
+    active_row = controller.active_row
+    assert active_row is not None
+    assert active_row.point_count == 1
+    remaining_point = active_row.points[0]
+    assert remaining_point.point_id == second_point_id
+    assert remaining_point.manual_override is True
+    assert len(window.image_viewport.point_scatter_item.points()) == 1
+    assert window.image_viewport.current_active_point_id is None
+    assert window.points_table_widget.currentItem() is None
+    assert window.points_table_widget.item(0, 6).text() == "manual (drag)"
+    assert window.statusBar().currentMessage() == "Deleted point 0 from Row 1."
+    assert "selection cleared" in window.workflow_status_label.text()
+
+
 def test_main_window_can_open_preprocessing_dialog_for_active_image(qtbot):
     controller = AtomMapperController()
     original = _make_gaussian_image("origin.stp", size=40, amplitude=18.0, offset=1.0)
@@ -490,6 +723,243 @@ def test_main_window_applies_bm3d_variant_from_preprocessing_dialog(qtbot):
     assert window.file_list_widget.item(1).text() == f"  - {variant.display_name}"
     assert "Created bm3d variant" in window.statusBar().currentMessage()
     assert "created bm3d variant" in window.workflow_status_label.text()
+
+
+def test_main_window_row_panel_can_create_select_and_delete_rows(qtbot):
+    controller = AtomMapperController()
+    original = _make_gaussian_image("rows.stp", size=40, amplitude=18.0, offset=1.0)
+    controller.set_loaded_images([original])
+
+    window = AtomMapperMainWindow(controller=controller)
+    qtbot.addWidget(window)
+
+    assert window.row_list_widget.count() == 0
+    assert window.active_row_label.text() == "Active row: none"
+    assert window.new_row_button.isEnabled()
+    assert not window.delete_row_button.isEnabled()
+
+    qtbot.mouseClick(window.new_row_button, Qt.MouseButton.LeftButton)
+
+    first_row = controller.active_row
+    assert first_row is not None
+    assert len(controller.atom_rows) == 1
+    assert window.row_list_widget.count() == 1
+    assert window.row_list_widget.item(0).text() == "Row 1 (0 points)"
+    assert "Row 1" in window.active_row_label.text()
+    assert window.delete_row_button.isEnabled()
+    assert window.statusBar().currentMessage() == "Created Row 1."
+
+    qtbot.mouseClick(window.new_row_button, Qt.MouseButton.LeftButton)
+
+    second_row = controller.active_row
+    assert second_row is not None
+    assert second_row.row_id != first_row.row_id
+    assert len(controller.atom_rows) == 2
+    assert window.row_list_widget.count() == 2
+    assert window.row_list_widget.item(1).text() == "Row 2 (0 points)"
+    assert "Row 2" in window.active_row_label.text()
+
+    window.row_list_widget.setCurrentRow(0)
+
+    assert controller.active_row is not None
+    assert controller.active_row.row_id == first_row.row_id
+    assert "Row 1" in window.active_row_label.text()
+    assert window.statusBar().currentMessage() == "Selected Row 1."
+
+    qtbot.mouseClick(window.delete_row_button, Qt.MouseButton.LeftButton)
+
+    assert len(controller.atom_rows) == 1
+    assert controller.active_row is not None
+    assert controller.active_row.row_id == second_row.row_id
+    assert window.row_list_widget.count() == 1
+    assert window.row_list_widget.item(0).text() == "Row 2 (0 points)"
+    assert "Row 2" in window.active_row_label.text()
+    assert window.statusBar().currentMessage() == "Deleted Row 1 (0 points)."
+
+
+def test_main_window_add_point_uses_gaussian_fit_for_active_row(qtbot):
+    controller = AtomMapperController()
+    image = _make_gaussian_image("point-fit.stp", size=40, amplitude=22.0, offset=1.0)
+    controller.set_loaded_images([image])
+
+    window = AtomMapperMainWindow(controller=controller)
+    qtbot.addWidget(window)
+
+    qtbot.mouseClick(window.new_row_button, Qt.MouseButton.LeftButton)
+    assert controller.active_row is not None
+
+    qtbot.mouseClick(window.add_point_button, Qt.MouseButton.LeftButton)
+
+    active_row = controller.active_row
+    assert active_row is not None
+    assert active_row.point_count == 1
+    point = active_row.points[0]
+    assert point.image_id == image.image_id
+    assert point.source_group_id == image.source_group_id
+    assert point.fit_success is True
+    assert point.metadata["fallback_used"] is False
+    assert point.metadata["fit_method"] == "gaussian_fit"
+    assert point.amplitude is not None
+    assert point.sigma_x_px is not None
+    assert point.sigma_y_px is not None
+    assert point.offset is not None
+    assert window.row_list_widget.item(0).text() == "Row 1 (1 point)"
+    assert "from Gaussian fit" in window.workflow_status_label.text()
+    assert window.image_viewport.point_scatter_item is not None
+    assert len(window.image_viewport.point_scatter_item.points()) == 1
+    first_spot = window.image_viewport.point_scatter_item.points()[0]
+    assert (first_spot.pos().x(), first_spot.pos().y()) == pytest.approx(
+        (point.x_px, point.y_px)
+    )
+
+
+def test_main_window_add_point_falls_back_to_roi_center_when_fit_is_unavailable(qtbot):
+    controller = AtomMapperController()
+    image = _make_loaded_image(
+        "point-fallback.stp",
+        np.zeros((20, 20), dtype=float),
+    )
+    controller.set_loaded_images([image])
+
+    window = AtomMapperMainWindow(controller=controller)
+    qtbot.addWidget(window)
+    qtbot.mouseClick(window.new_row_button, Qt.MouseButton.LeftButton)
+
+    controller.update_active_roi_state(ROIState(x=2, y=3, width=4, height=4))
+
+    qtbot.mouseClick(window.add_point_button, Qt.MouseButton.LeftButton)
+
+    active_row = controller.active_row
+    assert active_row is not None
+    assert active_row.point_count == 1
+    point = active_row.points[0]
+    assert point.fit_success is False
+    assert point.metadata["fallback_used"] is True
+    assert str(point.metadata["fit_method"]).endswith("_fallback")
+    assert point.metadata["roi_x"] == 2
+    assert point.metadata["roi_y"] == 3
+    assert point.x_px == pytest.approx(4.0)
+    assert point.y_px == pytest.approx(5.0)
+    assert "ROI center fallback" in window.workflow_status_label.text()
+    assert window.row_list_widget.item(0).text() == "Row 1 (1 point)"
+
+
+def test_main_window_add_point_without_active_row_does_not_crash(qtbot):
+    controller = AtomMapperController()
+    image = _make_gaussian_image("point-no-row.stp", size=40, amplitude=18.0, offset=1.0)
+    controller.set_loaded_images([image])
+
+    window = AtomMapperMainWindow(controller=controller)
+    qtbot.addWidget(window)
+
+    window._add_point_from_current_roi()
+
+    assert controller.active_row is None
+    assert "Create or select an atom row" in window.statusBar().currentMessage()
+    assert "no active row selected" in window.workflow_status_label.text()
+
+
+def test_main_window_points_table_refreshes_after_add_and_row_delete(qtbot):
+    controller = AtomMapperController()
+    image = _make_gaussian_image("points-table.stp", size=40, amplitude=20.0, offset=1.0)
+    controller.set_loaded_images([image])
+
+    window = AtomMapperMainWindow(controller=controller)
+    qtbot.addWidget(window)
+
+    assert window.points_table_widget.rowCount() == 0
+    assert "No saved points" in window.points_table_hint_label.text()
+
+    qtbot.mouseClick(window.new_row_button, Qt.MouseButton.LeftButton)
+    qtbot.mouseClick(window.add_point_button, Qt.MouseButton.LeftButton)
+
+    assert window.points_table_widget.rowCount() == 1
+    assert window.points_table_widget.item(0, 0).text() == "Row 1"
+    assert window.points_table_widget.item(0, 1).text() == "0"
+    assert window.points_table_widget.item(0, 2).text() != "-"
+    assert window.points_table_widget.item(0, 3).text() != "-"
+    assert window.points_table_widget.item(0, 4).text() != "-"
+    assert window.points_table_widget.item(0, 5).text() != "-"
+    assert "Showing 1 saved point" in window.points_table_hint_label.text()
+
+    qtbot.mouseClick(window.delete_row_button, Qt.MouseButton.LeftButton)
+
+    assert window.points_table_widget.rowCount() == 0
+    assert "No saved points" in window.points_table_hint_label.text()
+    assert window.statusBar().currentMessage() == "Deleted Row 1 (1 point)."
+
+
+def test_main_window_end_to_end_stage3_workflow_across_variant_and_row_switch(qtbot):
+    controller = AtomMapperController()
+    original = _make_gaussian_image("stage3-e2e.stp", size=40, amplitude=20.0, offset=1.0)
+    controller.set_loaded_images([original])
+
+    window = AtomMapperMainWindow(controller=controller)
+    qtbot.addWidget(window)
+
+    qtbot.mouseClick(window.new_row_button, Qt.MouseButton.LeftButton)
+    first_row = controller.active_row
+    assert first_row is not None
+
+    controller.update_active_roi_state(ROIState(x=14, y=14, width=12, height=12))
+    qtbot.mouseClick(window.add_point_button, Qt.MouseButton.LeftButton)
+
+    first_row_after_first_point = controller.active_row
+    assert first_row_after_first_point is not None
+    assert first_row_after_first_point.row_id == first_row.row_id
+    assert first_row_after_first_point.point_count == 1
+    assert window.points_table_widget.rowCount() == 1
+
+    variant = controller.create_blur_variant_for_active_image(sigma_px=1.2, make_active=False)
+    assert window.file_list_widget.count() == 2
+    window.file_list_widget.setCurrentRow(1)
+
+    assert controller.active_image == variant
+    assert controller.active_row is not None
+    assert controller.active_row.row_id == first_row.row_id
+    assert len(window.image_viewport.point_scatter_item.points()) == 1
+
+    qtbot.mouseClick(window.add_point_button, Qt.MouseButton.LeftButton)
+
+    first_row_after_second_point = controller.active_row
+    assert first_row_after_second_point is not None
+    assert first_row_after_second_point.row_id == first_row.row_id
+    assert first_row_after_second_point.point_count == 2
+    assert {point.image_id for point in first_row_after_second_point.points} == {
+        original.image_id,
+        variant.image_id,
+    }
+    assert window.points_table_widget.rowCount() == 2
+    assert "Showing 2 saved points" in window.points_table_hint_label.text()
+    assert len(window.image_viewport.point_scatter_item.points()) == 2
+
+    qtbot.mouseClick(window.new_row_button, Qt.MouseButton.LeftButton)
+    second_row = controller.active_row
+    assert second_row is not None
+    assert second_row.row_id != first_row.row_id
+    assert second_row.point_count == 0
+
+    qtbot.mouseClick(window.add_point_button, Qt.MouseButton.LeftButton)
+
+    second_row_after_point = controller.active_row
+    assert second_row_after_point is not None
+    assert second_row_after_point.row_id == second_row.row_id
+    assert second_row_after_point.point_count == 1
+    assert window.points_table_widget.rowCount() == 3
+
+    window.row_list_widget.setCurrentRow(0)
+    assert controller.active_row is not None
+    assert controller.active_row.row_id == first_row.row_id
+
+    qtbot.mouseClick(window.add_point_button, Qt.MouseButton.LeftButton)
+
+    first_row_final = controller.active_row
+    assert first_row_final is not None
+    assert first_row_final.row_id == first_row.row_id
+    assert first_row_final.point_count == 3
+    assert window.points_table_widget.rowCount() == 4
+    assert "Added point 2 to Row 1" in window.statusBar().currentMessage()
+    assert "from Gaussian fit" in window.workflow_status_label.text()
 
 
 def test_main_window_reports_bm3d_failure_without_crashing(qtbot, monkeypatch):

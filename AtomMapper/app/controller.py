@@ -9,7 +9,7 @@ from typing import Iterable, Optional, Sequence
 from PyQt6.QtCore import QObject, pyqtSignal
 
 from .io import load_loaded_image
-from .models import LoadedImage, ROIState
+from .models import AtomPoint, AtomRow, LoadedImage, ROIState
 from .preprocessing import (
     apply_bm3d,
     apply_blur,
@@ -28,12 +28,17 @@ class AtomMapperController(QObject):
     loaded_images_changed = pyqtSignal()
     active_image_changed = pyqtSignal(object)
     roi_state_changed = pyqtSignal(object)
+    rows_changed = pyqtSignal()
+    active_row_changed = pyqtSignal(object)
+    row_points_changed = pyqtSignal(object)
 
     def __init__(self, parent: Optional[QObject] = None) -> None:
         super().__init__(parent)
         self._loaded_images: list[LoadedImage] = []
         self._active_image_index: Optional[int] = None
         self._roi_states_by_image_id: dict[str, ROIState] = {}
+        self._rows: list[AtomRow] = []
+        self._active_row_id_by_source_group: dict[str, str] = {}
 
     @property
     def loaded_images(self) -> tuple[LoadedImage, ...]:
@@ -76,6 +81,33 @@ class AtomMapperController(QObject):
         return self._roi_states_by_image_id.get(active.image_id)
 
     @property
+    def atom_rows(self) -> tuple[AtomRow, ...]:
+        """Return the known atom rows as an immutable snapshot."""
+
+        return tuple(self._rows)
+
+    @property
+    def active_row(self) -> Optional[AtomRow]:
+        """Return the active row for the currently active image family."""
+
+        active_group = self.active_source_group_id
+        if active_group is None:
+            return None
+        row_id = self._active_row_id_by_source_group.get(active_group)
+        if row_id is None:
+            return None
+        return self._find_row_by_id(row_id)
+
+    @property
+    def active_row_id(self) -> Optional[str]:
+        """Return the identifier of the currently active row."""
+
+        active_row = self.active_row
+        if active_row is None:
+            return None
+        return active_row.row_id
+
+    @property
     def original_images(self) -> tuple[LoadedImage, ...]:
         """Return only source/original images."""
 
@@ -97,6 +129,11 @@ class AtomMapperController(QObject):
             if image.source_group_id == source_group_id and not image.is_original
         )
 
+    def rows_for_source_group(self, source_group_id: str) -> tuple[AtomRow, ...]:
+        """Return all rows bound to the same source family."""
+
+        return tuple(row for row in self._rows if row.source_group_id == source_group_id)
+
     def set_loaded_images(self, images: Sequence[LoadedImage]) -> None:
         """Replace the loaded-image collection and reset the active selection."""
 
@@ -106,10 +143,14 @@ class AtomMapperController(QObject):
         self._roi_states_by_image_id = {
             image.image_id: self._build_default_roi_state(image) for image in self._loaded_images
         }
+        rows_pruned = self._prune_rows_to_loaded_source_groups()
         logger.info("AtomMapperController: loaded image collection replaced. Count=%d", len(images))
         self.loaded_images_changed.emit()
+        if rows_pruned:
+            self.rows_changed.emit()
         self.active_image_changed.emit(self.active_image)
         self.roi_state_changed.emit(self.active_roi_state)
+        self.active_row_changed.emit(self.active_row)
 
     def add_loaded_image(self, image: LoadedImage) -> None:
         """Append an image to the collection."""
@@ -123,6 +164,7 @@ class AtomMapperController(QObject):
         self.loaded_images_changed.emit()
         self.active_image_changed.emit(self.active_image)
         self.roi_state_changed.emit(self.active_roi_state)
+        self.active_row_changed.emit(self.active_row)
 
     def add_loaded_variant(self, image: LoadedImage, *, make_active: bool = True) -> None:
         """Append a derived image variant linked to an existing parent/original image."""
@@ -260,6 +302,7 @@ class AtomMapperController(QObject):
             logger.info("AtomMapperController: active image changed to '%s'.", active.display_name)
         self.active_image_changed.emit(active)
         self.roi_state_changed.emit(self.active_roi_state)
+        self.active_row_changed.emit(self.active_row)
         return active
 
     def update_active_roi_state(self, roi_state: ROIState) -> ROIState:
@@ -282,6 +325,205 @@ class AtomMapperController(QObject):
         self.roi_state_changed.emit(clamped_roi)
         return clamped_roi
 
+    def set_atom_rows(self, rows: Sequence[AtomRow]) -> None:
+        """Replace the atom-row collection after validating identities and loaded families."""
+
+        allowed_groups = {image.source_group_id for image in self._loaded_images}
+        self._ensure_unique_row_ids(rows)
+        self._ensure_unique_point_ids(rows)
+        for row in rows:
+            if row.source_group_id not in allowed_groups:
+                raise ValueError(
+                    f"Row source_group_id '{row.source_group_id}' is not present in loaded images."
+                )
+
+        self._rows = list(rows)
+        self._active_row_id_by_source_group = {}
+        for row in self._rows:
+            self._active_row_id_by_source_group.setdefault(row.source_group_id, row.row_id)
+
+        self.rows_changed.emit()
+        self.active_row_changed.emit(self.active_row)
+
+    def add_row(self, row: AtomRow, *, make_active: bool = True) -> AtomRow:
+        """Append a new row to the controller state."""
+
+        if row.source_group_id not in {image.source_group_id for image in self._loaded_images}:
+            raise ValueError(
+                f"Row source_group_id '{row.source_group_id}' is not present in loaded images."
+            )
+        self._ensure_row_id_not_present(row.row_id)
+        self._ensure_point_ids_not_present(row.points)
+
+        self._rows.append(row)
+        if row.source_group_id not in self._active_row_id_by_source_group or make_active:
+            self._active_row_id_by_source_group[row.source_group_id] = row.row_id
+
+        self.rows_changed.emit()
+        self.active_row_changed.emit(self.active_row)
+        return row
+
+    def create_row_for_active_source_group(
+        self,
+        *,
+        display_name: str = "",
+        color_hex: Optional[str] = None,
+        make_active: bool = True,
+    ) -> AtomRow:
+        """Create and register a new row for the active image family."""
+
+        active_group = self.active_source_group_id
+        if active_group is None:
+            raise ValueError("Cannot create a row without an active image/source group.")
+
+        row = AtomRow(
+            source_group_id=active_group,
+            display_name=display_name,
+            color_hex=color_hex,
+        )
+        return self.add_row(row, make_active=make_active)
+
+    def select_row(self, row_id: str) -> Optional[AtomRow]:
+        """Mark a row as active for its source-group family."""
+
+        row = self._find_row_by_id(row_id)
+        if row is None:
+            raise ValueError(f"Unknown row_id '{row_id}'.")
+
+        self._active_row_id_by_source_group[row.source_group_id] = row.row_id
+        if self.active_source_group_id == row.source_group_id:
+            self.active_row_changed.emit(row)
+        return row
+
+    def remove_row(self, row_id: str) -> Optional[AtomRow]:
+        """Remove a row from the controller state and repair active-row mapping."""
+
+        row = self._find_row_by_id(row_id)
+        if row is None:
+            return None
+
+        self._rows = [existing for existing in self._rows if existing.row_id != row.row_id]
+        if self._active_row_id_by_source_group.get(row.source_group_id) == row.row_id:
+            replacement = next(
+                (existing.row_id for existing in self._rows if existing.source_group_id == row.source_group_id),
+                None,
+            )
+            if replacement is None:
+                self._active_row_id_by_source_group.pop(row.source_group_id, None)
+            else:
+                self._active_row_id_by_source_group[row.source_group_id] = replacement
+
+        self.rows_changed.emit()
+        self.active_row_changed.emit(self.active_row)
+        return row
+
+    def add_point_to_row(self, point: AtomPoint) -> AtomRow:
+        """Store a point inside the selected row after validating image-family consistency."""
+
+        row = self._find_row_by_id(point.row_id)
+        if row is None:
+            raise ValueError(f"Unknown row_id '{point.row_id}'.")
+
+        image = self._find_image_by_id(point.image_id)
+        if image is None:
+            raise ValueError(f"Unknown image_id '{point.image_id}'.")
+        if image.source_group_id != row.source_group_id:
+            raise ValueError("Point image_id belongs to a different source_group_id than the row.")
+        if point.source_group_id != row.source_group_id:
+            raise ValueError("Point source_group_id must match the row/source family.")
+        self._ensure_point_id_not_present(point.point_id, ignore_row_id=row.row_id)
+
+        updated_row = row.with_point(point)
+        self._replace_row(updated_row)
+        self.row_points_changed.emit(updated_row)
+        if self.active_source_group_id == updated_row.source_group_id:
+            self._active_row_id_by_source_group[updated_row.source_group_id] = updated_row.row_id
+            self.active_row_changed.emit(updated_row)
+        return updated_row
+
+    def replace_point_in_row(self, point: AtomPoint) -> AtomRow:
+        """Replace an existing point inside a row after validating identities."""
+
+        row = self._find_row_by_id(point.row_id)
+        if row is None:
+            raise ValueError(f"Unknown row_id '{point.row_id}'.")
+
+        existing_point = next((item for item in row.points if item.point_id == point.point_id), None)
+        if existing_point is None:
+            raise ValueError(
+                f"Point id '{point.point_id}' is not present in row '{point.row_id}'."
+            )
+
+        image = self._find_image_by_id(point.image_id)
+        if image is None:
+            raise ValueError(f"Unknown image_id '{point.image_id}'.")
+        if image.source_group_id != row.source_group_id:
+            raise ValueError("Point image_id belongs to a different source_group_id than the row.")
+        if point.source_group_id != row.source_group_id:
+            raise ValueError("Point source_group_id must match the row/source family.")
+        if existing_point.point_id != point.point_id:
+            raise ValueError("Point replacement must preserve point_id.")
+
+        updated_row = row.with_point(point)
+        self._replace_row(updated_row)
+        self.row_points_changed.emit(updated_row)
+        if self.active_source_group_id == updated_row.source_group_id:
+            self._active_row_id_by_source_group[updated_row.source_group_id] = updated_row.row_id
+            self.active_row_changed.emit(updated_row)
+        return updated_row
+
+    def remove_point_from_row(self, row_id: str, point_id: str) -> AtomRow:
+        """Remove a single point from a row while preserving the row itself."""
+
+        row = self._find_row_by_id(row_id)
+        if row is None:
+            raise ValueError(f"Unknown row_id '{row_id}'.")
+
+        existing_point = next(
+            (point for point in row.points if point.point_id == str(point_id).strip()),
+            None,
+        )
+        if existing_point is None:
+            raise ValueError(f"Point id '{point_id}' is not present in row '{row_id}'.")
+
+        updated_row = row.without_point(existing_point.point_id)
+        self._replace_row(updated_row)
+        self.row_points_changed.emit(updated_row)
+        if self.active_source_group_id == updated_row.source_group_id:
+            self._active_row_id_by_source_group[updated_row.source_group_id] = updated_row.row_id
+            self.active_row_changed.emit(updated_row)
+        return updated_row
+
+    def move_point_in_row(
+        self,
+        *,
+        row_id: str,
+        point_id: str,
+        x_px: float,
+        y_px: float,
+        x_nm: Optional[float] = None,
+        y_nm: Optional[float] = None,
+        source: str = "manual",
+    ) -> AtomRow:
+        """Apply a manual coordinate correction to a point already stored in a row."""
+
+        row = self._find_row_by_id(row_id)
+        if row is None:
+            raise ValueError(f"Unknown row_id '{row_id}'.")
+
+        point = next((item for item in row.points if item.point_id == str(point_id).strip()), None)
+        if point is None:
+            raise ValueError(f"Point id '{point_id}' is not present in row '{row_id}'.")
+
+        corrected_point = point.with_manual_position(
+            x_px=x_px,
+            y_px=y_px,
+            x_nm=x_nm,
+            y_nm=y_nm,
+            source=source,
+        )
+        return self.replace_point_in_row(corrected_point)
+
     @staticmethod
     def _build_default_roi_state(image: LoadedImage) -> ROIState:
         shorter_side = max(1, min(image.pixels_x, image.pixels_y))
@@ -296,6 +538,30 @@ class AtomMapperController(QObject):
                 return image
         return None
 
+    def _find_row_by_id(self, row_id: str) -> Optional[AtomRow]:
+        for row in self._rows:
+            if row.row_id == row_id:
+                return row
+        return None
+
+    def _replace_row(self, updated_row: AtomRow) -> None:
+        for index, row in enumerate(self._rows):
+            if row.row_id == updated_row.row_id:
+                self._rows[index] = updated_row
+                return
+        raise ValueError(f"Unknown row_id '{updated_row.row_id}'.")
+
+    def _prune_rows_to_loaded_source_groups(self) -> bool:
+        allowed_groups = {image.source_group_id for image in self._loaded_images}
+        before_count = len(self._rows)
+        self._rows = [row for row in self._rows if row.source_group_id in allowed_groups]
+        self._active_row_id_by_source_group = {
+            group_id: row_id
+            for group_id, row_id in self._active_row_id_by_source_group.items()
+            if group_id in allowed_groups and self._find_row_by_id(row_id) is not None
+        }
+        return len(self._rows) != before_count
+
     def _ensure_image_id_not_present(self, image_id: str) -> None:
         if self._find_image_by_id(image_id) is not None:
             raise ValueError(f"Image id '{image_id}' is already loaded.")
@@ -307,3 +573,54 @@ class AtomMapperController(QObject):
             if image.image_id in seen:
                 raise ValueError(f"Duplicate image id '{image.image_id}' in image collection.")
             seen.add(image.image_id)
+
+    def _ensure_row_id_not_present(self, row_id: str) -> None:
+        if self._find_row_by_id(row_id) is not None:
+            raise ValueError(f"Row id '{row_id}' is already present.")
+
+    @staticmethod
+    def _ensure_unique_row_ids(rows: Sequence[AtomRow]) -> None:
+        seen: set[str] = set()
+        for row in rows:
+            if row.row_id in seen:
+                raise ValueError(f"Duplicate row id '{row.row_id}' in row collection.")
+            seen.add(row.row_id)
+
+    @staticmethod
+    def _ensure_unique_point_ids(rows: Sequence[AtomRow]) -> None:
+        seen: set[str] = set()
+        for row in rows:
+            for point in row.points:
+                if point.point_id in seen:
+                    raise ValueError(f"Duplicate point id '{point.point_id}' in row collection.")
+                seen.add(point.point_id)
+
+    def _ensure_point_ids_not_present(
+        self,
+        points: Sequence[AtomPoint],
+        *,
+        ignore_row_id: Optional[str] = None,
+    ) -> None:
+        existing_ids = {
+            point.point_id
+            for row in self._rows
+            if row.row_id != ignore_row_id
+            for point in row.points
+        }
+        for point in points:
+            if point.point_id in existing_ids:
+                raise ValueError(f"Point id '{point.point_id}' is already present.")
+
+    def _ensure_point_id_not_present(self, point_id: str, *, ignore_row_id: Optional[str] = None) -> None:
+        self._ensure_point_ids_not_present(
+            [AtomPoint(
+                point_id=point_id,
+                row_id="__check__",
+                image_id="__check__",
+                source_group_id="__check__",
+                point_index=0,
+                x_px=0.0,
+                y_px=0.0,
+            )],
+            ignore_row_id=ignore_row_id,
+        )

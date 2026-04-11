@@ -2,6 +2,7 @@
 
 import numpy as np
 import pytest
+from PyQt6.QtCore import Qt
 
 pytest.importorskip("PyQt6", reason="PyQt6 is required for AtomMapper GUI tests")
 pytest.importorskip("pytestqt", reason="pytest-qt is required for AtomMapper GUI tests")
@@ -40,6 +41,7 @@ def test_create_main_window(qtbot):
     assert window.file_list_widget.count() == 0
     assert window.active_image_label.text() == "Active image: none"
     assert window.image_viewport.current_loaded_image is None
+    assert window.analysis_dock.widget() == window.saved_points_panel
 
 
 def test_main_window_syncs_file_list_with_controller(qtbot):
@@ -69,3 +71,26 @@ def test_main_window_syncs_file_list_with_controller(qtbot):
     assert controller.active_image == second
     assert "second.stp" in controlled_window.active_image_label.text()
     assert controlled_window.image_viewport.current_loaded_image == second
+
+
+def test_main_window_places_saved_points_in_bottom_analysis_dock(qtbot):
+    window = create_main_window()
+    qtbot.addWidget(window)
+
+    grid_layout = window.analysis_grid_panel.layout()
+    assert grid_layout is not None
+
+    roi_index = grid_layout.indexOf(window.roi_preview)
+    fit_index = grid_layout.indexOf(window.gaussian_fit_preview)
+    image_index = grid_layout.indexOf(window.image_viewport)
+
+    assert roi_index >= 0
+    assert fit_index >= 0
+    assert image_index >= 0
+
+    assert grid_layout.getItemPosition(roi_index) == (0, 0, 1, 1)
+    assert grid_layout.getItemPosition(fit_index) == (1, 0, 1, 1)
+    assert grid_layout.indexOf(window.saved_points_panel) == -1
+    assert grid_layout.getItemPosition(image_index) == (0, 1, 2, 1)
+    assert window.analysis_dock.widget() == window.saved_points_panel
+    assert window.dockWidgetArea(window.analysis_dock) == Qt.DockWidgetArea.BottomDockWidgetArea

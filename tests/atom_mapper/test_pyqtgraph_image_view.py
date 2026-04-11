@@ -9,7 +9,7 @@ pytest.importorskip("PyQt6", reason="PyQt6 is required for AtomMapper GUI tests"
 pytest.importorskip("pytestqt", reason="pytest-qt is required for AtomMapper GUI tests")
 pytest.importorskip("pyqtgraph", reason="pyqtgraph is required for the 2B viewport refactor")
 
-from AtomMapper.app.models import LoadedImage, ROIState
+from AtomMapper.app.models import AtomPoint, AtomRow, LoadedImage, ROIState
 from AtomMapper.app.pyqtgraph_image_view import PyQtGraphSTMViewport
 
 
@@ -183,3 +183,138 @@ def test_pyqtgraph_viewport_histogram_levels_preserve_view_range_and_roi_state(q
     assert view_after[0] == pytest.approx(view_before[0])
     assert view_after[1] == pytest.approx(view_before[1])
     assert viewport.current_roi_state == roi_before
+
+
+def test_pyqtgraph_viewport_renders_saved_point_markers_for_active_family(qtbot):
+    viewport = PyQtGraphSTMViewport()
+    qtbot.addWidget(viewport)
+
+    image = _make_loaded_image("pg-points.stp", width=20, height=10)
+    viewport.set_loaded_image(image)
+
+    row = AtomRow(
+        source_group_id=image.source_group_id,
+        display_name="Row 1",
+        points=(
+            AtomPoint(
+                row_id="row-1",
+                image_id=image.image_id,
+                source_group_id=image.source_group_id,
+                point_index=0,
+                x_px=4.0,
+                y_px=5.0,
+                point_id="point-1",
+            ),
+        ),
+        row_id="row-1",
+    )
+
+    viewport.set_atom_rows((row,), active_row_id=row.row_id, active_image_id=image.image_id)
+
+    assert viewport.point_scatter_item is not None
+    assert len(viewport.point_scatter_item.points()) == 1
+    spot = viewport.point_scatter_item.points()[0]
+    assert (spot.pos().x(), spot.pos().y()) == pytest.approx((4.0, 5.0))
+
+    viewport.set_loaded_image(None)
+    assert len(viewport.point_scatter_item.points()) == 0
+
+
+def test_pyqtgraph_viewport_emits_point_selection_and_highlights_active_point(qtbot):
+    viewport = PyQtGraphSTMViewport()
+    qtbot.addWidget(viewport)
+
+    image = _make_loaded_image("pg-point-select.stp", width=20, height=10)
+    viewport.set_loaded_image(image)
+
+    row = AtomRow(
+        source_group_id=image.source_group_id,
+        display_name="Row 1",
+        points=(
+            AtomPoint(
+                row_id="row-1",
+                image_id=image.image_id,
+                source_group_id=image.source_group_id,
+                point_index=0,
+                x_px=4.0,
+                y_px=5.0,
+                point_id="point-1",
+            ),
+            AtomPoint(
+                row_id="row-1",
+                image_id=image.image_id,
+                source_group_id=image.source_group_id,
+                point_index=1,
+                x_px=8.0,
+                y_px=6.0,
+                point_id="point-2",
+            ),
+        ),
+        row_id="row-1",
+    )
+
+    viewport.set_atom_rows(
+        (row,),
+        active_row_id=row.row_id,
+        active_image_id=image.image_id,
+        active_point_id="point-2",
+    )
+
+    spots = viewport.point_scatter_item.points()
+    assert len(spots) == 2
+    spot_by_id = {spot.data()["point_id"]: spot for spot in spots}
+    assert spot_by_id["point-2"].size() > spot_by_id["point-1"].size()
+
+    emitted: list[dict[str, object]] = []
+    viewport.point_selected.connect(emitted.append)
+    viewport._on_point_scatter_clicked(viewport.point_scatter_item, [spot_by_id["point-1"]], None)
+
+    assert emitted
+    assert emitted[-1]["point_id"] == "point-1"
+
+
+def test_pyqtgraph_viewport_exposes_active_point_target_and_emits_move_request(qtbot):
+    viewport = PyQtGraphSTMViewport()
+    qtbot.addWidget(viewport)
+
+    image = _make_loaded_image("pg-point-move.stp", width=20, height=10)
+    viewport.set_loaded_image(image)
+
+    row = AtomRow(
+        source_group_id=image.source_group_id,
+        display_name="Row 1",
+        points=(
+            AtomPoint(
+                row_id="row-1",
+                image_id=image.image_id,
+                source_group_id=image.source_group_id,
+                point_index=0,
+                x_px=4.0,
+                y_px=5.0,
+                point_id="point-1",
+            ),
+        ),
+        row_id="row-1",
+    )
+
+    viewport.set_atom_rows(
+        (row,),
+        active_row_id=row.row_id,
+        active_image_id=image.image_id,
+        active_point_id="point-1",
+    )
+
+    assert viewport.active_point_target is not None
+    assert viewport.active_point_target.isVisible() is True
+
+    emitted: list[dict[str, object]] = []
+    viewport.point_move_requested.connect(emitted.append)
+    viewport.active_point_target.setPos((7.5, 8.5))
+    viewport._on_active_point_target_move_finished()
+
+    assert emitted
+    assert emitted[-1]["point_id"] == "point-1"
+    assert emitted[-1]["row_id"] == "row-1"
+    assert emitted[-1]["x_px"] == pytest.approx(7.5)
+    assert emitted[-1]["y_px"] == pytest.approx(8.5)
+    assert emitted[-1]["source"] == "drag"
