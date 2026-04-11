@@ -29,7 +29,18 @@ from .preprocessing_state import (
     PreprocessingPreviewResult,
     PreprocessingState,
 )
+from .plots import (
+    GlobalScatterSample,
+    GlobalScatterSeries,
+    RowMetricSeries,
+    RowPlotMode,
+    RowSeriesSample,
+    build_global_scatter_series,
+    build_row_metric_series,
+    sorted_row_points,
+)
 from .roi_preview import ROIPreviewWidget
+from .row_plot_widget import RowPlotWidget
 
 __all__ = [
     "AtomMapperController",
@@ -53,14 +64,23 @@ __all__ = [
     "PreviewViewport",
     "ROIState",
     "ROIPreviewWidget",
+    "RowPlotWidget",
+    "GlobalScatterSample",
+    "GlobalScatterSeries",
+    "RowMetricSeries",
+    "RowPlotMode",
+    "RowSeriesSample",
     "SUPPORTED_STM_EXTENSIONS",
     "apply_bm3d",
     "apply_blur",
     "apply_non_local_means",
     "build_bm3d_metadata",
     "build_blur_metadata",
+    "build_global_scatter_series",
     "build_nlm_metadata",
+    "build_row_metric_series",
     "fit_gaussian_to_roi_patch",
     "is_bm3d_available",
     "load_loaded_image",
+    "sorted_row_points",
 ]
