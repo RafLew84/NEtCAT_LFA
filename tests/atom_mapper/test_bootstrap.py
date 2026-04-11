@@ -41,7 +41,7 @@ def test_create_main_window(qtbot):
     assert window.file_list_widget.count() == 0
     assert window.active_image_label.text() == "Active image: none"
     assert window.image_viewport.current_loaded_image is None
-    assert window.analysis_dock.widget() == window.saved_points_panel
+    assert window.analysis_dock.widget() == window.analysis_dock_content
 
 
 def test_main_window_syncs_file_list_with_controller(qtbot):
@@ -92,5 +92,11 @@ def test_main_window_places_saved_points_in_bottom_analysis_dock(qtbot):
     assert grid_layout.getItemPosition(fit_index) == (1, 0, 1, 1)
     assert grid_layout.indexOf(window.saved_points_panel) == -1
     assert grid_layout.getItemPosition(image_index) == (0, 1, 2, 1)
-    assert window.analysis_dock.widget() == window.saved_points_panel
+    assert window.analysis_dock.widget() == window.analysis_dock_content
+    analysis_layout = window.analysis_dock_content.layout()
+    assert analysis_layout is not None
+    assert analysis_layout.indexOf(window.saved_points_panel) >= 0
+    assert analysis_layout.indexOf(window.row_plot_widget) >= 0
+    assert analysis_layout.indexOf(window.global_scatter_plot_widget) >= 0
+    assert analysis_layout.indexOf(window.row_metrics_widget) >= 0
     assert window.dockWidgetArea(window.analysis_dock) == Qt.DockWidgetArea.BottomDockWidgetArea

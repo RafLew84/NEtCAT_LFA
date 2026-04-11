@@ -30,13 +30,17 @@ from PyQt6.QtWidgets import (
 
 from .controller import AtomMapperController
 from .gaussian_preview import GaussianFitPreviewWidget
+from .global_scatter_plot_widget import GlobalScatterPlotWidget
 from .io import SUPPORTED_STM_EXTENSIONS
 from .models import AtomPoint
+from .plots import build_global_scatter_series, build_row_distance_metrics
 from .pyqtgraph_image_view import PyQtGraphSTMViewport
 from .pyqtgraph_preview_bridge import PyQtGraphPreviewBridge
 from .preprocessing_dialog import PreprocessingDialog
 from .preprocessing_state import PreprocessingMethod
 from .roi_preview import ROIPreviewWidget
+from .row_metrics_widget import RowMetricsWidget
+from .row_plot_widget import RowPlotWidget
 
 logger = logging.getLogger(__name__)
 
@@ -181,6 +185,13 @@ class AtomMapperMainWindow(QMainWindow):
         saved_points_layout.addWidget(self.points_table_hint_label)
         saved_points_layout.addWidget(self.points_table_widget)
 
+        self.row_plot_widget = RowPlotWidget(right_panel)
+        self.row_plot_widget.setObjectName("atommapper_row_plot_widget_container")
+        self.global_scatter_plot_widget = GlobalScatterPlotWidget(right_panel)
+        self.global_scatter_plot_widget.setObjectName("atommapper_global_scatter_widget_container")
+        self.row_metrics_widget = RowMetricsWidget(right_panel)
+        self.row_metrics_widget.setObjectName("atommapper_row_metrics_widget_container")
+
         self.analysis_grid_panel = QWidget(right_panel)
         self.analysis_grid_panel.setObjectName("atommapper_analysis_grid_panel")
         analysis_grid_layout = QGridLayout(self.analysis_grid_panel)
@@ -217,7 +228,21 @@ class AtomMapperMainWindow(QMainWindow):
             QDockWidget.DockWidgetFeature.DockWidgetMovable
             | QDockWidget.DockWidgetFeature.DockWidgetFloatable
         )
-        self.analysis_dock.setWidget(self.saved_points_panel)
+        self.analysis_dock_content = QWidget(self)
+        self.analysis_dock_content.setObjectName("atommapper_analysis_dock_content")
+        analysis_dock_layout = QGridLayout(self.analysis_dock_content)
+        analysis_dock_layout.setContentsMargins(12, 12, 12, 12)
+        analysis_dock_layout.setHorizontalSpacing(12)
+        analysis_dock_layout.setVerticalSpacing(12)
+        analysis_dock_layout.addWidget(self.saved_points_panel, 0, 0)
+        analysis_dock_layout.addWidget(self.row_plot_widget, 0, 1)
+        analysis_dock_layout.addWidget(self.global_scatter_plot_widget, 1, 0)
+        analysis_dock_layout.addWidget(self.row_metrics_widget, 1, 1)
+        analysis_dock_layout.setColumnStretch(0, 1)
+        analysis_dock_layout.setColumnStretch(1, 1)
+        analysis_dock_layout.setRowStretch(0, 1)
+        analysis_dock_layout.setRowStretch(1, 1)
+        self.analysis_dock.setWidget(self.analysis_dock_content)
         self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.analysis_dock)
         self._preprocessing_dialog_class = PreprocessingDialog
         self._active_point_id_by_source_group: dict[str, str] = {}
@@ -227,6 +252,7 @@ class AtomMapperMainWindow(QMainWindow):
         self._refresh_row_list()
         self._refresh_points_table()
         self._refresh_image_point_overlay()
+        self._refresh_analysis_widgets()
         self._update_active_image_label(self.controller.active_image)
         self._update_preprocess_controls(self.controller.active_image)
         self._update_active_row_label(self.controller.active_row)
@@ -478,6 +504,29 @@ class AtomMapperMainWindow(QMainWindow):
             active_point_id=self._active_point_id_for_current_group(),
         )
 
+    def _refresh_row_plot_widget(self) -> None:
+        self.row_plot_widget.set_row(self.controller.active_row)
+
+    def _refresh_global_scatter_plot_widget(self) -> None:
+        active_group = self.controller.active_source_group_id
+        if active_group is None:
+            self.global_scatter_plot_widget.set_series(None)
+            return
+        rows = self.controller.rows_for_source_group(active_group)
+        self.global_scatter_plot_widget.set_series(build_global_scatter_series(rows))
+
+    def _refresh_row_metrics_widget(self) -> None:
+        active_row = self.controller.active_row
+        if active_row is None:
+            self.row_metrics_widget.set_metrics(None)
+            return
+        self.row_metrics_widget.set_metrics(build_row_distance_metrics(active_row))
+
+    def _refresh_analysis_widgets(self) -> None:
+        self._refresh_row_plot_widget()
+        self._refresh_global_scatter_plot_widget()
+        self._refresh_row_metrics_widget()
+
     def _build_file_list_entries(self) -> list[tuple[int, Any]]:
         groups: dict[str, list[tuple[int, Any]]] = {}
         group_order: list[str] = []
@@ -679,13 +728,19 @@ class AtomMapperMainWindow(QMainWindow):
         )
         self.analysis_grid_panel.setUpdatesEnabled(False)
         self.image_viewport.setUpdatesEnabled(False)
+        self.analysis_dock.setUpdatesEnabled(False)
+        self.analysis_dock_content.setUpdatesEnabled(False)
         try:
             result = dialog.exec()
         finally:
+            self.analysis_dock_content.setUpdatesEnabled(True)
+            self.analysis_dock.setUpdatesEnabled(True)
             self.image_viewport.setUpdatesEnabled(True)
             self.analysis_grid_panel.setUpdatesEnabled(True)
             self.image_viewport.update()
             self.analysis_grid_panel.update()
+            self.analysis_dock_content.update()
+            self.analysis_dock.update()
         if result == int(QDialog.DialogCode.Accepted):
             self._apply_preprocessing_dialog_result(dialog)
         else:
@@ -925,16 +980,19 @@ class AtomMapperMainWindow(QMainWindow):
     def _handle_active_image_changed_for_rows(self, active_image: Any) -> None:
         self._refresh_row_list()
         self._update_row_controls(active_image, self.controller.active_row)
+        self._refresh_analysis_widgets()
 
     def _handle_rows_changed(self) -> None:
         self._refresh_row_list()
         self._update_row_controls(self.controller.active_image, self.controller.active_row)
+        self._refresh_analysis_widgets()
 
     def _handle_active_row_changed(self, active_row: Any) -> None:
         self._update_active_row_label(active_row)
         self._refresh_row_list()
         self._refresh_points_table()
         self._refresh_image_point_overlay()
+        self._refresh_analysis_widgets()
         self._update_row_controls(self.controller.active_image, active_row)
         self._update_point_controls()
 
@@ -942,6 +1000,7 @@ class AtomMapperMainWindow(QMainWindow):
         self._refresh_row_list()
         self._refresh_points_table()
         self._refresh_image_point_overlay()
+        self._refresh_analysis_widgets()
         self._update_active_row_label(self.controller.active_row)
         self._update_point_controls()
 
@@ -1011,6 +1070,7 @@ class AtomMapperMainWindow(QMainWindow):
         self.preview_bridge.set_loaded_image(active_image)
         self.preview_bridge.set_roi_state(self.controller.active_roi_state)
         self._sync_gaussian_preview_visibility()
+        self._refresh_analysis_widgets()
         self._update_workflow_status()
 
     def _handle_roi_state_changed(self, roi_state: Any) -> None:

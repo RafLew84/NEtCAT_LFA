@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 import math
+from statistics import fmean, pstdev
 from typing import Sequence
 
 from .models import AtomPoint, AtomRow
@@ -64,6 +65,20 @@ class GlobalScatterSeries:
     x_label: str
     y_label: str
     samples: tuple[GlobalScatterSample, ...]
+
+
+@dataclass(frozen=True)
+class RowDistanceMetrics:
+    """Distance summary statistics for a single atom row."""
+
+    row_id: str
+    row_display_name: str
+    point_count: int
+    distance_count: int
+    mean_distance_px: float | None
+    std_distance_px: float | None
+    min_distance_px: float | None
+    max_distance_px: float | None
 
 
 def sorted_row_points(row: AtomRow) -> tuple[AtomPoint, ...]:
@@ -176,4 +191,39 @@ def build_global_scatter_series(rows: Sequence[AtomRow]) -> GlobalScatterSeries:
         x_label="x (px)",
         y_label="y (px)",
         samples=tuple(samples),
+    )
+
+
+def build_row_distance_metrics(row: AtomRow) -> RowDistanceMetrics:
+    """Build basic distance statistics for consecutive points in a row."""
+
+    ordered_points = sorted_row_points(row)
+    distances: list[float] = []
+    for left_point, right_point in zip(ordered_points, ordered_points[1:]):
+        delta_x = float(right_point.x_px) - float(left_point.x_px)
+        delta_y = float(right_point.y_px) - float(left_point.y_px)
+        distances.append(math.hypot(delta_x, delta_y))
+
+    if not distances:
+        return RowDistanceMetrics(
+            row_id=row.row_id,
+            row_display_name=row.display_name,
+            point_count=len(ordered_points),
+            distance_count=0,
+            mean_distance_px=None,
+            std_distance_px=None,
+            min_distance_px=None,
+            max_distance_px=None,
+        )
+
+    std_distance_px = 0.0 if len(distances) == 1 else float(pstdev(distances))
+    return RowDistanceMetrics(
+        row_id=row.row_id,
+        row_display_name=row.display_name,
+        point_count=len(ordered_points),
+        distance_count=len(distances),
+        mean_distance_px=float(fmean(distances)),
+        std_distance_px=std_distance_px,
+        min_distance_px=float(min(distances)),
+        max_distance_px=float(max(distances)),
     )

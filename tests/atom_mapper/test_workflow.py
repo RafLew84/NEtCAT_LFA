@@ -13,6 +13,7 @@ from AtomMapper.app.controller import AtomMapperController
 from AtomMapper.app.main import create_main_window
 from AtomMapper.app.main_window import AtomMapperMainWindow
 from AtomMapper.app.models import AtomPoint, LoadedImage, ROIState
+from AtomMapper.app.plots import RowPlotMode
 from AtomMapper.app.preprocessing import is_bm3d_available
 from AtomMapper.app.preprocessing_dialog import PreprocessingDialog
 from AtomMapper.app.preprocessing_state import (
@@ -887,6 +888,134 @@ def test_main_window_points_table_refreshes_after_add_and_row_delete(qtbot):
     assert window.points_table_widget.rowCount() == 0
     assert "No saved points" in window.points_table_hint_label.text()
     assert window.statusBar().currentMessage() == "Deleted Row 1 (1 point)."
+
+
+def test_main_window_analysis_dock_refreshes_plots_and_metrics(qtbot):
+    controller = AtomMapperController()
+    image = _make_gaussian_image("analysis-dock.stp", size=40, amplitude=20.0, offset=1.0)
+    controller.set_loaded_images([image])
+
+    window = AtomMapperMainWindow(controller=controller)
+    qtbot.addWidget(window)
+
+    assert window.analysis_dock.widget() == window.analysis_dock_content
+    assert window.row_plot_widget.current_row is None
+    assert window.global_scatter_plot_widget.current_series is not None
+    assert len(window.global_scatter_plot_widget.current_series.samples) == 0
+    assert window.row_metrics_widget.current_metrics is None
+
+    qtbot.mouseClick(window.new_row_button, Qt.MouseButton.LeftButton)
+    active_row = controller.active_row
+    assert active_row is not None
+    assert window.row_plot_widget.current_row is not None
+    assert window.row_plot_widget.current_row.row_id == active_row.row_id
+    assert window.row_plot_widget.stack.currentWidget() is window.row_plot_widget.placeholder_label
+    assert window.row_metrics_widget.current_metrics is not None
+    assert window.row_metrics_widget.stack.currentWidget() is window.row_metrics_widget.placeholder_label
+
+    controller.update_active_roi_state(ROIState(x=10, y=10, width=12, height=12))
+    qtbot.mouseClick(window.add_point_button, Qt.MouseButton.LeftButton)
+    qtbot.waitUntil(lambda: window.points_table_widget.rowCount() == 1)
+
+    assert window.row_plot_widget.current_row is not None
+    assert window.row_plot_widget.current_row.point_count == 1
+    assert window.row_plot_widget.stack.currentWidget() is window.row_plot_widget.plot_widget
+    assert window.global_scatter_plot_widget.current_series is not None
+    assert len(window.global_scatter_plot_widget.current_series.samples) == 1
+    assert window.global_scatter_plot_widget.stack.currentWidget() is window.global_scatter_plot_widget.plot_widget
+    assert window.row_metrics_widget.current_metrics is not None
+    assert window.row_metrics_widget.current_metrics.distance_count == 0
+    assert window.row_metrics_widget.stack.currentWidget() is window.row_metrics_widget.placeholder_label
+
+    controller.update_active_roi_state(ROIState(x=18, y=18, width=12, height=12))
+    qtbot.mouseClick(window.add_point_button, Qt.MouseButton.LeftButton)
+    qtbot.waitUntil(lambda: window.points_table_widget.rowCount() == 2)
+
+    assert window.row_plot_widget.current_row is not None
+    assert window.row_plot_widget.current_row.point_count == 2
+    assert window.global_scatter_plot_widget.current_series is not None
+    assert len(window.global_scatter_plot_widget.current_series.samples) == 2
+    assert window.row_metrics_widget.current_metrics is not None
+    assert window.row_metrics_widget.current_metrics.distance_count == 1
+    assert window.row_metrics_widget.stack.currentWidget() is window.row_metrics_widget.metrics_panel
+
+
+def test_main_window_end_to_end_stage4_analysis_workflow(qtbot):
+    controller = AtomMapperController()
+    image = _make_gaussian_image("stage4-e2e.stp", size=40, amplitude=20.0, offset=1.0)
+    controller.set_loaded_images([image])
+
+    window = AtomMapperMainWindow(controller=controller)
+    qtbot.addWidget(window)
+
+    qtbot.mouseClick(window.new_row_button, Qt.MouseButton.LeftButton)
+    first_row = controller.active_row
+    assert first_row is not None
+
+    controller.update_active_roi_state(ROIState(x=10, y=10, width=12, height=12))
+    qtbot.mouseClick(window.add_point_button, Qt.MouseButton.LeftButton)
+    controller.update_active_roi_state(ROIState(x=18, y=18, width=12, height=12))
+    qtbot.mouseClick(window.add_point_button, Qt.MouseButton.LeftButton)
+    qtbot.waitUntil(lambda: window.points_table_widget.rowCount() == 2)
+
+    assert window.row_plot_widget.current_row is not None
+    assert window.row_plot_widget.current_row.row_id == first_row.row_id
+    assert window.row_plot_widget.current_mode is RowPlotMode.X_PX
+    assert window.row_plot_widget.current_series is not None
+    assert window.row_plot_widget.current_series.mode is RowPlotMode.X_PX
+    assert window.global_scatter_plot_widget.current_series is not None
+    assert len(window.global_scatter_plot_widget.current_series.samples) == 2
+    assert window.row_metrics_widget.current_metrics is not None
+    assert window.row_metrics_widget.current_metrics.distance_count == 1
+    assert window.row_metrics_widget.stack.currentWidget() is window.row_metrics_widget.metrics_panel
+
+    window.row_plot_widget.metric_combo.setCurrentIndex(
+        window.row_plot_widget.metric_combo.findData(RowPlotMode.DISTANCE_PX)
+    )
+    qtbot.waitUntil(
+        lambda: (
+            window.row_plot_widget.current_series is not None
+            and window.row_plot_widget.current_series.mode is RowPlotMode.DISTANCE_PX
+        )
+    )
+    plotted_x, plotted_y = window.row_plot_widget.curve_item.getData()
+    assert list(plotted_x) == pytest.approx([0.0])
+    assert len(plotted_y) == 1
+
+    qtbot.mouseClick(window.new_row_button, Qt.MouseButton.LeftButton)
+    second_row = controller.active_row
+    assert second_row is not None
+    assert second_row.row_id != first_row.row_id
+    controller.update_active_roi_state(ROIState(x=24, y=24, width=10, height=10))
+    qtbot.mouseClick(window.add_point_button, Qt.MouseButton.LeftButton)
+    qtbot.waitUntil(lambda: window.points_table_widget.rowCount() == 3)
+
+    assert window.global_scatter_plot_widget.current_series is not None
+    assert len(window.global_scatter_plot_widget.current_series.samples) == 3
+    assert len(window.global_scatter_plot_widget.scatter_items) == 2
+    assert window.row_plot_widget.current_row is not None
+    assert window.row_plot_widget.current_row.row_id == second_row.row_id
+    assert window.row_plot_widget.current_mode is RowPlotMode.DISTANCE_PX
+    assert window.row_plot_widget.stack.currentWidget() is window.row_plot_widget.placeholder_label
+    assert window.row_metrics_widget.current_metrics is not None
+    assert window.row_metrics_widget.current_metrics.distance_count == 0
+    assert window.row_metrics_widget.stack.currentWidget() is window.row_metrics_widget.placeholder_label
+
+    window.row_list_widget.setCurrentRow(0)
+    qtbot.waitUntil(
+        lambda: controller.active_row is not None and controller.active_row.row_id == first_row.row_id
+    )
+
+    assert window.row_plot_widget.current_row is not None
+    assert window.row_plot_widget.current_row.row_id == first_row.row_id
+    assert window.row_plot_widget.current_mode is RowPlotMode.DISTANCE_PX
+    assert window.row_plot_widget.current_series is not None
+    assert window.row_plot_widget.current_series.mode is RowPlotMode.DISTANCE_PX
+    assert window.row_plot_widget.stack.currentWidget() is window.row_plot_widget.plot_widget
+    assert window.row_metrics_widget.current_metrics is not None
+    assert window.row_metrics_widget.current_metrics.distance_count == 1
+    assert window.row_metrics_widget.stack.currentWidget() is window.row_metrics_widget.metrics_panel
+    assert "Showing 3 saved points" in window.points_table_hint_label.text()
 
 
 def test_main_window_end_to_end_stage3_workflow_across_variant_and_row_switch(qtbot):

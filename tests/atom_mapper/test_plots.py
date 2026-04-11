@@ -8,6 +8,7 @@ from AtomMapper.app.models import AtomPoint, AtomRow
 from AtomMapper.app.plots import (
     RowPlotMode,
     build_global_scatter_series,
+    build_row_distance_metrics,
     build_row_metric_series,
     sorted_row_points,
 )
@@ -220,3 +221,78 @@ def test_build_global_scatter_series_collects_all_rows_and_manual_status():
     assert series.samples[0].color_hex == "#ff0000"
     assert series.samples[1].point_id == "point-1"
     assert series.samples[1].is_manual_override is False
+
+
+def test_build_row_distance_metrics_returns_summary_statistics():
+    row = AtomRow(
+        row_id="row-1",
+        source_group_id="group-1",
+        display_name="Row 1",
+        points=(
+            _make_point(
+                row_id="row-1",
+                source_group_id="group-1",
+                image_id="image-1",
+                point_index=0,
+                x_px=0.0,
+                y_px=0.0,
+                point_id="point-1",
+            ),
+            _make_point(
+                row_id="row-1",
+                source_group_id="group-1",
+                image_id="image-1",
+                point_index=1,
+                x_px=3.0,
+                y_px=4.0,
+                point_id="point-2",
+            ),
+            _make_point(
+                row_id="row-1",
+                source_group_id="group-1",
+                image_id="image-1",
+                point_index=2,
+                x_px=9.0,
+                y_px=12.0,
+                point_id="point-3",
+            ),
+        ),
+    )
+
+    metrics = build_row_distance_metrics(row)
+
+    assert metrics.row_id == row.row_id
+    assert metrics.point_count == 3
+    assert metrics.distance_count == 2
+    assert metrics.mean_distance_px == pytest.approx(7.5)
+    assert metrics.std_distance_px == pytest.approx(2.5)
+    assert metrics.min_distance_px == pytest.approx(5.0)
+    assert metrics.max_distance_px == pytest.approx(10.0)
+
+
+def test_build_row_distance_metrics_handles_rows_with_fewer_than_two_points():
+    row = AtomRow(
+        row_id="row-1",
+        source_group_id="group-1",
+        display_name="Row 1",
+        points=(
+            _make_point(
+                row_id="row-1",
+                source_group_id="group-1",
+                image_id="image-1",
+                point_index=0,
+                x_px=1.0,
+                y_px=2.0,
+                point_id="point-1",
+            ),
+        ),
+    )
+
+    metrics = build_row_distance_metrics(row)
+
+    assert metrics.point_count == 1
+    assert metrics.distance_count == 0
+    assert metrics.mean_distance_px is None
+    assert metrics.std_distance_px is None
+    assert metrics.min_distance_px is None
+    assert metrics.max_distance_px is None
