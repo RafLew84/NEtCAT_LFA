@@ -34,12 +34,14 @@ from .gaussian_preview import GaussianFitPreviewWidget
 from .global_scatter_plot_widget import GlobalScatterPlotWidget
 from .io import SUPPORTED_STM_EXTENSIONS
 from .models import AtomPoint
-from .plots import build_row_distance_metrics
+from .plots import PlotUnit, build_row_geometry_metrics
 from .pyqtgraph_image_view import PyQtGraphSTMViewport
 from .pyqtgraph_preview_bridge import PyQtGraphPreviewBridge
 from .preprocessing_dialog import PreprocessingDialog
 from .preprocessing_state import PreprocessingMethod
 from .roi_preview import ROIPreviewWidget
+from .row_disturbance_widget import RowDisturbanceWidget
+from .row_geometry import RowGeometryUnit, build_row_disturbance_series, fit_row_geometry
 from .row_metrics_widget import RowMetricsWidget
 from .row_plot_widget import RowPlotWidget
 from .session_io import build_session_from_runtime, load_session_from_file, save_session_to_file
@@ -203,6 +205,8 @@ class AtomMapperMainWindow(QMainWindow):
         self.global_scatter_plot_widget.setObjectName("atommapper_global_scatter_widget_container")
         self.row_metrics_widget = RowMetricsWidget(right_panel)
         self.row_metrics_widget.setObjectName("atommapper_row_metrics_widget_container")
+        self.row_disturbance_widget = RowDisturbanceWidget(right_panel)
+        self.row_disturbance_widget.setObjectName("atommapper_row_disturbance_widget_container")
 
         self.analysis_grid_panel = QWidget(right_panel)
         self.analysis_grid_panel.setObjectName("atommapper_analysis_grid_panel")
@@ -250,10 +254,12 @@ class AtomMapperMainWindow(QMainWindow):
         analysis_dock_layout.addWidget(self.row_plot_widget, 0, 1)
         analysis_dock_layout.addWidget(self.global_scatter_plot_widget, 1, 0)
         analysis_dock_layout.addWidget(self.row_metrics_widget, 1, 1)
+        analysis_dock_layout.addWidget(self.row_disturbance_widget, 2, 0, 1, 2)
         analysis_dock_layout.setColumnStretch(0, 1)
         analysis_dock_layout.setColumnStretch(1, 1)
         analysis_dock_layout.setRowStretch(0, 1)
         analysis_dock_layout.setRowStretch(1, 1)
+        analysis_dock_layout.setRowStretch(2, 1)
         self.analysis_dock.setWidget(self.analysis_dock_content)
         self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.analysis_dock)
         self._preprocessing_dialog_class = PreprocessingDialog
@@ -303,6 +309,9 @@ class AtomMapperMainWindow(QMainWindow):
         self.controller.active_row_changed.connect(self._handle_active_row_changed)
         self.controller.row_points_changed.connect(self._handle_row_points_changed)
         self.show_gaussian_fit_checkbox.stateChanged.connect(self._on_show_gaussian_fit_changed)
+        self.row_metrics_widget.unit_combo.currentIndexChanged.connect(
+            self._on_row_geometry_unit_changed
+        )
         self.preview_bridge.roi_state_edited.connect(self.controller.update_active_roi_state)
         self.image_viewport.point_selected.connect(self._handle_viewport_point_selected)
         self.image_viewport.point_move_requested.connect(self._handle_viewport_point_move_requested)
@@ -537,12 +546,59 @@ class AtomMapperMainWindow(QMainWindow):
         if active_row is None:
             self.row_metrics_widget.set_metrics(None)
             return
-        self.row_metrics_widget.set_metrics(build_row_distance_metrics(active_row))
+        self.row_metrics_widget.set_metrics(build_row_geometry_metrics(active_row))
+
+    def _refresh_row_geometry_overlay(self) -> None:
+        active_image = self.controller.active_image
+        active_row = self.controller.active_row
+        if active_image is None or active_row is None:
+            self.image_viewport.set_row_geometry_overlay(None)
+            return
+
+        geometry = fit_row_geometry(active_row)
+        disturbance_markers: list[dict[str, object]] = []
+        if geometry is not None:
+            disturbance_series = build_row_disturbance_series(
+                active_row,
+                geometry=geometry,
+                unit=RowGeometryUnit.PX,
+            )
+            point_lookup = {point.point_id: point for point in active_row.points}
+            if disturbance_series is not None:
+                for sample in disturbance_series.samples:
+                    if not sample.is_candidate:
+                        continue
+                    point = point_lookup.get(sample.point_id)
+                    if point is None:
+                        continue
+                    disturbance_markers.append(
+                        {
+                            "point_id": sample.point_id,
+                            "row_id": active_row.row_id,
+                            "x_px": float(point.x_px),
+                            "y_px": float(point.y_px),
+                            "score": float(sample.candidate_score),
+                        }
+                    )
+
+        self.image_viewport.set_row_geometry_overlay(
+            geometry,
+            disturbance_markers=disturbance_markers,
+        )
+
+    def _refresh_row_disturbance_widget(self) -> None:
+        active_row = self.controller.active_row
+        if self.row_metrics_widget.current_unit is PlotUnit.NM:
+            self.row_disturbance_widget.set_row(active_row, unit=PlotUnit.NM)
+            return
+        self.row_disturbance_widget.set_row(active_row, unit=PlotUnit.PX)
 
     def _refresh_analysis_widgets(self) -> None:
         self._refresh_row_plot_widget()
         self._refresh_global_scatter_plot_widget()
         self._refresh_row_metrics_widget()
+        self._refresh_row_disturbance_widget()
+        self._refresh_row_geometry_overlay()
 
     def _build_file_list_entries(self) -> list[tuple[int, Any]]:
         groups: dict[str, list[tuple[int, Any]]] = {}
@@ -724,11 +780,58 @@ class AtomMapperMainWindow(QMainWindow):
     def _update_active_row_label(self, active_row: Any) -> None:
         if active_row is None:
             self.active_row_label.setText("Active row: none")
+            self.active_row_label.setToolTip("No active atom row selected.")
             return
         noun = "point" if active_row.point_count == 1 else "points"
+        geometry = fit_row_geometry(active_row)
+        disturbance_series = None
+        if geometry is not None:
+            disturbance_series = build_row_disturbance_series(
+                active_row,
+                geometry=geometry,
+                unit=RowGeometryUnit.PX,
+            )
+
+        if geometry is None:
+            summary = "geometry pending"
+            tooltip = (
+                f"{active_row.display_name}\n"
+                f"Points: {active_row.point_count}\n"
+                "Need at least 2 points to fit a stable row axis."
+            )
+        else:
+            axis_angle_deg = math.degrees(
+                math.atan2(float(geometry.direction_y_px), float(geometry.direction_x_px))
+            )
+            if disturbance_series is None:
+                summary = "axis fitted"
+                tooltip = (
+                    f"{active_row.display_name}\n"
+                    f"Points: {active_row.point_count}\n"
+                    f"Axis angle: {axis_angle_deg:.2f} deg\n"
+                    "Need at least 3 points to inspect local disturbances."
+                )
+            else:
+                candidate_noun = (
+                    "candidate" if disturbance_series.candidate_count == 1 else "candidates"
+                )
+                summary = (
+                    "no local candidates"
+                    if disturbance_series.candidate_count == 0
+                    else f"{disturbance_series.candidate_count} {candidate_noun}"
+                )
+                tooltip = (
+                    f"{active_row.display_name}\n"
+                    f"Points: {active_row.point_count}\n"
+                    f"Axis angle: {axis_angle_deg:.2f} deg\n"
+                    f"Local disturbance candidates: {disturbance_series.candidate_count}\n"
+                    f"Interior samples: {len(disturbance_series.samples)}"
+                )
+
         self.active_row_label.setText(
-            f"Active row: {active_row.display_name} ({active_row.point_count} {noun})"
+            f"Active row: {active_row.display_name} ({active_row.point_count} {noun} | {summary})"
         )
+        self.active_row_label.setToolTip(tooltip)
 
     def _update_row_controls(self, active_image: Any, active_row: Any) -> None:
         has_image = active_image is not None
@@ -759,6 +862,9 @@ class AtomMapperMainWindow(QMainWindow):
             )
         else:
             self.delete_point_button.setToolTip("Select a saved point in the table or on the image first.")
+
+    def _on_row_geometry_unit_changed(self, _index: int) -> None:
+        self._refresh_row_disturbance_widget()
 
     def _open_preprocessing_dialog(self) -> None:
         active_image = self.controller.active_image

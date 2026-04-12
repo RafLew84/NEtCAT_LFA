@@ -9,6 +9,12 @@ from statistics import fmean, pstdev
 from typing import Sequence
 
 from .models import AtomPoint, AtomRow
+from .row_geometry import (
+    RowGeometryUnit,
+    RowProjectionSortMode,
+    fit_row_geometry,
+    project_row_points,
+)
 
 
 class PlotUnit(str, Enum):
@@ -24,9 +30,15 @@ class RowPlotMode(str, Enum):
     X_PX = "x_px"
     Y_PX = "y_px"
     DISTANCE_PX = "distance_px"
+    ALONG_PX = "along_px"
+    TRANSVERSE_PX = "transverse_px"
+    SPACING_ALONG_PX = "spacing_along_px"
     X_NM = "x_nm"
     Y_NM = "y_nm"
     DISTANCE_NM = "distance_nm"
+    ALONG_NM = "along_nm"
+    TRANSVERSE_NM = "transverse_nm"
+    SPACING_ALONG_NM = "spacing_along_nm"
 
 
 @dataclass(frozen=True)
@@ -136,6 +148,67 @@ class RowDistanceMetrics:
         if unit is PlotUnit.NM:
             return self.max_distance_nm
         return self.max_distance_px
+
+
+@dataclass(frozen=True)
+class RowGeometryMetrics:
+    """Geometry summary statistics for a single atom row."""
+
+    row_id: str
+    row_display_name: str
+    point_count: int
+    fitted_point_count: int
+    spacing_count_px: int
+    spacing_count_nm: int
+    axis_angle_deg_px: float | None
+    axis_angle_deg_nm: float | None
+    transverse_rms_px: float | None
+    transverse_rms_nm: float | None
+    mean_spacing_along_px: float | None
+    std_spacing_along_px: float | None
+    mean_spacing_along_nm: float | None
+    std_spacing_along_nm: float | None
+
+    @property
+    def distance_count(self) -> int:
+        """Backward-compatible alias for the pixel-space segment count."""
+
+        return self.spacing_count_px
+
+    def spacing_count_for_unit(self, unit: PlotUnit) -> int:
+        """Return the number of valid along-axis segments for the selected unit."""
+
+        if unit is PlotUnit.NM:
+            return self.spacing_count_nm
+        return self.spacing_count_px
+
+    def axis_angle_deg_for_unit(self, unit: PlotUnit) -> float | None:
+        """Return the fitted row-axis angle in degrees for the selected unit."""
+
+        if unit is PlotUnit.NM:
+            return self.axis_angle_deg_nm
+        return self.axis_angle_deg_px
+
+    def transverse_rms_for_unit(self, unit: PlotUnit) -> float | None:
+        """Return the RMS transverse deviation for the selected unit."""
+
+        if unit is PlotUnit.NM:
+            return self.transverse_rms_nm
+        return self.transverse_rms_px
+
+    def mean_spacing_along_for_unit(self, unit: PlotUnit) -> float | None:
+        """Return the mean along-axis spacing for the selected unit."""
+
+        if unit is PlotUnit.NM:
+            return self.mean_spacing_along_nm
+        return self.mean_spacing_along_px
+
+    def std_spacing_along_for_unit(self, unit: PlotUnit) -> float | None:
+        """Return the spacing spread along the fitted row axis for the selected unit."""
+
+        if unit is PlotUnit.NM:
+            return self.std_spacing_along_nm
+        return self.std_spacing_along_px
 
 
 def sorted_row_points(row: AtomRow) -> tuple[AtomPoint, ...]:
@@ -286,6 +359,102 @@ def build_row_metric_series(row: AtomRow, mode: RowPlotMode) -> RowMetricSeries:
             samples=tuple(distance_samples),
         )
 
+    if mode in (RowPlotMode.ALONG_PX, RowPlotMode.TRANSVERSE_PX):
+        projection_series = project_row_points(
+            row,
+            unit=RowGeometryUnit.PX,
+            sort_mode=RowProjectionSortMode.POINT_INDEX,
+        )
+        projection_samples = ()
+        if projection_series is not None:
+            projection_samples = tuple(
+                RowSeriesSample(
+                    x_value=float(sample.point_index),
+                    y_value=(
+                        sample.along_value
+                        if mode is RowPlotMode.ALONG_PX
+                        else sample.transverse_value
+                    ),
+                    point_id=sample.point_id,
+                    point_index=sample.point_index,
+                    row_id=sample.row_id,
+                )
+                for sample in projection_series.samples
+            )
+        return RowMetricSeries(
+            row_id=row.row_id,
+            row_display_name=row.display_name,
+            mode=mode,
+            x_label="point index",
+            y_label="along (px)" if mode is RowPlotMode.ALONG_PX else "transverse (px)",
+            samples=projection_samples,
+        )
+
+    if mode in (RowPlotMode.ALONG_NM, RowPlotMode.TRANSVERSE_NM):
+        projection_series = project_row_points(
+            row,
+            unit=RowGeometryUnit.NM,
+            sort_mode=RowProjectionSortMode.POINT_INDEX,
+        )
+        projection_samples = ()
+        if projection_series is not None:
+            projection_samples = tuple(
+                RowSeriesSample(
+                    x_value=float(sample.point_index),
+                    y_value=(
+                        sample.along_value
+                        if mode is RowPlotMode.ALONG_NM
+                        else sample.transverse_value
+                    ),
+                    point_id=sample.point_id,
+                    point_index=sample.point_index,
+                    row_id=sample.row_id,
+                )
+                for sample in projection_series.samples
+            )
+        return RowMetricSeries(
+            row_id=row.row_id,
+            row_display_name=row.display_name,
+            mode=mode,
+            x_label="point index",
+            y_label="along (nm)" if mode is RowPlotMode.ALONG_NM else "transverse (nm)",
+            samples=projection_samples,
+        )
+
+    if mode in (RowPlotMode.SPACING_ALONG_PX, RowPlotMode.SPACING_ALONG_NM):
+        projection_series = project_row_points(
+            row,
+            unit=(
+                RowGeometryUnit.NM
+                if mode is RowPlotMode.SPACING_ALONG_NM
+                else RowGeometryUnit.PX
+            ),
+            sort_mode=RowProjectionSortMode.ALONG_AXIS,
+        )
+        spacing_samples: list[RowSeriesSample] = []
+        if projection_series is not None:
+            for segment_index, (left_sample, right_sample) in enumerate(
+                zip(projection_series.samples, projection_series.samples[1:])
+            ):
+                spacing_samples.append(
+                    RowSeriesSample(
+                        x_value=float(segment_index),
+                        y_value=float(right_sample.along_value - left_sample.along_value),
+                        point_id=right_sample.point_id,
+                        point_index=right_sample.point_index,
+                        row_id=row.row_id,
+                    )
+                )
+        unit_label = "nm" if mode is RowPlotMode.SPACING_ALONG_NM else "px"
+        return RowMetricSeries(
+            row_id=row.row_id,
+            row_display_name=row.display_name,
+            mode=mode,
+            x_label="segment index",
+            y_label=f"spacing along ({unit_label})",
+            samples=tuple(spacing_samples),
+        )
+
     raise ValueError(f"Unsupported RowPlotMode: {mode!r}")
 
 
@@ -391,4 +560,112 @@ def build_row_distance_metrics(row: AtomRow) -> RowDistanceMetrics:
         std_distance_nm=std_distance_nm,
         min_distance_nm=float(min(distances_nm)) if distances_nm else None,
         max_distance_nm=float(max(distances_nm)) if distances_nm else None,
+    )
+
+
+def _axis_angle_deg(direction_x: float, direction_y: float) -> float:
+    """Return the deterministic axis angle in degrees for a normalized direction."""
+
+    return float(math.degrees(math.atan2(direction_y, direction_x)))
+
+
+def _transverse_rms(samples: Sequence[RowSeriesSample] | Sequence) -> float | None:
+    """Return RMS of transverse offsets from projection samples."""
+
+    if not samples:
+        return None
+    values = [float(sample.transverse_value) for sample in samples]
+    return float(math.sqrt(fmean(value * value for value in values)))
+
+
+def _spacing_values_from_projection(row: AtomRow, unit: RowGeometryUnit) -> tuple[float, ...]:
+    """Return consecutive along-axis spacings sorted by along-axis position."""
+
+    projection_series = project_row_points(
+        row,
+        unit=unit,
+        sort_mode=RowProjectionSortMode.ALONG_AXIS,
+    )
+    if projection_series is None or len(projection_series.samples) < 2:
+        return ()
+    return tuple(
+        float(right_sample.along_value - left_sample.along_value)
+        for left_sample, right_sample in zip(
+            projection_series.samples,
+            projection_series.samples[1:],
+        )
+    )
+
+
+def build_row_geometry_metrics(row: AtomRow) -> RowGeometryMetrics:
+    """Build geometric summary metrics for the fitted axis of a row."""
+
+    geometry = fit_row_geometry(row)
+    if geometry is None:
+        return RowGeometryMetrics(
+            row_id=row.row_id,
+            row_display_name=row.display_name,
+            point_count=row.point_count,
+            fitted_point_count=0,
+            spacing_count_px=0,
+            spacing_count_nm=0,
+            axis_angle_deg_px=None,
+            axis_angle_deg_nm=None,
+            transverse_rms_px=None,
+            transverse_rms_nm=None,
+            mean_spacing_along_px=None,
+            std_spacing_along_px=None,
+            mean_spacing_along_nm=None,
+            std_spacing_along_nm=None,
+        )
+
+    projection_px = project_row_points(
+        row,
+        geometry=geometry,
+        unit=RowGeometryUnit.PX,
+        sort_mode=RowProjectionSortMode.POINT_INDEX,
+    )
+    px_samples = () if projection_px is None else projection_px.samples
+    spacings_px = _spacing_values_from_projection(row, RowGeometryUnit.PX)
+
+    projection_nm = None
+    nm_samples = ()
+    spacings_nm: tuple[float, ...] = ()
+    if geometry.has_nm_geometry:
+        projection_nm = project_row_points(
+            row,
+            geometry=geometry,
+            unit=RowGeometryUnit.NM,
+            sort_mode=RowProjectionSortMode.POINT_INDEX,
+        )
+        nm_samples = () if projection_nm is None else projection_nm.samples
+        spacings_nm = _spacing_values_from_projection(row, RowGeometryUnit.NM)
+
+    return RowGeometryMetrics(
+        row_id=row.row_id,
+        row_display_name=row.display_name,
+        point_count=row.point_count,
+        fitted_point_count=geometry.fitted_point_count,
+        spacing_count_px=len(spacings_px),
+        spacing_count_nm=len(spacings_nm),
+        axis_angle_deg_px=_axis_angle_deg(geometry.direction_x_px, geometry.direction_y_px),
+        axis_angle_deg_nm=(
+            None
+            if not geometry.has_nm_geometry
+            else _axis_angle_deg(geometry.direction_x_nm, geometry.direction_y_nm)
+        ),
+        transverse_rms_px=_transverse_rms(px_samples),
+        transverse_rms_nm=_transverse_rms(nm_samples),
+        mean_spacing_along_px=(None if not spacings_px else float(fmean(spacings_px))),
+        std_spacing_along_px=(
+            None
+            if not spacings_px
+            else (0.0 if len(spacings_px) == 1 else float(pstdev(spacings_px)))
+        ),
+        mean_spacing_along_nm=(None if not spacings_nm else float(fmean(spacings_nm))),
+        std_spacing_along_nm=(
+            None
+            if not spacings_nm
+            else (0.0 if len(spacings_nm) == 1 else float(pstdev(spacings_nm)))
+        ),
     )

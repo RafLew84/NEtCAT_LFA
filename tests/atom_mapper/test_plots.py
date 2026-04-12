@@ -10,6 +10,7 @@ from AtomMapper.app.plots import (
     RowPlotMode,
     build_global_scatter_series,
     build_row_distance_metrics,
+    build_row_geometry_metrics,
     build_row_metric_series,
     sorted_row_points,
 )
@@ -286,6 +287,111 @@ def test_build_row_metric_series_distance_nm_uses_calibrated_segments_only():
     assert series.samples[0].y_value == pytest.approx(0.5)
 
 
+def test_build_row_metric_series_supports_along_and_transverse_geometry_modes():
+    row = AtomRow(
+        row_id="row-geo",
+        source_group_id="group-1",
+        display_name="Geometry row",
+        points=(
+            _make_point(
+                row_id="row-geo",
+                source_group_id="group-1",
+                image_id="image-1",
+                point_index=0,
+                x_px=0.0,
+                y_px=0.0,
+                point_id="point-1",
+            ),
+            _make_point(
+                row_id="row-geo",
+                source_group_id="group-1",
+                image_id="image-1",
+                point_index=1,
+                x_px=2.0,
+                y_px=0.5,
+                point_id="point-2",
+            ),
+            _make_point(
+                row_id="row-geo",
+                source_group_id="group-1",
+                image_id="image-1",
+                point_index=2,
+                x_px=4.0,
+                y_px=1.0,
+                point_id="point-3",
+            ),
+        ),
+    )
+
+    along_series = build_row_metric_series(row, RowPlotMode.ALONG_PX)
+    transverse_series = build_row_metric_series(row, RowPlotMode.TRANSVERSE_PX)
+
+    assert along_series.x_label == "point index"
+    assert along_series.y_label == "along (px)"
+    assert [sample.x_value for sample in along_series.samples] == pytest.approx([0.0, 1.0, 2.0])
+    assert [sample.y_value for sample in along_series.samples] == pytest.approx(
+        [-2.0615528, 0.0, 2.0615528],
+        rel=1e-6,
+    )
+
+    assert transverse_series.x_label == "point index"
+    assert transverse_series.y_label == "transverse (px)"
+    assert [sample.y_value for sample in transverse_series.samples] == pytest.approx(
+        [0.0, 0.0, 0.0],
+        abs=1e-9,
+    )
+
+
+def test_build_row_metric_series_supports_spacing_along_nm_with_axis_sorting():
+    row = AtomRow(
+        row_id="row-spacing",
+        source_group_id="group-1",
+        display_name="Spacing row",
+        points=(
+            _make_point(
+                row_id="row-spacing",
+                source_group_id="group-1",
+                image_id="image-1",
+                point_index=9,
+                x_px=4.0,
+                y_px=0.0,
+                x_nm=2.0,
+                y_nm=0.0,
+                point_id="point-right",
+            ),
+            _make_point(
+                row_id="row-spacing",
+                source_group_id="group-1",
+                image_id="image-1",
+                point_index=1,
+                x_px=0.0,
+                y_px=0.0,
+                x_nm=0.0,
+                y_nm=0.0,
+                point_id="point-left",
+            ),
+            _make_point(
+                row_id="row-spacing",
+                source_group_id="group-1",
+                image_id="image-1",
+                point_index=7,
+                x_px=2.0,
+                y_px=0.0,
+                x_nm=1.0,
+                y_nm=0.0,
+                point_id="point-center",
+            ),
+        ),
+    )
+
+    series = build_row_metric_series(row, RowPlotMode.SPACING_ALONG_NM)
+
+    assert series.x_label == "segment index"
+    assert series.y_label == "spacing along (nm)"
+    assert [sample.x_value for sample in series.samples] == pytest.approx([0.0, 1.0])
+    assert [sample.y_value for sample in series.samples] == pytest.approx([1.0, 1.0])
+
+
 def test_build_global_scatter_series_collects_all_rows_and_manual_status():
     row_1 = AtomRow(
         row_id="row-1",
@@ -463,3 +569,121 @@ def test_build_row_distance_metrics_leaves_nm_metrics_empty_without_calibrated_p
     assert metrics.distance_count_for_unit(PlotUnit.NM) == 0
     assert metrics.mean_distance_px == pytest.approx(5.0)
     assert metrics.mean_distance_nm is None
+
+
+def test_build_row_geometry_metrics_returns_axis_and_spacing_statistics():
+    row = AtomRow(
+        row_id="row-geo",
+        source_group_id="group-1",
+        display_name="Geometry row",
+        points=(
+            _make_point(
+                row_id="row-geo",
+                source_group_id="group-1",
+                image_id="image-1",
+                point_index=0,
+                x_px=0.0,
+                y_px=0.0,
+                x_nm=0.0,
+                y_nm=0.0,
+                point_id="point-1",
+            ),
+            _make_point(
+                row_id="row-geo",
+                source_group_id="group-1",
+                image_id="image-1",
+                point_index=1,
+                x_px=3.0,
+                y_px=4.0,
+                x_nm=0.3,
+                y_nm=0.4,
+                point_id="point-2",
+            ),
+            _make_point(
+                row_id="row-geo",
+                source_group_id="group-1",
+                image_id="image-1",
+                point_index=2,
+                x_px=9.0,
+                y_px=12.0,
+                x_nm=0.9,
+                y_nm=1.2,
+                point_id="point-3",
+            ),
+        ),
+    )
+
+    metrics = build_row_geometry_metrics(row)
+
+    assert metrics.row_id == row.row_id
+    assert metrics.point_count == 3
+    assert metrics.fitted_point_count == 3
+    assert metrics.spacing_count_for_unit(PlotUnit.PX) == 2
+    assert metrics.spacing_count_for_unit(PlotUnit.NM) == 2
+    assert metrics.axis_angle_deg_for_unit(PlotUnit.PX) == pytest.approx(53.130102, rel=1e-6)
+    assert metrics.axis_angle_deg_for_unit(PlotUnit.NM) == pytest.approx(53.130102, rel=1e-6)
+    assert metrics.transverse_rms_for_unit(PlotUnit.PX) == pytest.approx(0.0)
+    assert metrics.transverse_rms_for_unit(PlotUnit.NM) == pytest.approx(0.0)
+    assert metrics.mean_spacing_along_for_unit(PlotUnit.PX) == pytest.approx(7.5)
+    assert metrics.std_spacing_along_for_unit(PlotUnit.PX) == pytest.approx(2.5)
+    assert metrics.mean_spacing_along_for_unit(PlotUnit.NM) == pytest.approx(0.75)
+    assert metrics.std_spacing_along_for_unit(PlotUnit.NM) == pytest.approx(0.25)
+
+
+def test_build_row_geometry_metrics_handles_too_few_or_uncalibrated_points():
+    short_row = AtomRow(
+        row_id="row-short",
+        source_group_id="group-1",
+        display_name="Short row",
+        points=(
+            _make_point(
+                row_id="row-short",
+                source_group_id="group-1",
+                image_id="image-1",
+                point_index=0,
+                x_px=1.0,
+                y_px=2.0,
+                point_id="point-1",
+            ),
+        ),
+    )
+    uncalibrated_row = AtomRow(
+        row_id="row-uncal",
+        source_group_id="group-1",
+        display_name="Uncalibrated row",
+        points=(
+            _make_point(
+                row_id="row-uncal",
+                source_group_id="group-1",
+                image_id="image-1",
+                point_index=0,
+                x_px=0.0,
+                y_px=0.0,
+                x_nm=0.0,
+                y_nm=0.0,
+                point_id="point-1",
+            ),
+            _make_point(
+                row_id="row-uncal",
+                source_group_id="group-1",
+                image_id="image-1",
+                point_index=1,
+                x_px=3.0,
+                y_px=4.0,
+                point_id="point-2",
+            ),
+        ),
+    )
+
+    short_metrics = build_row_geometry_metrics(short_row)
+    uncalibrated_metrics = build_row_geometry_metrics(uncalibrated_row)
+
+    assert short_metrics.fitted_point_count == 0
+    assert short_metrics.axis_angle_deg_for_unit(PlotUnit.PX) is None
+    assert short_metrics.spacing_count_for_unit(PlotUnit.PX) == 0
+
+    assert uncalibrated_metrics.fitted_point_count == 2
+    assert uncalibrated_metrics.axis_angle_deg_for_unit(PlotUnit.PX) == pytest.approx(53.130102, rel=1e-6)
+    assert uncalibrated_metrics.axis_angle_deg_for_unit(PlotUnit.NM) is None
+    assert uncalibrated_metrics.spacing_count_for_unit(PlotUnit.PX) == 1
+    assert uncalibrated_metrics.spacing_count_for_unit(PlotUnit.NM) == 0

@@ -1181,6 +1181,189 @@ def test_main_window_analysis_dock_refreshes_plots_and_metrics(qtbot):
     assert window.global_scatter_plot_widget.current_series.y_label == "y (nm)"
 
 
+def test_main_window_stage6_refreshes_row_geometry_overlay_and_disturbance_panel(qtbot):
+    controller = AtomMapperController()
+    image = _make_gaussian_image("stage6-overlay.stp", size=40, amplitude=20.0, offset=1.0)
+    controller.set_loaded_images([image])
+
+    window = AtomMapperMainWindow(controller=controller)
+    qtbot.addWidget(window)
+
+    qtbot.mouseClick(window.new_row_button, Qt.MouseButton.LeftButton)
+    active_row = controller.active_row
+    assert active_row is not None
+
+    for point_index, x_value in enumerate((0.0, 1.0, 2.0, 5.0, 6.0)):
+        controller.add_point_to_row(
+            AtomPoint(
+                row_id=active_row.row_id,
+                image_id=image.image_id,
+                source_group_id=image.source_group_id,
+                point_index=point_index,
+                x_px=x_value,
+                y_px=0.0,
+                point_id=f"point-{point_index}",
+            )
+        )
+
+    qtbot.waitUntil(
+        lambda: (
+            window.row_disturbance_widget.current_series is not None
+            and window.image_viewport.row_axis_item is not None
+            and window.image_viewport.row_axis_item.isVisible()
+        )
+    )
+
+    assert window.row_disturbance_widget.stack.currentWidget() is window.row_disturbance_widget.summary_panel
+    assert window.row_disturbance_widget.current_series is not None
+    assert window.row_disturbance_widget.current_series.candidate_count >= 1
+    assert window.image_viewport.row_disturbance_scatter_item is not None
+    assert len(window.image_viewport.row_disturbance_scatter_item.points()) >= 1
+    assert "candidate" in window.active_row_label.text()
+
+    qtbot.mouseClick(window.delete_row_button, Qt.MouseButton.LeftButton)
+    qtbot.waitUntil(
+        lambda: (
+            window.row_disturbance_widget.current_series is None
+            and window.image_viewport.row_axis_item is not None
+            and not window.image_viewport.row_axis_item.isVisible()
+        )
+    )
+
+    assert window.row_disturbance_widget.stack.currentWidget() is window.row_disturbance_widget.placeholder_label
+    assert window.image_viewport.row_disturbance_scatter_item is not None
+    assert not window.image_viewport.row_disturbance_scatter_item.isVisible()
+
+
+def test_main_window_end_to_end_stage6_geometry_workflow_with_session_restore(
+    qtbot, monkeypatch, tmp_path: Path
+):
+    controller = AtomMapperController()
+    image = _make_gaussian_image("stage6-session.stp", size=40, amplitude=20.0, offset=1.0)
+    controller.set_loaded_images([image])
+
+    window = AtomMapperMainWindow(controller=controller)
+    qtbot.addWidget(window)
+
+    qtbot.mouseClick(window.new_row_button, Qt.MouseButton.LeftButton)
+    active_row = controller.active_row
+    assert active_row is not None
+
+    for point_index, x_value in enumerate((0.0, 1.0, 2.0, 5.0, 6.0)):
+        controller.add_point_to_row(
+            AtomPoint(
+                row_id=active_row.row_id,
+                image_id=image.image_id,
+                source_group_id=image.source_group_id,
+                point_index=point_index,
+                x_px=x_value,
+                y_px=0.0,
+                point_id=f"point-{point_index}",
+            )
+        )
+
+    qtbot.waitUntil(
+        lambda: (
+            window.row_disturbance_widget.current_series is not None
+            and window.image_viewport.row_axis_item is not None
+            and window.image_viewport.row_axis_item.isVisible()
+        )
+    )
+
+    window.row_plot_widget.unit_combo.setCurrentIndex(
+        window.row_plot_widget.unit_combo.findData(PlotUnit.NM)
+    )
+    window.row_plot_widget.metric_combo.setCurrentIndex(
+        window.row_plot_widget.metric_combo.findData(RowPlotMode.ALONG_PX)
+    )
+    qtbot.waitUntil(
+        lambda: (
+            window.row_plot_widget.current_series is not None
+            and window.row_plot_widget.current_series.mode is RowPlotMode.ALONG_NM
+        )
+    )
+
+    window.row_metrics_widget.unit_combo.setCurrentIndex(
+        window.row_metrics_widget.unit_combo.findData(PlotUnit.NM)
+    )
+    qtbot.waitUntil(
+        lambda: (
+            window.row_disturbance_widget.current_series is not None
+            and window.row_disturbance_widget.current_unit is PlotUnit.NM
+            and window.row_disturbance_widget.current_series.unit.value == "nm"
+        )
+    )
+
+    point_lookup = {point.point_id: point for point in controller.active_row.points}
+    move_source_point = point_lookup["point-2"]
+    window._handle_viewport_point_move_requested(
+        {
+            "row_id": active_row.row_id,
+            "point_id": move_source_point.point_id,
+            "image_id": move_source_point.image_id,
+            "x_px": 2.0,
+            "y_px": 1.5,
+            "source": "drag",
+        }
+    )
+    qtbot.waitUntil(
+        lambda: (
+            window.points_table_widget.rowCount() == 5
+            and any(
+                window.points_table_widget.item(row_index, 6).text() == "manual (drag)"
+                for row_index in range(window.points_table_widget.rowCount())
+            )
+        )
+    )
+
+    assert window.row_plot_widget.current_mode is RowPlotMode.ALONG_NM
+    assert window.row_metrics_widget.current_unit is PlotUnit.NM
+    assert window.row_disturbance_widget.current_unit is PlotUnit.NM
+    assert window.global_scatter_plot_widget.current_unit is PlotUnit.PX
+    assert "candidate" in window.active_row_label.text() or "no local candidates" in window.active_row_label.text()
+
+    session_path = tmp_path / "stage6-session.atommapper_proj"
+    monkeypatch.setattr(
+        "AtomMapper.app.main_window.QFileDialog.getSaveFileName",
+        lambda *args, **kwargs: (str(session_path), "AtomMapper project (*.atommapper_proj)"),
+    )
+    qtbot.mouseClick(window.save_session_button, Qt.MouseButton.LeftButton)
+    assert session_path.exists()
+
+    restored_controller = AtomMapperController()
+    restored_window = AtomMapperMainWindow(controller=restored_controller)
+    qtbot.addWidget(restored_window)
+
+    monkeypatch.setattr(
+        "AtomMapper.app.main_window.QFileDialog.getOpenFileName",
+        lambda *args, **kwargs: (str(session_path), "AtomMapper project (*.atommapper_proj)"),
+    )
+    qtbot.mouseClick(restored_window.load_session_button, Qt.MouseButton.LeftButton)
+
+    qtbot.waitUntil(
+        lambda: (
+            restored_window.controller.active_row is not None
+            and restored_window.row_plot_widget.current_series is not None
+            and restored_window.row_disturbance_widget.current_series is not None
+            and restored_window.points_table_widget.rowCount() == 5
+        )
+    )
+
+    assert restored_window.row_plot_widget.current_mode is RowPlotMode.ALONG_NM
+    assert restored_window.row_plot_widget.current_unit is PlotUnit.NM
+    assert restored_window.row_metrics_widget.current_unit is PlotUnit.NM
+    assert restored_window.row_disturbance_widget.current_unit is PlotUnit.NM
+    assert restored_window.image_viewport.row_axis_item is not None
+    assert restored_window.image_viewport.row_axis_item.isVisible() is True
+    assert restored_window.image_viewport.row_disturbance_scatter_item is not None
+    assert len(restored_window.image_viewport.row_disturbance_scatter_item.points()) >= 1
+    assert any(
+        restored_window.points_table_widget.item(row_index, 6).text() == "manual (drag)"
+        for row_index in range(restored_window.points_table_widget.rowCount())
+    )
+    assert "candidate" in restored_window.active_row_label.text() or "no local candidates" in restored_window.active_row_label.text()
+
+
 def test_main_window_end_to_end_stage4_analysis_workflow(qtbot):
     controller = AtomMapperController()
     image = _make_gaussian_image("stage4-e2e.stp", size=40, amplitude=20.0, offset=1.0)

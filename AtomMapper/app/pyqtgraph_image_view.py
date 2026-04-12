@@ -10,6 +10,7 @@ from PyQt6.QtCore import QRectF, Qt, pyqtSignal
 from PyQt6.QtWidgets import QLabel, QStackedWidget, QVBoxLayout, QWidget
 
 from .models import AtomPoint, AtomRow, LoadedImage, ROIState
+from .row_geometry import RowGeometry
 
 try:
     import pyqtgraph as pg
@@ -32,6 +33,8 @@ class PyQtGraphSTMViewport(QWidget):
         self.current_active_row_id: Optional[str] = None
         self.current_active_image_id: Optional[str] = None
         self.current_active_point_id: Optional[str] = None
+        self.current_row_geometry: Optional[RowGeometry] = None
+        self.current_disturbance_markers: tuple[dict[str, object], ...] = ()
         self.backend_available: bool = pg is not None
         self._syncing_roi_overlay = False
         self._syncing_active_point_target = False
@@ -58,6 +61,8 @@ class PyQtGraphSTMViewport(QWidget):
         self.image_item = None
         self.histogram_widget = None
         self.roi_item = None
+        self.row_axis_item = None
+        self.row_disturbance_scatter_item = None
         self.point_scatter_item = None
         self.active_point_target = None
         if self.backend_available:
@@ -67,6 +72,21 @@ class PyQtGraphSTMViewport(QWidget):
             self.image_item = self.image_view.getImageItem()
             self.histogram_widget = self.image_view.getHistogramWidget()
             self.view_box.invertY(True)
+
+            self.row_axis_item = pg.PlotCurveItem(
+                pen=pg.mkPen(color=(255, 120, 60, 230), width=2.2, style=Qt.PenStyle.DashLine),
+            )
+            self.row_axis_item.hide()
+            self.view_box.addItem(self.row_axis_item)
+
+            self.row_disturbance_scatter_item = pg.ScatterPlotItem(
+                size=14,
+                pen=pg.mkPen(color=(40, 20, 20, 245), width=1.5),
+                brush=pg.mkBrush(255, 70, 70, 235),
+                pxMode=True,
+            )
+            self.row_disturbance_scatter_item.hide()
+            self.view_box.addItem(self.row_disturbance_scatter_item)
 
             self.point_scatter_item = pg.ScatterPlotItem(
                 size=11,
@@ -152,6 +172,7 @@ class PyQtGraphSTMViewport(QWidget):
         self._update_roi_overlay_from_state()
         self._update_point_overlay()
         self._update_active_point_target()
+        self._update_row_geometry_overlay()
         self.stack.setCurrentWidget(self.image_view)
         self.info_label.setText(
             f"{loaded_image.display_name} | "
@@ -181,6 +202,20 @@ class PyQtGraphSTMViewport(QWidget):
         self.current_active_point_id = active_point_id
         self._update_point_overlay()
         self._update_active_point_target()
+
+    def set_row_geometry_overlay(
+        self,
+        row_geometry: Optional[RowGeometry],
+        *,
+        disturbance_markers: Sequence[dict[str, object]] | None = None,
+    ) -> None:
+        """Render the fitted active-row axis and optional disturbance markers."""
+
+        self.current_row_geometry = row_geometry
+        self.current_disturbance_markers = tuple(
+            dict(marker) for marker in (disturbance_markers or ())
+        )
+        self._update_row_geometry_overlay()
 
     def reset_view(self) -> None:
         """Reset the visible range to the full image bounds."""
@@ -295,6 +330,57 @@ class PyQtGraphSTMViewport(QWidget):
 
         self.point_scatter_item.setData(points_payload)
 
+    def _update_row_geometry_overlay(self) -> None:
+        if self.row_axis_item is None or self.row_disturbance_scatter_item is None:
+            return
+
+        if self.current_loaded_image is None or self.current_row_geometry is None:
+            self.row_axis_item.setData([], [])
+            self.row_axis_item.hide()
+            self.row_disturbance_scatter_item.setData([])
+            self.row_disturbance_scatter_item.hide()
+            return
+
+        geometry = self.current_row_geometry
+        half_span = max(float(geometry.span_length_px) * 0.5, 0.5)
+        delta_x = float(geometry.direction_x_px) * half_span
+        delta_y = float(geometry.direction_y_px) * half_span
+        self.row_axis_item.setData(
+            [
+                float(geometry.reference_x_px) - delta_x,
+                float(geometry.reference_x_px) + delta_x,
+            ],
+            [
+                float(geometry.reference_y_px) - delta_y,
+                float(geometry.reference_y_px) + delta_y,
+            ],
+        )
+        self.row_axis_item.show()
+
+        disturbance_payload: list[dict[str, object]] = []
+        for marker in self.current_disturbance_markers:
+            x_value = marker.get("x_px")
+            y_value = marker.get("y_px")
+            if x_value is None or y_value is None:
+                continue
+            score = float(marker.get("score", 1.0))
+            disturbance_payload.append(
+                {
+                    "pos": (float(x_value), float(y_value)),
+                    "size": 12.0 + min(max(score, 0.0), 4.0) * 2.0,
+                    "symbol": "star",
+                    "brush": pg.mkBrush(255, 80, 80, 235),
+                    "pen": pg.mkPen(color=(40, 20, 20, 245), width=1.4),
+                    "data": dict(marker),
+                }
+            )
+
+        self.row_disturbance_scatter_item.setData(disturbance_payload)
+        if disturbance_payload:
+            self.row_disturbance_scatter_item.show()
+        else:
+            self.row_disturbance_scatter_item.hide()
+
     def _on_point_scatter_clicked(self, _scatter_item, points, _event) -> None:
         if not points:
             return
@@ -366,6 +452,28 @@ class PyQtGraphSTMViewport(QWidget):
     def _clear_image_view(self, detach: bool = False) -> None:
         """Clear image/ROI state and optionally detach graphics items during teardown."""
 
+        if self.row_axis_item is not None:
+            try:
+                self.row_axis_item.setData([], [])
+                self.row_axis_item.hide()
+            except Exception:
+                pass
+            if detach:
+                try:
+                    self.row_axis_item.setParentItem(None)
+                except Exception:
+                    pass
+        if self.row_disturbance_scatter_item is not None:
+            try:
+                self.row_disturbance_scatter_item.setData([])
+                self.row_disturbance_scatter_item.hide()
+            except Exception:
+                pass
+            if detach:
+                try:
+                    self.row_disturbance_scatter_item.setParentItem(None)
+                except Exception:
+                    pass
         if self.point_scatter_item is not None:
             try:
                 self.point_scatter_item.setData([], [])

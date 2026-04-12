@@ -42,6 +42,9 @@ class RowPlotWidget(QWidget):
         self.metric_combo.addItem("x(i)", RowPlotMode.X_PX)
         self.metric_combo.addItem("y(i)", RowPlotMode.Y_PX)
         self.metric_combo.addItem("distance(i,i+1)", RowPlotMode.DISTANCE_PX)
+        self.metric_combo.addItem("along(i)", RowPlotMode.ALONG_PX)
+        self.metric_combo.addItem("transverse(i)", RowPlotMode.TRANSVERSE_PX)
+        self.metric_combo.addItem("spacing along(i,i+1)", RowPlotMode.SPACING_ALONG_PX)
         self.metric_combo.setToolTip("Select the metric displayed for the active row.")
         self.metric_combo.currentIndexChanged.connect(self._on_metric_changed)
         self.metric_combo.setEnabled(False)
@@ -201,11 +204,24 @@ class RowPlotWidget(QWidget):
             return RowPlotMode.X_PX
         if mode in (RowPlotMode.Y_PX, RowPlotMode.Y_NM):
             return RowPlotMode.Y_PX
+        if mode in (RowPlotMode.ALONG_PX, RowPlotMode.ALONG_NM):
+            return RowPlotMode.ALONG_PX
+        if mode in (RowPlotMode.TRANSVERSE_PX, RowPlotMode.TRANSVERSE_NM):
+            return RowPlotMode.TRANSVERSE_PX
+        if mode in (RowPlotMode.SPACING_ALONG_PX, RowPlotMode.SPACING_ALONG_NM):
+            return RowPlotMode.SPACING_ALONG_PX
         return RowPlotMode.DISTANCE_PX
 
     @staticmethod
     def _unit_from_mode(mode: RowPlotMode) -> PlotUnit:
-        if mode in (RowPlotMode.X_NM, RowPlotMode.Y_NM, RowPlotMode.DISTANCE_NM):
+        if mode in (
+            RowPlotMode.X_NM,
+            RowPlotMode.Y_NM,
+            RowPlotMode.DISTANCE_NM,
+            RowPlotMode.ALONG_NM,
+            RowPlotMode.TRANSVERSE_NM,
+            RowPlotMode.SPACING_ALONG_NM,
+        ):
             return PlotUnit.NM
         return PlotUnit.PX
 
@@ -215,6 +231,16 @@ class RowPlotWidget(QWidget):
             return RowPlotMode.X_NM if unit is PlotUnit.NM else RowPlotMode.X_PX
         if base_mode is RowPlotMode.Y_PX:
             return RowPlotMode.Y_NM if unit is PlotUnit.NM else RowPlotMode.Y_PX
+        if base_mode is RowPlotMode.ALONG_PX:
+            return RowPlotMode.ALONG_NM if unit is PlotUnit.NM else RowPlotMode.ALONG_PX
+        if base_mode is RowPlotMode.TRANSVERSE_PX:
+            return RowPlotMode.TRANSVERSE_NM if unit is PlotUnit.NM else RowPlotMode.TRANSVERSE_PX
+        if base_mode is RowPlotMode.SPACING_ALONG_PX:
+            return (
+                RowPlotMode.SPACING_ALONG_NM
+                if unit is PlotUnit.NM
+                else RowPlotMode.SPACING_ALONG_PX
+            )
         return RowPlotMode.DISTANCE_NM if unit is PlotUnit.NM else RowPlotMode.DISTANCE_PX
 
     def _refresh_view(self) -> None:
@@ -223,7 +249,8 @@ class RowPlotWidget(QWidget):
         if series is None:
             self._show_placeholder("Select an atom row to display a plot.")
             self.info_label.setText(
-                "Load points and select an atom row to inspect x(i), y(i), or distance(i,i+1)."
+                "Load points and select an atom row to inspect x(i), y(i), distance(i,i+1), "
+                "along(i), transverse(i), or spacing along(i,i+1)."
             )
             return
 

@@ -102,4 +102,5 @@ def test_main_window_places_saved_points_in_bottom_analysis_dock(qtbot):
     assert analysis_layout.indexOf(window.row_plot_widget) >= 0
     assert analysis_layout.indexOf(window.global_scatter_plot_widget) >= 0
     assert analysis_layout.indexOf(window.row_metrics_widget) >= 0
+    assert analysis_layout.indexOf(window.row_disturbance_widget) >= 0
     assert window.dockWidgetArea(window.analysis_dock) == Qt.DockWidgetArea.BottomDockWidgetArea

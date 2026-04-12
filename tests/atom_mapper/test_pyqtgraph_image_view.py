@@ -11,6 +11,7 @@ pytest.importorskip("pyqtgraph", reason="pyqtgraph is required for the 2B viewpo
 
 from AtomMapper.app.models import AtomPoint, AtomRow, LoadedImage, ROIState
 from AtomMapper.app.pyqtgraph_image_view import PyQtGraphSTMViewport
+from AtomMapper.app.row_geometry import fit_row_geometry
 
 
 def _make_loaded_image(name: str, width: int = 8, height: int = 6) -> LoadedImage:
@@ -318,3 +319,143 @@ def test_pyqtgraph_viewport_exposes_active_point_target_and_emits_move_request(q
     assert emitted[-1]["x_px"] == pytest.approx(7.5)
     assert emitted[-1]["y_px"] == pytest.approx(8.5)
     assert emitted[-1]["source"] == "drag"
+
+
+def test_pyqtgraph_viewport_renders_row_geometry_overlay_and_disturbance_markers(qtbot):
+    viewport = PyQtGraphSTMViewport()
+    qtbot.addWidget(viewport)
+
+    image = _make_loaded_image("pg-row-geometry.stp", width=20, height=10)
+    viewport.set_loaded_image(image)
+
+    row = AtomRow(
+        source_group_id=image.source_group_id,
+        display_name="Row 1",
+        points=(
+            AtomPoint(
+                row_id="row-1",
+                image_id=image.image_id,
+                source_group_id=image.source_group_id,
+                point_index=0,
+                x_px=0.0,
+                y_px=0.0,
+                point_id="point-0",
+            ),
+            AtomPoint(
+                row_id="row-1",
+                image_id=image.image_id,
+                source_group_id=image.source_group_id,
+                point_index=1,
+                x_px=1.0,
+                y_px=0.0,
+                point_id="point-1",
+            ),
+            AtomPoint(
+                row_id="row-1",
+                image_id=image.image_id,
+                source_group_id=image.source_group_id,
+                point_index=2,
+                x_px=2.0,
+                y_px=0.0,
+                point_id="point-2",
+            ),
+            AtomPoint(
+                row_id="row-1",
+                image_id=image.image_id,
+                source_group_id=image.source_group_id,
+                point_index=3,
+                x_px=5.0,
+                y_px=0.0,
+                point_id="point-3",
+            ),
+            AtomPoint(
+                row_id="row-1",
+                image_id=image.image_id,
+                source_group_id=image.source_group_id,
+                point_index=4,
+                x_px=6.0,
+                y_px=0.0,
+                point_id="point-4",
+            ),
+        ),
+        row_id="row-1",
+    )
+
+    geometry = fit_row_geometry(row)
+    assert geometry is not None
+
+    viewport.set_row_geometry_overlay(
+        geometry,
+        disturbance_markers=(
+            {"point_id": "point-2", "x_px": 2.0, "y_px": 0.0, "score": 2.0},
+        ),
+    )
+
+    assert viewport.row_axis_item is not None
+    assert viewport.row_axis_item.isVisible() is True
+    axis_x, axis_y = viewport.row_axis_item.getData()
+    half_span = geometry.span_length_px * 0.5
+    assert list(axis_x) == pytest.approx(
+        [
+            geometry.reference_x_px - geometry.direction_x_px * half_span,
+            geometry.reference_x_px + geometry.direction_x_px * half_span,
+        ]
+    )
+    assert list(axis_y) == pytest.approx(
+        [
+            geometry.reference_y_px - geometry.direction_y_px * half_span,
+            geometry.reference_y_px + geometry.direction_y_px * half_span,
+        ]
+    )
+
+    assert viewport.row_disturbance_scatter_item is not None
+    assert viewport.row_disturbance_scatter_item.isVisible() is True
+    disturbance_spots = viewport.row_disturbance_scatter_item.points()
+    assert len(disturbance_spots) == 1
+    assert disturbance_spots[0].data()["point_id"] == "point-2"
+
+
+def test_pyqtgraph_viewport_clears_row_geometry_overlay_when_unset(qtbot):
+    viewport = PyQtGraphSTMViewport()
+    qtbot.addWidget(viewport)
+
+    image = _make_loaded_image("pg-row-geometry-clear.stp", width=20, height=10)
+    viewport.set_loaded_image(image)
+
+    row = AtomRow(
+        source_group_id=image.source_group_id,
+        display_name="Row 1",
+        points=(
+            AtomPoint(
+                row_id="row-1",
+                image_id=image.image_id,
+                source_group_id=image.source_group_id,
+                point_index=0,
+                x_px=0.0,
+                y_px=0.0,
+                point_id="point-0",
+            ),
+            AtomPoint(
+                row_id="row-1",
+                image_id=image.image_id,
+                source_group_id=image.source_group_id,
+                point_index=1,
+                x_px=2.0,
+                y_px=1.0,
+                point_id="point-1",
+            ),
+        ),
+        row_id="row-1",
+    )
+
+    geometry = fit_row_geometry(row)
+    assert geometry is not None
+    viewport.set_row_geometry_overlay(geometry)
+    assert viewport.row_axis_item is not None
+    assert viewport.row_axis_item.isVisible() is True
+
+    viewport.set_row_geometry_overlay(None)
+
+    assert viewport.row_axis_item.isVisible() is False
+    assert viewport.row_disturbance_scatter_item is not None
+    assert viewport.row_disturbance_scatter_item.isVisible() is False
