@@ -8,7 +8,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QStackedWidget, QVBoxLayout, QWidget
 
 from .models import AtomRow
-from .plots import RowMetricSeries, RowPlotMode, build_row_metric_series
+from .plots import PlotUnit, RowMetricSeries, RowPlotMode, build_row_metric_series
 
 try:
     import pyqtgraph as pg
@@ -24,6 +24,7 @@ class RowPlotWidget(QWidget):
         self.current_row: Optional[AtomRow] = None
         self.current_series: Optional[RowMetricSeries] = None
         self.current_mode = RowPlotMode.X_PX
+        self.current_unit = PlotUnit.PX
         self.backend_available = pg is not None
 
         layout = QVBoxLayout(self)
@@ -44,9 +45,17 @@ class RowPlotWidget(QWidget):
         self.metric_combo.setToolTip("Select the metric displayed for the active row.")
         self.metric_combo.currentIndexChanged.connect(self._on_metric_changed)
         self.metric_combo.setEnabled(False)
+        self.unit_combo = QComboBox(self)
+        self.unit_combo.setObjectName("atommapper_row_plot_unit_combo")
+        self.unit_combo.addItem("px", PlotUnit.PX)
+        self.unit_combo.addItem("nm", PlotUnit.NM)
+        self.unit_combo.setToolTip("Select the unit displayed for the active row.")
+        self.unit_combo.currentIndexChanged.connect(self._on_unit_changed)
+        self.unit_combo.setEnabled(False)
 
         header_layout.addWidget(self.title_label, 1)
         header_layout.addWidget(self.metric_combo)
+        header_layout.addWidget(self.unit_combo)
 
         self.stack = QStackedWidget(self)
 
@@ -87,6 +96,7 @@ class RowPlotWidget(QWidget):
         layout.addWidget(self.stack, 1)
         layout.addWidget(self.info_label)
 
+        self._update_title_label()
         self._show_placeholder("Select an atom row to display a plot.")
 
     def set_row(self, row: Optional[AtomRow]) -> None:
@@ -94,6 +104,7 @@ class RowPlotWidget(QWidget):
 
         self.current_row = row
         self.metric_combo.setEnabled(row is not None)
+        self.unit_combo.setEnabled(row is not None)
         self._rebuild_series_from_row()
 
     def set_series(self, series: Optional[RowMetricSeries]) -> None:
@@ -107,32 +118,53 @@ class RowPlotWidget(QWidget):
         self.current_row = None
         self.current_series = series
         self.metric_combo.setEnabled(False)
+        self.unit_combo.setEnabled(False)
         if series is not None:
             self.current_mode = series.mode
+            self.current_unit = self._unit_from_mode(series.mode)
         self._sync_metric_combo()
+        self._sync_unit_combo()
         self._refresh_view()
 
     def _show_placeholder(self, message: str) -> None:
         self.placeholder_label.setText(message)
         self.stack.setCurrentWidget(self.placeholder_label)
 
+    def _update_title_label(self) -> None:
+        self.title_label.setText(f"Selected row plot [{self.current_unit.value}]")
+
     def _sync_metric_combo(self) -> None:
-        combo_index = self.metric_combo.findData(self.current_mode)
+        combo_mode = self._metric_base_mode(self.current_mode)
+        combo_index = self.metric_combo.findData(combo_mode)
         if combo_index < 0:
             return
         self.metric_combo.blockSignals(True)
         self.metric_combo.setCurrentIndex(combo_index)
         self.metric_combo.blockSignals(False)
 
+    def _sync_unit_combo(self) -> None:
+        combo_index = self.unit_combo.findData(self.current_unit)
+        if combo_index < 0:
+            return
+        self.unit_combo.blockSignals(True)
+        self.unit_combo.setCurrentIndex(combo_index)
+        self.unit_combo.blockSignals(False)
+
     def _rebuild_series_from_row(self) -> None:
         if self.current_row is None:
             self.current_series = None
             self._sync_metric_combo()
+            self._sync_unit_combo()
             self._refresh_view()
             return
 
+        self.current_mode = self._combine_mode_and_unit(
+            self._metric_base_mode(self.current_mode),
+            self.current_unit,
+        )
         self.current_series = build_row_metric_series(self.current_row, self.current_mode)
         self._sync_metric_combo()
+        self._sync_unit_combo()
         self._refresh_view()
 
     def _on_metric_changed(self, index: int) -> None:
@@ -141,12 +173,52 @@ class RowPlotWidget(QWidget):
         selected_mode = self.metric_combo.itemData(index)
         if not isinstance(selected_mode, RowPlotMode):
             return
-        self.current_mode = selected_mode
+        self.current_mode = self._combine_mode_and_unit(selected_mode, self.current_unit)
         if self.current_row is None:
             return
         self._rebuild_series_from_row()
 
+    def _on_unit_changed(self, index: int) -> None:
+        if index < 0:
+            return
+        selected_unit = self.unit_combo.itemData(index)
+        if not isinstance(selected_unit, PlotUnit):
+            return
+        self.current_unit = selected_unit
+        self.current_mode = self._combine_mode_and_unit(
+            self._metric_base_mode(self.current_mode),
+            self.current_unit,
+        )
+        if self.current_row is None:
+            self._sync_unit_combo()
+            self._refresh_view()
+            return
+        self._rebuild_series_from_row()
+
+    @staticmethod
+    def _metric_base_mode(mode: RowPlotMode) -> RowPlotMode:
+        if mode in (RowPlotMode.X_PX, RowPlotMode.X_NM):
+            return RowPlotMode.X_PX
+        if mode in (RowPlotMode.Y_PX, RowPlotMode.Y_NM):
+            return RowPlotMode.Y_PX
+        return RowPlotMode.DISTANCE_PX
+
+    @staticmethod
+    def _unit_from_mode(mode: RowPlotMode) -> PlotUnit:
+        if mode in (RowPlotMode.X_NM, RowPlotMode.Y_NM, RowPlotMode.DISTANCE_NM):
+            return PlotUnit.NM
+        return PlotUnit.PX
+
+    @staticmethod
+    def _combine_mode_and_unit(base_mode: RowPlotMode, unit: PlotUnit) -> RowPlotMode:
+        if base_mode is RowPlotMode.X_PX:
+            return RowPlotMode.X_NM if unit is PlotUnit.NM else RowPlotMode.X_PX
+        if base_mode is RowPlotMode.Y_PX:
+            return RowPlotMode.Y_NM if unit is PlotUnit.NM else RowPlotMode.Y_PX
+        return RowPlotMode.DISTANCE_NM if unit is PlotUnit.NM else RowPlotMode.DISTANCE_PX
+
     def _refresh_view(self) -> None:
+        self._update_title_label()
         series = self.current_series
         if series is None:
             self._show_placeholder("Select an atom row to display a plot.")
@@ -166,7 +238,7 @@ class RowPlotWidget(QWidget):
                 f"{series.row_display_name} has no plottable samples for {series.mode.value}."
             )
             self.info_label.setText(
-                f"{series.row_display_name} | {series.mode.value} | waiting for enough points."
+                f"{series.row_display_name} | {series.mode.value} | waiting for enough data."
             )
             return
 

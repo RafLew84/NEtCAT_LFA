@@ -29,11 +29,12 @@ from PyQt6.QtWidgets import (
 )
 
 from .controller import AtomMapperController
+from .csv_export import describe_point_status, export_point_rows_to_csv
 from .gaussian_preview import GaussianFitPreviewWidget
 from .global_scatter_plot_widget import GlobalScatterPlotWidget
 from .io import SUPPORTED_STM_EXTENSIONS
 from .models import AtomPoint
-from .plots import build_global_scatter_series, build_row_distance_metrics
+from .plots import build_row_distance_metrics
 from .pyqtgraph_image_view import PyQtGraphSTMViewport
 from .pyqtgraph_preview_bridge import PyQtGraphPreviewBridge
 from .preprocessing_dialog import PreprocessingDialog
@@ -41,6 +42,8 @@ from .preprocessing_state import PreprocessingMethod
 from .roi_preview import ROIPreviewWidget
 from .row_metrics_widget import RowMetricsWidget
 from .row_plot_widget import RowPlotWidget
+from .session_io import build_session_from_runtime, load_session_from_file, save_session_to_file
+from .session_model import SessionViewState
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +74,12 @@ class AtomMapperMainWindow(QMainWindow):
         self.load_button = QPushButton("Load STM Files...")
         self.preprocessing_button = QPushButton("Preprocessing")
         self.preprocessing_button.setObjectName("atommapper_preprocessing_button")
+        self.export_csv_button = QPushButton("Export CSV")
+        self.export_csv_button.setObjectName("atommapper_export_csv_button")
+        self.save_session_button = QPushButton("Save Session")
+        self.save_session_button.setObjectName("atommapper_save_session_button")
+        self.load_session_button = QPushButton("Load Session")
+        self.load_session_button.setObjectName("atommapper_load_session_button")
         self.file_list_hint_label = QLabel("No STM files loaded. Use 'Load STM Files...' to start.")
         self.file_list_hint_label.setWordWrap(True)
         self.file_list_hint_label.setStyleSheet("font-size: 12px; color: palette(mid);")
@@ -106,6 +115,9 @@ class AtomMapperMainWindow(QMainWindow):
         left_layout.addWidget(left_title)
         left_layout.addWidget(self.load_button)
         left_layout.addWidget(self.preprocessing_button)
+        left_layout.addWidget(self.export_csv_button)
+        left_layout.addWidget(self.save_session_button)
+        left_layout.addWidget(self.load_session_button)
         left_layout.addWidget(self.file_list_hint_label)
         left_layout.addWidget(self.file_list_widget, 1)
         left_layout.addWidget(rows_title)
@@ -255,6 +267,7 @@ class AtomMapperMainWindow(QMainWindow):
         self._refresh_analysis_widgets()
         self._update_active_image_label(self.controller.active_image)
         self._update_preprocess_controls(self.controller.active_image)
+        self._update_export_controls(self.controller.active_image)
         self._update_active_row_label(self.controller.active_row)
         self._update_row_controls(self.controller.active_image, self.controller.active_row)
         self._update_point_controls()
@@ -263,6 +276,9 @@ class AtomMapperMainWindow(QMainWindow):
     def _connect_signals(self) -> None:
         self.load_button.clicked.connect(self._open_file_dialog)
         self.preprocessing_button.clicked.connect(self._open_preprocessing_dialog)
+        self.export_csv_button.clicked.connect(self._export_points_csv)
+        self.save_session_button.clicked.connect(self._save_session_to_project_file)
+        self.load_session_button.clicked.connect(self._load_session_from_project_file)
         self.new_row_button.clicked.connect(self._create_new_row)
         self.delete_row_button.clicked.connect(self._delete_active_row)
         self.add_point_button.clicked.connect(self._add_point_from_current_roi)
@@ -274,6 +290,7 @@ class AtomMapperMainWindow(QMainWindow):
         self.controller.loaded_images_changed.connect(self._refresh_row_list)
         self.controller.active_image_changed.connect(self._update_active_image_label)
         self.controller.active_image_changed.connect(self._update_preprocess_controls)
+        self.controller.active_image_changed.connect(self._update_export_controls)
         self.controller.active_image_changed.connect(self._handle_active_image_changed)
         self.controller.active_image_changed.connect(self._handle_active_image_changed_for_rows)
         self.controller.active_image_changed.connect(self._refresh_points_table)
@@ -510,10 +527,10 @@ class AtomMapperMainWindow(QMainWindow):
     def _refresh_global_scatter_plot_widget(self) -> None:
         active_group = self.controller.active_source_group_id
         if active_group is None:
-            self.global_scatter_plot_widget.set_series(None)
+            self.global_scatter_plot_widget.set_rows(())
             return
         rows = self.controller.rows_for_source_group(active_group)
-        self.global_scatter_plot_widget.set_series(build_global_scatter_series(rows))
+        self.global_scatter_plot_widget.set_rows(rows)
 
     def _refresh_row_metrics_widget(self) -> None:
         active_row = self.controller.active_row
@@ -582,14 +599,7 @@ class AtomMapperMainWindow(QMainWindow):
 
     @staticmethod
     def _format_point_status(point: AtomPoint) -> str:
-        if point.manual_override:
-            source = point.manual_override_source or "manual"
-            return f"manual ({source})"
-        if point.fit_success:
-            return "fit"
-        if point.metadata.get("fallback_used"):
-            return "fallback"
-        return "stored"
+        return describe_point_status(point)
 
     def _set_points_table_item(self, row: int, column: int, text: str, *, point_id: str | None = None) -> None:
         item = QTableWidgetItem(text)
@@ -657,11 +667,31 @@ class AtomMapperMainWindow(QMainWindow):
     def _update_active_image_label(self, active_image: Any) -> None:
         if active_image is None:
             self.active_image_label.setText("Active image: none")
+            self.active_image_label.setToolTip("No active STM image selected.")
             return
-        self.active_image_label.setText(
-            f"Active image: {active_image.display_name} "
-            f"({active_image.pixels_x}x{active_image.pixels_y} px)"
-        )
+        calibration_summary = active_image.calibration_summary
+        if calibration_summary is None:
+            label_text = (
+                f"Active image: {active_image.display_name} "
+                f"({active_image.pixels_x}x{active_image.pixels_y} px | uncalibrated)"
+            )
+            tooltip_text = (
+                f"{active_image.display_name}\n"
+                f"Pixels: {active_image.pixels_x} x {active_image.pixels_y}\n"
+                "Physical calibration unavailable for this image."
+            )
+        else:
+            label_text = (
+                f"Active image: {active_image.display_name} "
+                f"({active_image.pixels_x}x{active_image.pixels_y} px | {active_image.size_nm_x:.3f} x {active_image.size_nm_y:.3f} nm)"
+            )
+            tooltip_text = (
+                f"{active_image.display_name}\n"
+                f"Pixels: {active_image.pixels_x} x {active_image.pixels_y}\n"
+                f"Calibration: {calibration_summary}"
+            )
+        self.active_image_label.setText(label_text)
+        self.active_image_label.setToolTip(tooltip_text)
 
     def _update_preprocess_controls(self, active_image: Any) -> None:
         has_image = active_image is not None
@@ -672,6 +702,24 @@ class AtomMapperMainWindow(QMainWindow):
             )
         else:
             self.preprocessing_button.setToolTip("Load or select an STM image first.")
+
+    def _update_export_controls(self, active_image: Any) -> None:
+        has_image = active_image is not None
+        self.export_csv_button.setEnabled(has_image)
+        if has_image:
+            self.export_csv_button.setToolTip(
+                f"Export saved points for the active STM file family of {active_image.display_name}."
+            )
+        else:
+            self.export_csv_button.setToolTip("Load or select an STM image first.")
+        self.save_session_button.setEnabled(True)
+        self.save_session_button.setToolTip(
+            "Save the current AtomMapper project state to a .atommapper_proj file."
+        )
+        self.load_session_button.setEnabled(True)
+        self.load_session_button.setToolTip(
+            "Load an AtomMapper project state from a .atommapper_proj file."
+        )
 
     def _update_active_row_label(self, active_row: Any) -> None:
         if active_row is None:
@@ -811,6 +859,194 @@ class AtomMapperMainWindow(QMainWindow):
         )
         self.workflow_status_label.setText(
             f"Workflow status: created {variant.variant_name} variant '{variant.display_name}' with {status_suffix}."
+        )
+
+    def _export_points_csv(self) -> None:
+        active_image = self.controller.active_image
+        active_group = self.controller.active_source_group_id
+        if active_image is None or active_group is None:
+            self.statusBar().showMessage("Select an STM image before exporting CSV.", 4000)
+            self.workflow_status_label.setText(
+                "Workflow status: select an STM image before exporting saved points."
+            )
+            return
+
+        default_name = f"{Path(active_image.source_path).stem}_points.csv"
+        export_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export Points to CSV",
+            default_name,
+            "CSV files (*.csv)",
+        )
+        if not export_path:
+            self.statusBar().showMessage("CSV export cancelled.", 3000)
+            self.workflow_status_label.setText(
+                "Workflow status: CSV export dialog closed without saving."
+            )
+            return
+
+        rows = self.controller.rows_for_source_group(active_group)
+        try:
+            exported_count = export_point_rows_to_csv(
+                export_path,
+                rows,
+                self.controller.loaded_images,
+            )
+        except Exception as exc:  # pragma: no cover - GUI error path
+            logger.exception("Failed to export CSV '%s': %s", export_path, exc)
+            QMessageBox.warning(
+                self,
+                "AtomMapper - CSV Export Error",
+                f"Could not export CSV:\n\n{exc}",
+            )
+            self.statusBar().showMessage("CSV export failed.", 5000)
+            self.workflow_status_label.setText("Workflow status: CSV export failed.")
+            return
+
+        noun = "point" if exported_count == 1 else "points"
+        export_name = Path(export_path).name
+        self.statusBar().showMessage(
+            f"Exported {exported_count} {noun} to {export_name}.",
+            5000,
+        )
+        self.workflow_status_label.setText(
+            f"Workflow status: exported {exported_count} {noun} to CSV '{export_name}'."
+        )
+
+    def _build_session_view_state(self) -> SessionViewState:
+        """Build the serializable UI/view state captured in a saved project."""
+
+        return SessionViewState(
+            show_gaussian_fit=self.show_gaussian_fit_checkbox.isChecked(),
+            row_plot_mode=self.row_plot_widget.current_mode,
+            row_plot_unit=self.row_plot_widget.current_unit,
+            row_metrics_unit=self.row_metrics_widget.current_unit,
+            global_scatter_unit=self.global_scatter_plot_widget.current_unit,
+        )
+
+    def _save_session_to_project_file(self) -> None:
+        active_image = self.controller.active_image
+        default_name = "atommapper_session.atommapper_proj"
+        if active_image is not None:
+            default_name = f"{Path(active_image.source_path).stem}.atommapper_proj"
+
+        session_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save AtomMapper Session",
+            default_name,
+            "AtomMapper project (*.atommapper_proj);;JSON files (*.json)",
+        )
+        if not session_path:
+            self.statusBar().showMessage("Session save cancelled.", 3000)
+            self.workflow_status_label.setText(
+                "Workflow status: session-save dialog closed without writing a project file."
+            )
+            return
+
+        try:
+            session = build_session_from_runtime(
+                self.controller,
+                active_point_id_by_source_group=self._active_point_id_by_source_group,
+                view_state=self._build_session_view_state(),
+            )
+            saved_path = save_session_to_file(session_path, session)
+        except Exception as exc:  # pragma: no cover - GUI error path
+            logger.exception("Failed to save session '%s': %s", session_path, exc)
+            QMessageBox.warning(
+                self,
+                "AtomMapper - Save Session Error",
+                f"Could not save the project session:\n\n{exc}",
+            )
+            self.statusBar().showMessage("Session save failed.", 5000)
+            self.workflow_status_label.setText(
+                "Workflow status: saving the project session failed."
+            )
+            return
+
+        saved_name = Path(saved_path).name
+        self.statusBar().showMessage(f"Saved session to {saved_name}.", 5000)
+        self.workflow_status_label.setText(
+            f"Workflow status: saved project session to '{saved_name}'."
+        )
+
+    def _apply_session_view_state(self, view_state: SessionViewState) -> None:
+        """Restore persisted GUI state after a session load."""
+
+        self.show_gaussian_fit_checkbox.blockSignals(True)
+        self.show_gaussian_fit_checkbox.setChecked(view_state.show_gaussian_fit)
+        self.show_gaussian_fit_checkbox.blockSignals(False)
+        self._sync_gaussian_preview_visibility()
+
+        unit_index = self.row_plot_widget.unit_combo.findData(view_state.row_plot_unit)
+        if unit_index >= 0:
+            self.row_plot_widget.unit_combo.setCurrentIndex(unit_index)
+
+        metric_index = self.row_plot_widget.metric_combo.findData(
+            self.row_plot_widget._metric_base_mode(view_state.row_plot_mode)
+        )
+        if metric_index >= 0:
+            self.row_plot_widget.metric_combo.setCurrentIndex(metric_index)
+
+        metrics_unit_index = self.row_metrics_widget.unit_combo.findData(
+            view_state.row_metrics_unit
+        )
+        if metrics_unit_index >= 0:
+            self.row_metrics_widget.unit_combo.setCurrentIndex(metrics_unit_index)
+
+        global_scatter_unit_index = self.global_scatter_plot_widget.unit_combo.findData(
+            view_state.global_scatter_unit
+        )
+        if global_scatter_unit_index >= 0:
+            self.global_scatter_plot_widget.unit_combo.setCurrentIndex(global_scatter_unit_index)
+
+        self._refresh_analysis_widgets()
+        self._update_workflow_status()
+
+    def _load_session_from_project_file(self) -> None:
+        session_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Load AtomMapper Session",
+            "",
+            "AtomMapper project (*.atommapper_proj);;JSON files (*.json)",
+        )
+        if not session_path:
+            self.statusBar().showMessage("Session load cancelled.", 3000)
+            self.workflow_status_label.setText(
+                "Workflow status: session-load dialog closed without opening a project file."
+            )
+            return
+
+        try:
+            session = load_session_from_file(session_path)
+            self._active_point_id_by_source_group = {}
+            self.controller.restore_from_session(session)
+            self._active_point_id_by_source_group = dict(
+                session.active_point_id_by_source_group
+            )
+            self._apply_session_view_state(session.view_state)
+            self._refresh_file_list()
+            self._refresh_row_list()
+            self._refresh_points_table()
+            self._refresh_image_point_overlay()
+            self._refresh_analysis_widgets()
+            self._update_point_controls()
+        except Exception as exc:  # pragma: no cover - GUI error path
+            logger.exception("Failed to load session '%s': %s", session_path, exc)
+            QMessageBox.warning(
+                self,
+                "AtomMapper - Load Session Error",
+                f"Could not load the project session:\n\n{exc}",
+            )
+            self.statusBar().showMessage("Session load failed.", 5000)
+            self.workflow_status_label.setText(
+                "Workflow status: loading the project session failed."
+            )
+            return
+
+        loaded_name = Path(session_path).name
+        self.statusBar().showMessage(f"Loaded session from {loaded_name}.", 5000)
+        self.workflow_status_label.setText(
+            f"Workflow status: loaded project session from '{loaded_name}'."
         )
 
     def _create_new_row(self) -> None:

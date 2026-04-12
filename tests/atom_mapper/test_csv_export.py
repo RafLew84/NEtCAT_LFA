@@ -1,0 +1,134 @@
+"""Tests for AtomMapper CSV export helpers."""
+
+from __future__ import annotations
+
+import csv
+from pathlib import Path
+
+import numpy as np
+
+from AtomMapper.app.csv_export import (
+    POINT_EXPORT_FIELDNAMES,
+    build_point_export_rows,
+    describe_point_status,
+    export_point_rows_to_csv,
+)
+from AtomMapper.app.models import AtomPoint, AtomRow, LoadedImage
+
+
+def _make_loaded_image(name: str, width: int = 8, height: int = 6) -> LoadedImage:
+    image_data = np.arange(width * height, dtype=float).reshape((height, width))
+    return LoadedImage(
+        source_path=str(Path("/tmp") / name),
+        display_name=name,
+        file_extension=Path(name).suffix.lower(),
+        image_data=image_data,
+        pixels_x=width,
+        pixels_y=height,
+        size_nm_x=float(width),
+        size_nm_y=float(height),
+        metadata={"image_type": "Topo"},
+        raw_metadata={},
+    )
+
+
+def test_build_point_export_rows_includes_px_nm_fit_and_status_fields():
+    original = _make_loaded_image("sample.stp")
+    variant = original.derive_variant(variant_name="blur", image_data=original.image_data + 1.0)
+    row = AtomRow(
+        row_id="row-1",
+        source_group_id=original.source_group_id,
+        display_name="Row 1",
+        points=(
+            AtomPoint(
+                row_id="row-1",
+                image_id=variant.image_id,
+                source_group_id=original.source_group_id,
+                point_index=1,
+                x_px=3.5,
+                y_px=4.5,
+                x_nm=3.5,
+                y_nm=4.5,
+                point_id="point-2",
+                amplitude=17.0,
+                sigma_x_px=1.1,
+                sigma_y_px=1.2,
+                theta_deg=15.0,
+                offset=0.5,
+                fit_success=False,
+                fit_error_message="fallback",
+                manual_override=True,
+                manual_override_source="drag",
+            ),
+        ),
+    )
+
+    export_rows = build_point_export_rows((row,), (original, variant))
+
+    assert len(export_rows) == 1
+    assert tuple(export_rows[0].keys()) == POINT_EXPORT_FIELDNAMES
+    assert export_rows[0]["image_name"] == variant.display_name
+    assert export_rows[0]["image_variant"] == "blur"
+    assert export_rows[0]["row_name"] == "Row 1"
+    assert export_rows[0]["x_px"] == "3.500000"
+    assert export_rows[0]["y_nm"] == "4.500000"
+    assert export_rows[0]["amplitude"] == "17.000000"
+    assert export_rows[0]["sigma_x_px"] == "1.100000"
+    assert export_rows[0]["fit_success"] == "false"
+    assert export_rows[0]["manual_override"] == "true"
+    assert export_rows[0]["manual_override_source"] == "drag"
+    assert export_rows[0]["status"] == "manual (drag)"
+
+
+def test_export_point_rows_to_csv_writes_header_and_rows(tmp_path: Path):
+    image = _make_loaded_image("export.stp")
+    row = AtomRow(
+        row_id="row-1",
+        source_group_id=image.source_group_id,
+        display_name="Row 1",
+        points=(
+            AtomPoint(
+                row_id="row-1",
+                image_id=image.image_id,
+                source_group_id=image.source_group_id,
+                point_index=0,
+                x_px=1.0,
+                y_px=2.0,
+                x_nm=1.0,
+                y_nm=2.0,
+                point_id="point-1",
+            ),
+        ),
+    )
+
+    export_path = tmp_path / "points.csv"
+    exported_count = export_point_rows_to_csv(export_path, (row,), (image,))
+
+    assert exported_count == 1
+    with export_path.open("r", encoding="utf-8", newline="") as handle:
+        rows = list(csv.DictReader(handle))
+
+    assert len(rows) == 1
+    assert rows[0]["image_name"] == "export.stp"
+    assert rows[0]["point_id"] == "point-1"
+    assert rows[0]["status"] == "fit"
+    assert rows[0]["x_nm"] == "1.000000"
+    assert rows[0]["manual_override"] == "false"
+
+
+def test_describe_point_status_prefers_manual_override():
+    point = AtomPoint(
+        row_id="row-1",
+        image_id="image-1",
+        source_group_id="group-1",
+        point_index=0,
+        x_px=1.0,
+        y_px=2.0,
+        point_id="point-1",
+        manual_override=True,
+        manual_override_source="drag",
+        fit_success=False,
+        metadata={"fallback_used": True},
+    )
+
+    assert describe_point_status(point) == "manual (drag)"

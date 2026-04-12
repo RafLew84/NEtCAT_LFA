@@ -5,9 +5,17 @@ from __future__ import annotations
 from typing import Optional
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QFormLayout, QLabel, QStackedWidget, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import (
+    QComboBox,
+    QFormLayout,
+    QHBoxLayout,
+    QLabel,
+    QStackedWidget,
+    QVBoxLayout,
+    QWidget,
+)
 
-from .plots import RowDistanceMetrics
+from .plots import PlotUnit, RowDistanceMetrics
 
 
 class RowMetricsWidget(QWidget):
@@ -16,6 +24,7 @@ class RowMetricsWidget(QWidget):
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self.current_metrics: Optional[RowDistanceMetrics] = None
+        self.current_unit = PlotUnit.PX
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -23,6 +32,17 @@ class RowMetricsWidget(QWidget):
 
         self.title_label = QLabel("Row distance metrics")
         self.title_label.setStyleSheet("font-size: 16px; font-weight: 600;")
+        self.unit_combo = QComboBox(self)
+        self.unit_combo.setObjectName("atommapper_row_metrics_unit_combo")
+        self.unit_combo.addItem("px", PlotUnit.PX)
+        self.unit_combo.addItem("nm", PlotUnit.NM)
+        self.unit_combo.currentIndexChanged.connect(self._on_unit_changed)
+
+        header_layout = QHBoxLayout()
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout.setSpacing(8)
+        header_layout.addWidget(self.title_label, 1)
+        header_layout.addWidget(self.unit_combo)
 
         self.stack = QStackedWidget(self)
 
@@ -61,10 +81,11 @@ class RowMetricsWidget(QWidget):
         self.info_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         self.info_label.setStyleSheet("font-size: 12px; color: palette(mid);")
 
-        layout.addWidget(self.title_label)
+        layout.addLayout(header_layout)
         layout.addWidget(self.stack, 1)
         layout.addWidget(self.info_label)
 
+        self._update_title_label()
         self._show_placeholder("Select an atom row to display distance metrics.")
 
     def set_metrics(self, metrics: Optional[RowDistanceMetrics]) -> None:
@@ -77,35 +98,65 @@ class RowMetricsWidget(QWidget):
         self.placeholder_label.setText(message)
         self.stack.setCurrentWidget(self.placeholder_label)
 
+    def _update_title_label(self) -> None:
+        self.title_label.setText(f"Row distance metrics [{self.current_unit.value}]")
+
+    def _on_unit_changed(self, index: int) -> None:
+        if index < 0:
+            return
+        selected_unit = self.unit_combo.itemData(index)
+        if not isinstance(selected_unit, PlotUnit):
+            return
+        self.current_unit = selected_unit
+        self._refresh_view()
+
     def _refresh_view(self) -> None:
+        self._update_title_label()
         metrics = self.current_metrics
         if metrics is None:
             self._show_placeholder("Select an atom row to display distance metrics.")
             self.info_label.setText("Load points and select an atom row to inspect distances.")
             return
 
-        if metrics.distance_count <= 0:
-            self._show_placeholder(
-                f"{metrics.row_display_name} needs at least 2 points to compute distances."
-            )
-            self.info_label.setText(
-                f"{metrics.row_display_name} | {metrics.point_count} point(s) | waiting for more data."
-            )
+        distance_count = metrics.distance_count_for_unit(self.current_unit)
+        if distance_count <= 0:
+            if self.current_unit is PlotUnit.NM:
+                self._show_placeholder(
+                    f"{metrics.row_display_name} needs calibrated points to compute distances in nm."
+                )
+                self.info_label.setText(
+                    f"{metrics.row_display_name} | {metrics.point_count} point(s) | waiting for calibrated data."
+                )
+            else:
+                self._show_placeholder(
+                    f"{metrics.row_display_name} needs at least 2 points to compute distances."
+                )
+                self.info_label.setText(
+                    f"{metrics.row_display_name} | {metrics.point_count} point(s) | waiting for more data."
+                )
             return
 
         self.point_count_value.setText(str(metrics.point_count))
-        self.distance_count_value.setText(str(metrics.distance_count))
-        self.mean_distance_value.setText(self._format_px(metrics.mean_distance_px))
-        self.std_distance_value.setText(self._format_px(metrics.std_distance_px))
-        self.min_distance_value.setText(self._format_px(metrics.min_distance_px))
-        self.max_distance_value.setText(self._format_px(metrics.max_distance_px))
+        self.distance_count_value.setText(str(distance_count))
+        self.mean_distance_value.setText(
+            self._format_value(metrics.mean_distance_for_unit(self.current_unit), self.current_unit)
+        )
+        self.std_distance_value.setText(
+            self._format_value(metrics.std_distance_for_unit(self.current_unit), self.current_unit)
+        )
+        self.min_distance_value.setText(
+            self._format_value(metrics.min_distance_for_unit(self.current_unit), self.current_unit)
+        )
+        self.max_distance_value.setText(
+            self._format_value(metrics.max_distance_for_unit(self.current_unit), self.current_unit)
+        )
         self.stack.setCurrentWidget(self.metrics_panel)
         self.info_label.setText(
-            f"{metrics.row_display_name} | {metrics.point_count} points | {metrics.distance_count} segments"
+            f"{metrics.row_display_name} | {metrics.point_count} points | {distance_count} segments | {self.current_unit.value}"
         )
 
     @staticmethod
-    def _format_px(value: float | None) -> str:
+    def _format_value(value: float | None, unit: PlotUnit) -> str:
         if value is None:
             return "-"
-        return f"{value:.3f} px"
+        return f"{value:.3f} {unit.value}"

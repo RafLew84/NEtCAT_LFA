@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 import logging
 from pathlib import Path
 from typing import Iterable, Optional, Sequence
@@ -18,6 +19,7 @@ from .preprocessing import (
     build_blur_metadata,
     build_nlm_metadata,
 )
+from .session_model import AtomMapperSession
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +83,12 @@ class AtomMapperController(QObject):
         return self._roi_states_by_image_id.get(active.image_id)
 
     @property
+    def roi_states_by_image_id(self) -> dict[str, ROIState]:
+        """Return a shallow copy of the ROI state mapped by image id."""
+
+        return dict(self._roi_states_by_image_id)
+
+    @property
     def atom_rows(self) -> tuple[AtomRow, ...]:
         """Return the known atom rows as an immutable snapshot."""
 
@@ -106,6 +114,12 @@ class AtomMapperController(QObject):
         if active_row is None:
             return None
         return active_row.row_id
+
+    @property
+    def active_row_id_by_source_group(self) -> dict[str, str]:
+        """Return the active-row mapping for all loaded source groups."""
+
+        return dict(self._active_row_id_by_source_group)
 
     @property
     def original_images(self) -> tuple[LoadedImage, ...]:
@@ -148,6 +162,67 @@ class AtomMapperController(QObject):
         self.loaded_images_changed.emit()
         if rows_pruned:
             self.rows_changed.emit()
+        self.active_image_changed.emit(self.active_image)
+        self.roi_state_changed.emit(self.active_roi_state)
+        self.active_row_changed.emit(self.active_row)
+
+    def restore_from_session(self, session: AtomMapperSession) -> None:
+        """Replace the runtime state with a validated session snapshot."""
+
+        images = list(session.loaded_images)
+        rows = list(session.rows)
+
+        self._ensure_unique_image_ids(images)
+        self._ensure_unique_row_ids(rows)
+        self._ensure_unique_point_ids(rows)
+
+        images_by_id = {image.image_id: image for image in images}
+        allowed_groups = {image.source_group_id for image in images}
+        for row in rows:
+            if row.source_group_id not in allowed_groups:
+                raise ValueError(
+                    f"Row source_group_id '{row.source_group_id}' is not present in loaded images."
+                )
+            for point in row.points:
+                image = images_by_id.get(point.image_id)
+                if image is None:
+                    raise ValueError(
+                        f"Point image_id '{point.image_id}' is not present in loaded images."
+                    )
+                if image.source_group_id != row.source_group_id:
+                    raise ValueError(
+                        "Point image source_group_id must match the row/source family."
+                    )
+                if point.source_group_id != row.source_group_id:
+                    raise ValueError(
+                        "Point source_group_id must match the row/source family."
+                    )
+
+        self._loaded_images = images
+        self._active_image_index = None
+        if session.active_image_id is not None:
+            for index, image in enumerate(self._loaded_images):
+                if image.image_id == session.active_image_id:
+                    self._active_image_index = index
+                    break
+
+        self._roi_states_by_image_id = {
+            image.image_id: session.roi_states_by_image_id.get(
+                image.image_id,
+                self._build_default_roi_state(image),
+            ).clamped(image.pixels_x, image.pixels_y)
+            for image in self._loaded_images
+        }
+        self._rows = rows
+        self._active_row_id_by_source_group = dict(session.active_row_id_by_source_group)
+
+        logger.info(
+            "AtomMapperController: restored session with %d image(s), %d row(s).",
+            len(self._loaded_images),
+            len(self._rows),
+        )
+        self.loaded_images_changed.emit()
+        self.rows_changed.emit()
         self.active_image_changed.emit(self.active_image)
         self.roi_state_changed.emit(self.active_roi_state)
         self.active_row_changed.emit(self.active_row)
@@ -433,7 +508,8 @@ class AtomMapperController(QObject):
             raise ValueError("Point source_group_id must match the row/source family.")
         self._ensure_point_id_not_present(point.point_id, ignore_row_id=row.row_id)
 
-        updated_row = row.with_point(point)
+        normalized_point = self._point_with_physical_coordinates(point, image=image)
+        updated_row = row.with_point(normalized_point)
         self._replace_row(updated_row)
         self.row_points_changed.emit(updated_row)
         if self.active_source_group_id == updated_row.source_group_id:
@@ -515,6 +591,19 @@ class AtomMapperController(QObject):
         if point is None:
             raise ValueError(f"Point id '{point_id}' is not present in row '{row_id}'.")
 
+        image = self._find_image_by_id(point.image_id)
+        if image is None:
+            raise ValueError(f"Unknown image_id '{point.image_id}'.")
+
+        if x_nm is None or y_nm is None:
+            calibration = image.physical_calibration
+            if calibration is not None:
+                calibrated_x_nm, calibrated_y_nm = calibration.point_px_to_nm(x_px, y_px)
+                if x_nm is None:
+                    x_nm = calibrated_x_nm
+                if y_nm is None:
+                    y_nm = calibrated_y_nm
+
         corrected_point = point.with_manual_position(
             x_px=x_px,
             y_px=y_px,
@@ -523,6 +612,21 @@ class AtomMapperController(QObject):
             source=source,
         )
         return self.replace_point_in_row(corrected_point)
+
+    @staticmethod
+    def _point_with_physical_coordinates(point: AtomPoint, *, image: LoadedImage) -> AtomPoint:
+        """Return a point with `x_nm`/`y_nm` populated from image calibration when possible."""
+
+        calibration = image.physical_calibration
+        if calibration is None:
+            return point
+
+        needs_update = point.x_nm is None or point.y_nm is None
+        if not needs_update:
+            return point
+
+        x_nm, y_nm = calibration.point_px_to_nm(point.x_px, point.y_px)
+        return replace(point, x_nm=x_nm, y_nm=y_nm)
 
     @staticmethod
     def _build_default_roi_state(image: LoadedImage) -> ROIState:

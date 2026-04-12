@@ -11,6 +11,33 @@ import numpy as np
 
 
 @dataclass(frozen=True)
+class PhysicalCalibration:
+    """Physical calibration derived from STM scan metadata."""
+
+    pixels_x: int
+    pixels_y: int
+    size_nm_x: float
+    size_nm_y: float
+    pixel_size_nm_x: float
+    pixel_size_nm_y: float
+
+    def x_px_to_nm(self, x_px: float) -> float:
+        """Convert an X image coordinate from pixels to nanometers."""
+
+        return float(x_px) * self.pixel_size_nm_x
+
+    def y_px_to_nm(self, y_px: float) -> float:
+        """Convert a Y image coordinate from pixels to nanometers."""
+
+        return float(y_px) * self.pixel_size_nm_y
+
+    def point_px_to_nm(self, x_px: float, y_px: float) -> tuple[float, float]:
+        """Convert a 2D image coordinate from pixels to nanometers."""
+
+        return (self.x_px_to_nm(x_px), self.y_px_to_nm(y_px))
+
+
+@dataclass(frozen=True)
 class ROIState:
     """Image-space rectangular ROI stored in pixel coordinates."""
 
@@ -31,6 +58,27 @@ class ROIState:
         x = min(max(0, int(round(self.x))), max(0, max_width - width))
         y = min(max(0, int(round(self.y))), max(0, max_height - height))
         return ROIState(x=x, y=y, width=width, height=height)
+
+    def to_dict(self) -> Dict[str, int]:
+        """Return a JSON-serializable dictionary representation of the ROI."""
+
+        return {
+            "x": int(self.x),
+            "y": int(self.y),
+            "width": int(self.width),
+            "height": int(self.height),
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Dict[str, Any]) -> "ROIState":
+        """Rebuild an ROIState from a serialized payload."""
+
+        return cls(
+            x=int(payload["x"]),
+            y=int(payload["y"]),
+            width=int(payload["width"]),
+            height=int(payload["height"]),
+        )
 
 
 @dataclass(frozen=True)
@@ -58,10 +106,18 @@ class LoadedImage:
         image_id = str(self.image_id).strip() or uuid4().hex
         variant_name = str(self.variant_name).strip().lower() or "original"
         source_group_id = str(self.source_group_id).strip() or image_id
+        pixels_x = int(self.pixels_x)
+        pixels_y = int(self.pixels_y)
+        size_nm_x = float(self.size_nm_x)
+        size_nm_y = float(self.size_nm_y)
 
         object.__setattr__(self, "image_id", image_id)
         object.__setattr__(self, "source_group_id", source_group_id)
         object.__setattr__(self, "variant_name", variant_name)
+        object.__setattr__(self, "pixels_x", pixels_x)
+        object.__setattr__(self, "pixels_y", pixels_y)
+        object.__setattr__(self, "size_nm_x", size_nm_x)
+        object.__setattr__(self, "size_nm_y", size_nm_y)
 
     @property
     def path(self) -> Path:
@@ -76,20 +132,59 @@ class LoadedImage:
         return self.parent_image_id is None and self.variant_name == "original"
 
     @property
+    def physical_calibration(self) -> Optional[PhysicalCalibration]:
+        """Return the image-space physical calibration when scan metadata is valid."""
+
+        if self.pixels_x <= 0 or self.pixels_y <= 0:
+            return None
+        if not np.isfinite(self.size_nm_x) or not np.isfinite(self.size_nm_y):
+            return None
+        if self.size_nm_x <= 0.0 or self.size_nm_y <= 0.0:
+            return None
+        return PhysicalCalibration(
+            pixels_x=self.pixels_x,
+            pixels_y=self.pixels_y,
+            size_nm_x=self.size_nm_x,
+            size_nm_y=self.size_nm_y,
+            pixel_size_nm_x=self.size_nm_x / self.pixels_x,
+            pixel_size_nm_y=self.size_nm_y / self.pixels_y,
+        )
+
+    @property
+    def has_physical_calibration(self) -> bool:
+        """Return ``True`` when valid scan-size metadata supports px->nm conversion."""
+
+        return self.physical_calibration is not None
+
+    @property
     def pixel_size_nm_x(self) -> Optional[float]:
         """Return the physical pixel size along X when available."""
 
-        if self.pixels_x <= 0 or self.size_nm_x <= 0.0:
+        calibration = self.physical_calibration
+        if calibration is None:
             return None
-        return self.size_nm_x / self.pixels_x
+        return calibration.pixel_size_nm_x
 
     @property
     def pixel_size_nm_y(self) -> Optional[float]:
         """Return the physical pixel size along Y when available."""
 
-        if self.pixels_y <= 0 or self.size_nm_y <= 0.0:
+        calibration = self.physical_calibration
+        if calibration is None:
             return None
-        return self.size_nm_y / self.pixels_y
+        return calibration.pixel_size_nm_y
+
+    @property
+    def calibration_summary(self) -> Optional[str]:
+        """Return a short human-readable physical-calibration summary."""
+
+        calibration = self.physical_calibration
+        if calibration is None:
+            return None
+        return (
+            f"{calibration.size_nm_x:.3f} x {calibration.size_nm_y:.3f} nm | "
+            f"{calibration.pixel_size_nm_x:.4f} x {calibration.pixel_size_nm_y:.4f} nm/px"
+        )
 
     def derive_variant(
         self,
@@ -131,6 +226,50 @@ class LoadedImage:
             size_nm_y=self.size_nm_y,
             metadata=updated_metadata,
             raw_metadata=updated_raw_metadata,
+        )
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Return a JSON-serializable dictionary representation of the image."""
+
+        return {
+            "source_path": self.source_path,
+            "display_name": self.display_name,
+            "file_extension": self.file_extension,
+            "image_data": np.asarray(self.image_data, dtype=float).tolist(),
+            "pixels_x": self.pixels_x,
+            "pixels_y": self.pixels_y,
+            "size_nm_x": self.size_nm_x,
+            "size_nm_y": self.size_nm_y,
+            "image_id": self.image_id,
+            "source_group_id": self.source_group_id,
+            "parent_image_id": self.parent_image_id,
+            "variant_name": self.variant_name,
+            "metadata": dict(self.metadata),
+            "raw_metadata": dict(self.raw_metadata),
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Dict[str, Any]) -> "LoadedImage":
+        """Rebuild a LoadedImage from a serialized payload."""
+
+        image_data = np.asarray(payload["image_data"], dtype=float)
+        if image_data.ndim != 2:
+            raise ValueError("LoadedImage.image_data must be a 2D array.")
+        return cls(
+            source_path=payload["source_path"],
+            display_name=payload["display_name"],
+            file_extension=payload["file_extension"],
+            image_data=image_data,
+            pixels_x=payload["pixels_x"],
+            pixels_y=payload["pixels_y"],
+            size_nm_x=payload["size_nm_x"],
+            size_nm_y=payload["size_nm_y"],
+            image_id=payload.get("image_id", ""),
+            source_group_id=payload.get("source_group_id", ""),
+            parent_image_id=payload.get("parent_image_id"),
+            variant_name=payload.get("variant_name", "original"),
+            metadata=dict(payload.get("metadata", {})),
+            raw_metadata=dict(payload.get("raw_metadata", {})),
         )
 
 

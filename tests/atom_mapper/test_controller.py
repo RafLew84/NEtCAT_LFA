@@ -8,8 +8,12 @@ import numpy as np
 import pytest
 
 from AtomMapper.app.controller import AtomMapperController
+from AtomMapper.app.io import load_loaded_image
 from AtomMapper.app.models import AtomPoint, AtomRow, LoadedImage, ROIState
 from AtomMapper.app.preprocessing import is_bm3d_available
+from AtomMapper.app.session_model import AtomMapperSession, SessionViewState
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _make_loaded_image(name: str, width: int = 8, height: int = 6) -> LoadedImage:
@@ -307,10 +311,112 @@ def test_controller_add_point_to_row_and_emit_row_point_signals():
     updated_row = controller.add_point_to_row(point)
 
     assert updated_row.point_count == 1
-    assert updated_row.points[0] == point
+    stored_point = updated_row.points[0]
+    assert stored_point.x_px == point.x_px
+    assert stored_point.y_px == point.y_px
+    assert stored_point.sigma_x_px == point.sigma_x_px
+    assert stored_point.sigma_y_px == point.sigma_y_px
+    assert stored_point.x_nm == pytest.approx(point.x_px)
+    assert stored_point.y_nm == pytest.approx(point.y_px)
     assert controller.active_row == updated_row
     assert point_events[-1] == updated_row
     assert active_row_events[-1] == updated_row
+
+
+def test_controller_restore_from_session_reconstructs_runtime_state():
+    controller = AtomMapperController()
+    original = _make_loaded_image("session.stp", width=20, height=16)
+    variant = original.derive_variant(variant_name="blur", image_data=original.image_data + 1.0)
+    row = AtomRow(source_group_id=original.source_group_id, display_name="Row 1")
+    point = AtomPoint(
+        row_id=row.row_id,
+        image_id=variant.image_id,
+        source_group_id=original.source_group_id,
+        point_index=0,
+        x_px=7.5,
+        y_px=8.5,
+        point_id="point-1",
+    )
+    row = row.with_point(point)
+
+    session = AtomMapperSession(
+        loaded_images=(original, variant),
+        active_image_id=variant.image_id,
+        roi_states_by_image_id={
+            original.image_id: ROIState(x=2, y=3, width=8, height=8),
+            variant.image_id: ROIState(x=4, y=5, width=6, height=7),
+        },
+        rows=(row,),
+        active_row_id_by_source_group={original.source_group_id: row.row_id},
+        active_point_id_by_source_group={original.source_group_id: point.point_id},
+        view_state=SessionViewState(),
+    )
+
+    controller.restore_from_session(session)
+
+    assert controller.loaded_images == (original, variant)
+    assert controller.active_image == variant
+    assert controller.active_image_index == 1
+    assert controller.active_roi_state == ROIState(x=4, y=5, width=6, height=7)
+    assert controller.atom_rows == (row,)
+    assert controller.active_row == row
+    assert controller.active_row_id_by_source_group == {original.source_group_id: row.row_id}
+
+
+@pytest.mark.parametrize("sample_name", ["8343.stp", "85291r.s94"])
+def test_controller_populates_nm_coordinates_for_real_loaded_samples(sample_name: str):
+    controller = AtomMapperController()
+    loaded = load_loaded_image(PROJECT_ROOT / "data" / sample_name)
+    controller.set_loaded_images([loaded])
+    row = controller.create_row_for_active_source_group(display_name="Row 1")
+
+    point = AtomPoint(
+        row_id=row.row_id,
+        image_id=loaded.image_id,
+        source_group_id=loaded.source_group_id,
+        point_index=0,
+        x_px=10.5,
+        y_px=12.25,
+        point_id=f"{sample_name}-point",
+    )
+
+    updated_row = controller.add_point_to_row(point)
+    stored_point = updated_row.points[0]
+    calibration = loaded.physical_calibration
+
+    assert calibration is not None
+    assert stored_point.x_nm == pytest.approx(10.5 * calibration.pixel_size_nm_x)
+    assert stored_point.y_nm == pytest.approx(12.25 * calibration.pixel_size_nm_y)
+
+
+def test_controller_add_point_to_row_leaves_nm_empty_without_physical_calibration():
+    controller = AtomMapperController()
+    original = LoadedImage(
+        source_path="/tmp/no-calibration.stp",
+        display_name="no-calibration.stp",
+        file_extension=".stp",
+        image_data=np.zeros((6, 8), dtype=float),
+        pixels_x=8,
+        pixels_y=6,
+        size_nm_x=0.0,
+        size_nm_y=6.0,
+    )
+    controller.set_loaded_images([original])
+    row = controller.create_row_for_active_source_group(display_name="Row A")
+
+    point = AtomPoint(
+        row_id=row.row_id,
+        image_id=original.image_id,
+        source_group_id=original.source_group_id,
+        point_index=0,
+        x_px=3.0,
+        y_px=4.0,
+    )
+
+    updated_row = controller.add_point_to_row(point)
+
+    assert updated_row.points[0].x_nm is None
+    assert updated_row.points[0].y_nm is None
 
 
 def test_controller_remove_single_point_from_row_without_deleting_row():
@@ -342,7 +448,12 @@ def test_controller_remove_single_point_from_row_without_deleting_row():
 
     assert updated_row.row_id == row.row_id
     assert updated_row.point_count == 1
-    assert updated_row.points[0] == second_point
+    remaining_point = updated_row.points[0]
+    assert remaining_point.point_id == second_point.point_id
+    assert remaining_point.x_px == second_point.x_px
+    assert remaining_point.y_px == second_point.y_px
+    assert remaining_point.x_nm == pytest.approx(second_point.x_px)
+    assert remaining_point.y_nm == pytest.approx(second_point.y_px)
     assert controller.active_row == updated_row
     assert controller.rows_for_source_group(original.source_group_id) == (updated_row,)
 
@@ -378,6 +489,8 @@ def test_controller_move_point_in_row_marks_manual_override_and_preserves_fit_or
     assert moved_point.manual_override_source == "drag"
     assert moved_point.x_px == pytest.approx(15.0)
     assert moved_point.y_px == pytest.approx(8.0)
+    assert moved_point.x_nm == pytest.approx(15.0)
+    assert moved_point.y_nm == pytest.approx(8.0)
     assert moved_point.fit_x_px == pytest.approx(12.5)
     assert moved_point.fit_y_px == pytest.approx(9.25)
     assert controller.active_row == updated_row

@@ -32,6 +32,26 @@ def test_loaded_image_assigns_default_identity_fields():
     assert loaded.parent_image_id is None
     assert loaded.variant_name == "original"
     assert loaded.is_original is True
+    assert loaded.has_physical_calibration is True
+
+
+def test_loaded_image_exposes_physical_calibration_and_px_to_nm_conversion():
+    loaded = _make_loaded_image("sample.stp", width=12, height=6)
+
+    calibration = loaded.physical_calibration
+
+    assert calibration is not None
+    assert calibration.pixels_x == 12
+    assert calibration.pixels_y == 6
+    assert calibration.size_nm_x == pytest.approx(12.0)
+    assert calibration.size_nm_y == pytest.approx(6.0)
+    assert calibration.pixel_size_nm_x == pytest.approx(1.0)
+    assert calibration.pixel_size_nm_y == pytest.approx(1.0)
+    assert calibration.x_px_to_nm(3.5) == pytest.approx(3.5)
+    assert calibration.y_px_to_nm(2.25) == pytest.approx(2.25)
+    assert calibration.point_px_to_nm(4.0, 1.5) == pytest.approx((4.0, 1.5))
+    assert loaded.pixel_size_nm_x == pytest.approx(1.0)
+    assert loaded.pixel_size_nm_y == pytest.approx(1.0)
 
 
 def test_loaded_image_derive_variant_keeps_source_group_and_links_parent():
@@ -54,6 +74,7 @@ def test_loaded_image_derive_variant_keeps_source_group_and_links_parent():
     assert variant.pixels_y == loaded.pixels_y
     assert variant.size_nm_x == loaded.size_nm_x
     assert variant.size_nm_y == loaded.size_nm_y
+    assert variant.physical_calibration == loaded.physical_calibration
     assert variant.metadata["preprocess"] == "blur"
     assert np.array_equal(variant.image_data, variant_data)
 
@@ -65,12 +86,72 @@ def test_loaded_image_derive_variant_rejects_empty_variant_name():
         loaded.derive_variant(variant_name="  ", image_data=loaded.image_data)
 
 
+def test_loaded_image_roundtrips_serialization_with_variant_identity_and_image_data():
+    loaded = _make_loaded_image("sample.stp", width=12, height=10)
+    variant = loaded.derive_variant(
+        variant_name="blur",
+        image_data=loaded.image_data + 3.0,
+        metadata_updates={"preprocess": "blur"},
+    )
+
+    restored = LoadedImage.from_dict(variant.to_dict())
+
+    assert restored.image_id == variant.image_id
+    assert restored.source_group_id == variant.source_group_id
+    assert restored.parent_image_id == variant.parent_image_id
+    assert restored.variant_name == "blur"
+    assert restored.display_name == variant.display_name
+    assert restored.metadata["preprocess"] == "blur"
+    assert np.array_equal(restored.image_data, variant.image_data)
+
+
+def test_loaded_image_handles_missing_or_invalid_physical_metadata():
+    missing = LoadedImage(
+        source_path="/tmp/missing.stp",
+        display_name="missing.stp",
+        file_extension=".stp",
+        image_data=np.zeros((4, 5), dtype=float),
+        pixels_x=5,
+        pixels_y=4,
+        size_nm_x=0.0,
+        size_nm_y=4.0,
+    )
+    invalid = LoadedImage(
+        source_path="/tmp/invalid.stp",
+        display_name="invalid.stp",
+        file_extension=".stp",
+        image_data=np.zeros((4, 5), dtype=float),
+        pixels_x=5,
+        pixels_y=4,
+        size_nm_x=float("nan"),
+        size_nm_y=4.0,
+    )
+
+    assert missing.has_physical_calibration is False
+    assert missing.physical_calibration is None
+    assert missing.pixel_size_nm_x is None
+    assert missing.pixel_size_nm_y is None
+
+    assert invalid.has_physical_calibration is False
+    assert invalid.physical_calibration is None
+    assert invalid.pixel_size_nm_x is None
+    assert invalid.pixel_size_nm_y is None
+
+
 def test_roi_state_clamped_uses_4px_minimum_bbox():
     roi = ROIState(x=5, y=6, width=1, height=2)
 
     clamped = roi.clamped(image_width=20, image_height=18)
 
     assert clamped == ROIState(x=5, y=6, width=4, height=4)
+
+
+def test_roi_state_roundtrips_serialization():
+    roi = ROIState(x=3, y=4, width=10, height=12)
+
+    restored = ROIState.from_dict(roi.to_dict())
+
+    assert restored == roi
 
 
 def test_atom_point_serializes_and_restores_fit_payload():

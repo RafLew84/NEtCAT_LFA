@@ -6,6 +6,7 @@ import pytest
 
 from AtomMapper.app.models import AtomPoint, AtomRow
 from AtomMapper.app.plots import (
+    PlotUnit,
     RowPlotMode,
     build_global_scatter_series,
     build_row_distance_metrics,
@@ -23,6 +24,8 @@ def _make_point(
     x_px: float,
     y_px: float,
     point_id: str,
+    x_nm: float | None = None,
+    y_nm: float | None = None,
     manual_override: bool = False,
     manual_override_source: str | None = None,
 ) -> AtomPoint:
@@ -33,6 +36,8 @@ def _make_point(
         point_index=point_index,
         x_px=x_px,
         y_px=y_px,
+        x_nm=x_nm,
+        y_nm=y_nm,
         point_id=point_id,
         manual_override=manual_override,
         manual_override_source=manual_override_source,
@@ -126,6 +131,64 @@ def test_build_row_metric_series_supports_x_and_y_modes():
     ]
 
 
+def test_build_row_metric_series_supports_nm_modes_and_skips_uncalibrated_samples():
+    row = AtomRow(
+        row_id="row-1",
+        source_group_id="group-1",
+        display_name="Row 1",
+        points=(
+            _make_point(
+                row_id="row-1",
+                source_group_id="group-1",
+                image_id="image-1",
+                point_index=0,
+                x_px=10.0,
+                y_px=20.0,
+                x_nm=1.0,
+                y_nm=2.0,
+                point_id="point-1",
+            ),
+            _make_point(
+                row_id="row-1",
+                source_group_id="group-1",
+                image_id="image-1",
+                point_index=1,
+                x_px=12.5,
+                y_px=21.5,
+                x_nm=None,
+                y_nm=2.15,
+                point_id="point-2",
+            ),
+            _make_point(
+                row_id="row-1",
+                source_group_id="group-1",
+                image_id="image-1",
+                point_index=2,
+                x_px=15.0,
+                y_px=25.5,
+                x_nm=1.5,
+                y_nm=2.55,
+                point_id="point-3",
+            ),
+        ),
+    )
+
+    x_series = build_row_metric_series(row, RowPlotMode.X_NM)
+    y_series = build_row_metric_series(row, RowPlotMode.Y_NM)
+
+    assert x_series.y_label == "x (nm)"
+    assert [(sample.x_value, sample.y_value) for sample in x_series.samples] == [
+        (0.0, 1.0),
+        (2.0, 1.5),
+    ]
+    assert y_series.y_label == "y (nm)"
+    assert [(sample.x_value, sample.y_value) for sample in y_series.samples] == [
+        (0.0, 2.0),
+        (1.0, 2.15),
+        (2.0, 2.55),
+    ]
+
+
 def test_build_row_metric_series_distance_mode_uses_consecutive_point_spacing():
     row = AtomRow(
         row_id="row-1",
@@ -171,6 +234,56 @@ def test_build_row_metric_series_distance_mode_uses_consecutive_point_spacing():
     assert series.samples[0].y_value == pytest.approx(5.0)
     assert series.samples[1].x_value == pytest.approx(1.0)
     assert series.samples[1].y_value == pytest.approx(5.0)
+
+
+def test_build_row_metric_series_distance_nm_uses_calibrated_segments_only():
+    row = AtomRow(
+        row_id="row-1",
+        source_group_id="group-1",
+        display_name="Row 1",
+        points=(
+            _make_point(
+                row_id="row-1",
+                source_group_id="group-1",
+                image_id="image-1",
+                point_index=0,
+                x_px=0.0,
+                y_px=0.0,
+                x_nm=0.0,
+                y_nm=0.0,
+                point_id="point-1",
+            ),
+            _make_point(
+                row_id="row-1",
+                source_group_id="group-1",
+                image_id="image-1",
+                point_index=1,
+                x_px=3.0,
+                y_px=4.0,
+                x_nm=0.3,
+                y_nm=0.4,
+                point_id="point-2",
+            ),
+            _make_point(
+                row_id="row-1",
+                source_group_id="group-1",
+                image_id="image-1",
+                point_index=2,
+                x_px=6.0,
+                y_px=8.0,
+                x_nm=None,
+                y_nm=None,
+                point_id="point-3",
+            ),
+        ),
+    )
+
+    series = build_row_metric_series(row, RowPlotMode.DISTANCE_NM)
+
+    assert series.y_label == "distance (nm)"
+    assert len(series.samples) == 1
+    assert series.samples[0].x_value == pytest.approx(0.0)
+    assert series.samples[0].y_value == pytest.approx(0.5)
 
 
 def test_build_global_scatter_series_collects_all_rows_and_manual_status():
@@ -236,6 +349,8 @@ def test_build_row_distance_metrics_returns_summary_statistics():
                 point_index=0,
                 x_px=0.0,
                 y_px=0.0,
+                x_nm=0.0,
+                y_nm=0.0,
                 point_id="point-1",
             ),
             _make_point(
@@ -245,6 +360,8 @@ def test_build_row_distance_metrics_returns_summary_statistics():
                 point_index=1,
                 x_px=3.0,
                 y_px=4.0,
+                x_nm=0.3,
+                y_nm=0.4,
                 point_id="point-2",
             ),
             _make_point(
@@ -254,6 +371,8 @@ def test_build_row_distance_metrics_returns_summary_statistics():
                 point_index=2,
                 x_px=9.0,
                 y_px=12.0,
+                x_nm=0.9,
+                y_nm=1.2,
                 point_id="point-3",
             ),
         ),
@@ -264,10 +383,16 @@ def test_build_row_distance_metrics_returns_summary_statistics():
     assert metrics.row_id == row.row_id
     assert metrics.point_count == 3
     assert metrics.distance_count == 2
+    assert metrics.distance_count_for_unit(PlotUnit.PX) == 2
+    assert metrics.distance_count_for_unit(PlotUnit.NM) == 2
     assert metrics.mean_distance_px == pytest.approx(7.5)
     assert metrics.std_distance_px == pytest.approx(2.5)
     assert metrics.min_distance_px == pytest.approx(5.0)
     assert metrics.max_distance_px == pytest.approx(10.0)
+    assert metrics.mean_distance_nm == pytest.approx(0.75)
+    assert metrics.std_distance_nm == pytest.approx(0.25)
+    assert metrics.min_distance_nm == pytest.approx(0.5)
+    assert metrics.max_distance_nm == pytest.approx(1.0)
 
 
 def test_build_row_distance_metrics_handles_rows_with_fewer_than_two_points():
@@ -292,7 +417,49 @@ def test_build_row_distance_metrics_handles_rows_with_fewer_than_two_points():
 
     assert metrics.point_count == 1
     assert metrics.distance_count == 0
+    assert metrics.distance_count_for_unit(PlotUnit.NM) == 0
     assert metrics.mean_distance_px is None
     assert metrics.std_distance_px is None
     assert metrics.min_distance_px is None
     assert metrics.max_distance_px is None
+    assert metrics.mean_distance_nm is None
+    assert metrics.std_distance_nm is None
+    assert metrics.min_distance_nm is None
+    assert metrics.max_distance_nm is None
+
+
+def test_build_row_distance_metrics_leaves_nm_metrics_empty_without_calibrated_points():
+    row = AtomRow(
+        row_id="row-1",
+        source_group_id="group-1",
+        display_name="Row 1",
+        points=(
+            _make_point(
+                row_id="row-1",
+                source_group_id="group-1",
+                image_id="image-1",
+                point_index=0,
+                x_px=0.0,
+                y_px=0.0,
+                x_nm=0.0,
+                y_nm=0.0,
+                point_id="point-1",
+            ),
+            _make_point(
+                row_id="row-1",
+                source_group_id="group-1",
+                image_id="image-1",
+                point_index=1,
+                x_px=3.0,
+                y_px=4.0,
+                point_id="point-2",
+            ),
+        ),
+    )
+
+    metrics = build_row_distance_metrics(row)
+
+    assert metrics.distance_count_for_unit(PlotUnit.PX) == 1
+    assert metrics.distance_count_for_unit(PlotUnit.NM) == 0
+    assert metrics.mean_distance_px == pytest.approx(5.0)
+    assert metrics.mean_distance_nm is None

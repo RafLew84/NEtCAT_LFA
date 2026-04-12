@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import csv
+import json
 from pathlib import Path
 
 import numpy as np
@@ -13,7 +15,7 @@ from AtomMapper.app.controller import AtomMapperController
 from AtomMapper.app.main import create_main_window
 from AtomMapper.app.main_window import AtomMapperMainWindow
 from AtomMapper.app.models import AtomPoint, LoadedImage, ROIState
-from AtomMapper.app.plots import RowPlotMode
+from AtomMapper.app.plots import PlotUnit, RowPlotMode
 from AtomMapper.app.preprocessing import is_bm3d_available
 from AtomMapper.app.preprocessing_dialog import PreprocessingDialog
 from AtomMapper.app.preprocessing_state import (
@@ -23,6 +25,9 @@ from AtomMapper.app.preprocessing_state import (
     PreprocessingMethod,
     PreprocessingState,
 )
+from AtomMapper.app.session_io import build_session_from_runtime, save_session_to_file
+from AtomMapper.app.session_model import ATOMMAPPER_SESSION_VERSION
+from AtomMapper.app.session_model import SessionViewState
 
 pytest.importorskip("PyQt6", reason="PyQt6 is required for AtomMapper GUI tests")
 pytest.importorskip("pytestqt", reason="pytest-qt is required for AtomMapper GUI tests")
@@ -87,6 +92,8 @@ def test_main_window_loads_sample_file_via_button(qtbot, monkeypatch):
     assert window.image_viewport.image_item is not None
     assert window.image_viewport.image_item.image is not None
     assert window.image_viewport.stack.currentWidget() == window.image_viewport.plot_widget
+    assert "nm" in window.active_image_label.text()
+    assert "nm/px" in window.active_image_label.toolTip()
     assert window.roi_preview.current_loaded_image is not None
     assert window.roi_preview.current_patch_data is not None
     assert window.roi_preview.preview_label.pixmap() is not None
@@ -444,6 +451,8 @@ def test_main_window_drag_move_updates_point_position_and_marks_manual_override(
     moved_point = controller.active_row.points[0]
     assert moved_point.x_px == pytest.approx(16.5)
     assert moved_point.y_px == pytest.approx(17.25)
+    assert moved_point.x_nm == pytest.approx(16.5)
+    assert moved_point.y_nm == pytest.approx(17.25)
     assert moved_point.manual_override is True
     assert moved_point.manual_override_source == "drag"
     assert moved_point.fit_x_px == pytest.approx(10.0)
@@ -516,11 +525,229 @@ def test_main_window_end_to_end_stage3a_point_editing_workflow(qtbot):
     assert remaining_point.point_id == second_point_id
     assert remaining_point.manual_override is True
     assert len(window.image_viewport.point_scatter_item.points()) == 1
+
+
+def test_main_window_exports_active_family_points_to_csv(qtbot, monkeypatch, tmp_path: Path):
+    controller = AtomMapperController()
+    original = _make_gaussian_image("export-family.stp", size=40, amplitude=18.0, offset=1.0)
+    controller.set_loaded_images([original])
+    variant = controller.create_blur_variant_for_active_image(sigma_px=1.1, make_active=True)
+    row = controller.create_row_for_active_source_group(display_name="Row 1")
+
+    original_point = AtomPoint(
+        row_id=row.row_id,
+        image_id=original.image_id,
+        source_group_id=original.source_group_id,
+        point_index=0,
+        x_px=10.0,
+        y_px=11.0,
+        x_nm=10.0,
+        y_nm=11.0,
+        point_id="point-1",
+        fit_success=True,
+    )
+    variant_point = AtomPoint(
+        row_id=row.row_id,
+        image_id=variant.image_id,
+        source_group_id=original.source_group_id,
+        point_index=1,
+        x_px=18.5,
+        y_px=19.5,
+        x_nm=18.5,
+        y_nm=19.5,
+        point_id="point-2",
+        fit_success=False,
+        manual_override=True,
+        manual_override_source="drag",
+    )
+    controller.add_point_to_row(original_point)
+    controller.add_point_to_row(variant_point)
+
+    window = AtomMapperMainWindow(controller=controller)
+    qtbot.addWidget(window)
+
+    export_path = tmp_path / "family_points.csv"
+    monkeypatch.setattr(
+        "AtomMapper.app.main_window.QFileDialog.getSaveFileName",
+        lambda *args, **kwargs: (str(export_path), "CSV files (*.csv)"),
+    )
+
+    qtbot.mouseClick(window.export_csv_button, Qt.MouseButton.LeftButton)
+
+    assert export_path.exists()
+    with export_path.open("r", encoding="utf-8", newline="") as handle:
+        rows = list(csv.DictReader(handle))
+
+    assert len(rows) == 2
+    assert rows[0]["image_name"] == original.display_name
+    assert rows[0]["image_variant"] == "original"
+    assert rows[0]["point_id"] == "point-1"
+    assert rows[0]["status"] == "fit"
+    assert rows[1]["image_name"] == variant.display_name
+    assert rows[1]["image_variant"] == "blur"
+    assert rows[1]["point_id"] == "point-2"
+    assert rows[1]["manual_override"] == "true"
+    assert rows[1]["status"] == "manual (drag)"
+    assert rows[1]["x_nm"] == "18.500000"
+    assert window.statusBar().currentMessage() == "Exported 2 points to family_points.csv."
+    assert "exported 2 points to CSV" in window.workflow_status_label.text()
     assert window.image_viewport.current_active_point_id is None
     assert window.points_table_widget.currentItem() is None
-    assert window.points_table_widget.item(0, 6).text() == "manual (drag)"
-    assert window.statusBar().currentMessage() == "Deleted point 0 from Row 1."
-    assert "selection cleared" in window.workflow_status_label.text()
+    assert window.points_table_widget.item(0, 6).text() == "fit"
+    assert window.points_table_widget.item(1, 6).text() == "manual (drag)"
+
+
+def test_main_window_saves_project_session_to_file(qtbot, monkeypatch, tmp_path: Path):
+    controller = AtomMapperController()
+    original = _make_gaussian_image("session-save.stp", size=40, amplitude=18.0, offset=1.0)
+    controller.set_loaded_images([original])
+    controller.update_active_roi_state(ROIState(x=12, y=13, width=10, height=10))
+    row = controller.create_row_for_active_source_group(display_name="Row 1")
+    controller.add_point_to_row(
+        AtomPoint(
+            row_id=row.row_id,
+            image_id=original.image_id,
+            source_group_id=original.source_group_id,
+            point_index=0,
+            x_px=14.0,
+            y_px=15.0,
+            point_id="point-1",
+        )
+    )
+
+    window = AtomMapperMainWindow(controller=controller)
+    qtbot.addWidget(window)
+    window.points_table_widget.setCurrentCell(0, 0)
+    qtbot.waitUntil(lambda: window.image_viewport.current_active_point_id == "point-1")
+    window.show_gaussian_fit_checkbox.setChecked(False)
+    window.row_plot_widget.metric_combo.setCurrentIndex(
+        window.row_plot_widget.metric_combo.findData(RowPlotMode.DISTANCE_PX)
+    )
+    window.row_metrics_widget.unit_combo.setCurrentIndex(
+        window.row_metrics_widget.unit_combo.findData(PlotUnit.NM)
+    )
+    window.global_scatter_plot_widget.unit_combo.setCurrentIndex(
+        window.global_scatter_plot_widget.unit_combo.findData(PlotUnit.NM)
+    )
+
+    session_path = tmp_path / "session-save.atommapper_proj"
+    monkeypatch.setattr(
+        "AtomMapper.app.main_window.QFileDialog.getSaveFileName",
+        lambda *args, **kwargs: (str(session_path), "AtomMapper project (*.atommapper_proj)"),
+    )
+
+    qtbot.mouseClick(window.save_session_button, Qt.MouseButton.LeftButton)
+
+    assert session_path.exists()
+    with session_path.open("r", encoding="utf-8") as handle:
+        payload = json.load(handle)
+
+    assert payload["version"] == ATOMMAPPER_SESSION_VERSION
+    assert payload["active_image_id"] == original.image_id
+    assert payload["roi_states_by_image_id"][original.image_id] == {
+        "x": 12,
+        "y": 13,
+        "width": 10,
+        "height": 10,
+    }
+    assert payload["active_row_id_by_source_group"][original.source_group_id] == row.row_id
+    assert payload["active_point_id_by_source_group"][original.source_group_id] == "point-1"
+    assert payload["view_state"]["show_gaussian_fit"] is False
+    assert payload["view_state"]["row_plot_mode"] == "distance_px"
+    assert payload["view_state"]["row_plot_unit"] == "px"
+    assert payload["view_state"]["row_metrics_unit"] == "nm"
+    assert payload["view_state"]["global_scatter_unit"] == "nm"
+    assert len(payload["rows"]) == 1
+    assert payload["rows"][0]["points"][0]["point_id"] == "point-1"
+    assert window.statusBar().currentMessage() == "Saved session to session-save.atommapper_proj."
+    assert "saved project session" in window.workflow_status_label.text()
+
+
+def test_main_window_loads_project_session_from_file(qtbot, monkeypatch, tmp_path: Path):
+    original = _make_gaussian_image("session-load.stp", size=40, amplitude=18.0, offset=1.0)
+    source_controller = AtomMapperController()
+    source_controller.set_loaded_images([original])
+    source_controller.update_active_roi_state(ROIState(x=12, y=13, width=10, height=10))
+    row = source_controller.create_row_for_active_source_group(display_name="Row 1")
+    source_controller.add_point_to_row(
+        AtomPoint(
+            row_id=row.row_id,
+            image_id=original.image_id,
+            source_group_id=original.source_group_id,
+            point_index=0,
+            x_px=14.0,
+            y_px=15.0,
+            point_id="point-1",
+        )
+    )
+    variant = source_controller.create_blur_variant_for_active_image(sigma_px=1.25, make_active=True)
+    source_controller.update_active_roi_state(ROIState(x=9, y=10, width=11, height=12))
+    source_controller.add_point_to_row(
+        AtomPoint(
+            row_id=row.row_id,
+            image_id=variant.image_id,
+            source_group_id=variant.source_group_id,
+            point_index=1,
+            x_px=19.0,
+            y_px=21.0,
+            point_id="point-2",
+        )
+    )
+    session = build_session_from_runtime(
+        source_controller,
+        active_point_id_by_source_group={variant.source_group_id: "point-2"},
+        view_state=SessionViewState(
+            show_gaussian_fit=False,
+            row_plot_mode=RowPlotMode.DISTANCE_NM,
+            row_plot_unit=PlotUnit.NM,
+            row_metrics_unit=PlotUnit.NM,
+            global_scatter_unit=PlotUnit.NM,
+        ),
+    )
+    session_path = tmp_path / "session-load.atommapper_proj"
+    save_session_to_file(session_path, session)
+
+    target_controller = AtomMapperController()
+    target_controller.set_loaded_images([_make_gaussian_image("other.stp", size=24)])
+    window = AtomMapperMainWindow(controller=target_controller)
+    qtbot.addWidget(window)
+
+    monkeypatch.setattr(
+        "AtomMapper.app.main_window.QFileDialog.getOpenFileName",
+        lambda *args, **kwargs: (str(session_path), "AtomMapper project (*.atommapper_proj)"),
+    )
+
+    qtbot.mouseClick(window.load_session_button, Qt.MouseButton.LeftButton)
+
+    qtbot.waitUntil(
+        lambda: (
+            window.controller.active_image is not None
+            and window.controller.active_image.image_id == variant.image_id
+            and window.points_table_widget.rowCount() == 2
+        )
+    )
+
+    assert len(window.controller.loaded_images) == 2
+    assert window.controller.active_image is not None
+    assert window.controller.active_image.image_id == variant.image_id
+    assert window.controller.active_roi_state == ROIState(x=9, y=10, width=11, height=12)
+    assert window.controller.active_row is not None
+    assert window.controller.active_row.row_id == row.row_id
+    assert window.image_viewport.current_active_point_id == "point-2"
+    assert window.points_table_widget.currentItem() is not None
+    assert window.points_table_widget.currentItem().data(Qt.ItemDataRole.UserRole) == "point-2"
+    assert window.points_table_widget.item(0, 6).text() == "fit"
+    assert window.points_table_widget.item(1, 6).text() == "fit"
+    assert window.show_gaussian_fit_checkbox.isChecked() is False
+    assert window.gaussian_fit_preview.isHidden()
+    assert window.row_plot_widget.current_mode is RowPlotMode.DISTANCE_NM
+    assert window.row_plot_widget.current_unit is PlotUnit.NM
+    assert window.row_metrics_widget.current_unit is PlotUnit.NM
+    assert window.global_scatter_plot_widget.current_unit is PlotUnit.NM
+    assert len(window.image_viewport.point_scatter_item.points()) == 2
+    assert window.file_list_widget.count() == 2
+    assert window.statusBar().currentMessage() == "Loaded session from session-load.atommapper_proj."
+    assert "loaded project session" in window.workflow_status_label.text()
 
 
 def test_main_window_can_open_preprocessing_dialog_for_active_image(qtbot):
@@ -841,6 +1068,8 @@ def test_main_window_add_point_falls_back_to_roi_center_when_fit_is_unavailable(
     assert point.metadata["roi_y"] == 3
     assert point.x_px == pytest.approx(4.0)
     assert point.y_px == pytest.approx(5.0)
+    assert point.x_nm == pytest.approx(4.0)
+    assert point.y_nm == pytest.approx(5.0)
     assert "ROI center fallback" in window.workflow_status_label.text()
     assert window.row_list_widget.item(0).text() == "Row 1 (1 point)"
 
@@ -939,6 +1168,18 @@ def test_main_window_analysis_dock_refreshes_plots_and_metrics(qtbot):
     assert window.row_metrics_widget.current_metrics.distance_count == 1
     assert window.row_metrics_widget.stack.currentWidget() is window.row_metrics_widget.metrics_panel
 
+    window.global_scatter_plot_widget.unit_combo.setCurrentIndex(
+        window.global_scatter_plot_widget.unit_combo.findData(PlotUnit.NM)
+    )
+    qtbot.waitUntil(
+        lambda: (
+            window.global_scatter_plot_widget.current_series is not None
+            and window.global_scatter_plot_widget.current_series.unit is PlotUnit.NM
+        )
+    )
+    assert window.global_scatter_plot_widget.current_series.x_label == "x (nm)"
+    assert window.global_scatter_plot_widget.current_series.y_label == "y (nm)"
+
 
 def test_main_window_end_to_end_stage4_analysis_workflow(qtbot):
     controller = AtomMapperController()
@@ -1001,6 +1242,19 @@ def test_main_window_end_to_end_stage4_analysis_workflow(qtbot):
     assert window.row_metrics_widget.current_metrics.distance_count == 0
     assert window.row_metrics_widget.stack.currentWidget() is window.row_metrics_widget.placeholder_label
 
+    window.global_scatter_plot_widget.unit_combo.setCurrentIndex(
+        window.global_scatter_plot_widget.unit_combo.findData(PlotUnit.NM)
+    )
+    qtbot.waitUntil(
+        lambda: (
+            window.global_scatter_plot_widget.current_series is not None
+            and window.global_scatter_plot_widget.current_series.unit is PlotUnit.NM
+        )
+    )
+    assert window.global_scatter_plot_widget.current_unit is PlotUnit.NM
+    assert window.global_scatter_plot_widget.current_series.x_label == "x (nm)"
+    assert window.global_scatter_plot_widget.current_series.y_label == "y (nm)"
+
     window.row_list_widget.setCurrentRow(0)
     qtbot.waitUntil(
         lambda: controller.active_row is not None and controller.active_row.row_id == first_row.row_id
@@ -1012,6 +1266,7 @@ def test_main_window_end_to_end_stage4_analysis_workflow(qtbot):
     assert window.row_plot_widget.current_series is not None
     assert window.row_plot_widget.current_series.mode is RowPlotMode.DISTANCE_PX
     assert window.row_plot_widget.stack.currentWidget() is window.row_plot_widget.plot_widget
+    assert window.global_scatter_plot_widget.current_unit is PlotUnit.NM
     assert window.row_metrics_widget.current_metrics is not None
     assert window.row_metrics_widget.current_metrics.distance_count == 1
     assert window.row_metrics_widget.stack.currentWidget() is window.row_metrics_widget.metrics_panel
