@@ -5,7 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from .fit_settings import FitSettingsState
 from .models import AtomRow, LoadedImage, ROIState
+from .polygon_mask import PolygonMaskState
 from .plots import PlotUnit, RowPlotMode
 
 ATOMMAPPER_SESSION_VERSION = 1
@@ -20,6 +22,7 @@ class SessionViewState:
     row_plot_unit: PlotUnit = PlotUnit.PX
     row_metrics_unit: PlotUnit = PlotUnit.PX
     global_scatter_unit: PlotUnit = PlotUnit.PX
+    active_polygon_mask: PolygonMaskState | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serializable representation of the view state."""
@@ -30,6 +33,9 @@ class SessionViewState:
             "row_plot_unit": self.row_plot_unit.value,
             "row_metrics_unit": self.row_metrics_unit.value,
             "global_scatter_unit": self.global_scatter_unit.value,
+            "active_polygon_mask": (
+                None if self.active_polygon_mask is None else self.active_polygon_mask.to_dict()
+            ),
         }
 
     @classmethod
@@ -43,6 +49,11 @@ class SessionViewState:
             row_plot_unit=PlotUnit(data.get("row_plot_unit", PlotUnit.PX.value)),
             row_metrics_unit=PlotUnit(data.get("row_metrics_unit", PlotUnit.PX.value)),
             global_scatter_unit=PlotUnit(data.get("global_scatter_unit", PlotUnit.PX.value)),
+            active_polygon_mask=(
+                None
+                if data.get("active_polygon_mask") is None
+                else PolygonMaskState.from_dict(data.get("active_polygon_mask"))
+            ),
         )
 
 
@@ -56,6 +67,7 @@ class AtomMapperSession:
     rows: tuple[AtomRow, ...] = field(default_factory=tuple)
     active_row_id_by_source_group: dict[str, str] = field(default_factory=dict)
     active_point_id_by_source_group: dict[str, str] = field(default_factory=dict)
+    fit_settings: FitSettingsState = field(default_factory=FitSettingsState)
     view_state: SessionViewState = field(default_factory=SessionViewState)
     version: int = ATOMMAPPER_SESSION_VERSION
 
@@ -116,6 +128,7 @@ class AtomMapperSession:
             "rows": [row.to_dict() for row in self.rows],
             "active_row_id_by_source_group": dict(self.active_row_id_by_source_group),
             "active_point_id_by_source_group": dict(self.active_point_id_by_source_group),
+            "fit_settings": self.fit_settings.to_dict(),
             "view_state": self.view_state.to_dict(),
         }
 
@@ -146,5 +159,6 @@ class AtomMapperSession:
                 str(group_id): str(point_id)
                 for group_id, point_id in dict(payload.get("active_point_id_by_source_group", {})).items()
             },
+            fit_settings=FitSettingsState.from_dict(payload.get("fit_settings")),
             view_state=SessionViewState.from_dict(payload.get("view_state")),
         )

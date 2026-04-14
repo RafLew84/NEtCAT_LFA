@@ -7,7 +7,10 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from AtomMapper.app.fit_models import LocalFitModelType
+from AtomMapper.app.fit_settings import FitSettingsState, GaussianFitSettings
 from AtomMapper.app.models import AtomPoint, AtomRow, LoadedImage, ROIState
+from AtomMapper.app.polygon_mask import PolygonMaskState
 from AtomMapper.app.plots import PlotUnit, RowPlotMode
 from AtomMapper.app.session_model import (
     ATOMMAPPER_SESSION_VERSION,
@@ -39,6 +42,9 @@ def test_session_view_state_roundtrips_metric_and_unit_preferences():
         row_plot_unit=PlotUnit.NM,
         row_metrics_unit=PlotUnit.NM,
         global_scatter_unit=PlotUnit.NM,
+        active_polygon_mask=PolygonMaskState(
+            vertices_xy=((1.0, 2.0), (4.0, 2.0), (3.0, 5.0))
+        ),
     )
 
     restored = SessionViewState.from_dict(state.to_dict())
@@ -94,12 +100,23 @@ def test_atommapper_session_roundtrips_loaded_images_rows_rois_and_view_state():
         rows=(row,),
         active_row_id_by_source_group={original.source_group_id: row.row_id},
         active_point_id_by_source_group={original.source_group_id: "point-2"},
+        fit_settings=FitSettingsState(
+            model=LocalFitModelType.GAUSSIAN,
+            gaussian=GaussianFitSettings(
+                amplitude_init=11.0,
+                sigma_y_init=1.4,
+                sigma_x_init=1.8,
+            ),
+        ),
         view_state=SessionViewState(
             show_gaussian_fit=False,
             row_plot_mode=RowPlotMode.DISTANCE_PX,
             row_plot_unit=PlotUnit.PX,
             row_metrics_unit=PlotUnit.NM,
             global_scatter_unit=PlotUnit.NM,
+            active_polygon_mask=PolygonMaskState(
+                vertices_xy=((3.0, 4.0), (7.0, 4.0), (7.0, 8.0), (3.0, 8.0))
+            ),
         ),
     )
 
@@ -124,6 +141,7 @@ def test_atommapper_session_roundtrips_loaded_images_rows_rois_and_view_state():
     assert restored.rows[0].to_dict() == row.to_dict()
     assert restored.active_row_id_by_source_group == {original.source_group_id: row.row_id}
     assert restored.active_point_id_by_source_group == {original.source_group_id: "point-2"}
+    assert restored.fit_settings == session.fit_settings
     assert restored.view_state == session.view_state
 
 

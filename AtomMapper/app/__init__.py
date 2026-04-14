@@ -1,5 +1,18 @@
 """Application package for AtomMapper."""
 
+from .fit_settings import (
+    CommonFitSettings,
+    FitParameterDescriptor,
+    FitParameterTier,
+    FitSettingsState,
+    GaussianFitSettings,
+    LorentzianFitSettings,
+    ParameterBounds,
+    VoigtFitSettings,
+    describe_fit_parameters,
+)
+from .fit_settings_panel import FitSettingsPanelWidget
+from .fit_models import LocalFitModelType, LocalFitRequest, LocalPeakFitResult
 from .controller import AtomMapperController
 from .csv_export import (
     POINT_EXPORT_FIELDNAMES,
@@ -7,7 +20,7 @@ from .csv_export import (
     describe_point_status,
     export_point_rows_to_csv,
 )
-from .gaussian_fit import GaussianPatchFitResult, fit_gaussian_to_roi_patch
+from .gaussian_fit import GaussianPatchFitResult, fit_gaussian_to_roi_patch, fit_local_peak
 from .gaussian_preview import GaussianFitPreviewWidget
 from .global_scatter_plot_widget import GlobalScatterPlotWidget
 from .io import SUPPORTED_STM_EXTENSIONS, load_loaded_image
@@ -51,6 +64,7 @@ from .plots import (
     build_row_metric_series,
     sorted_row_points,
 )
+from .polygon_mask import PolygonMaskState, build_polygon_mask_for_roi
 from .roi_preview import ROIPreviewWidget
 from .row_disturbance_widget import RowDisturbanceWidget
 from .row_metrics_widget import RowMetricsWidget
@@ -83,12 +97,24 @@ __all__ = [
     "ATOMMAPPER_SESSION_VERSION",
     "BM3DParameters",
     "BlurParameters",
+    "CommonFitSettings",
+    "describe_fit_parameters",
+    "FitParameterDescriptor",
+    "FitParameterTier",
+    "FitSettingsPanelWidget",
+    "FitSettingsState",
     "POINT_EXPORT_FIELDNAMES",
     "GaussianPatchFitResult",
     "GaussianFitPreviewWidget",
+    "GaussianFitSettings",
     "GlobalScatterPlotWidget",
     "LoadedImage",
+    "LocalFitModelType",
+    "LocalFitRequest",
+    "LocalPeakFitResult",
+    "LorentzianFitSettings",
     "NonLocalMeansParameters",
+    "ParameterBounds",
     "PreprocessingDialog",
     "PreprocessingImagePreview",
     "PreprocessingMethod",
@@ -117,6 +143,7 @@ __all__ = [
     "GlobalScatterSample",
     "GlobalScatterSeries",
     "PlotUnit",
+    "PolygonMaskState",
     "RowDistanceMetrics",
     "RowGeometryMetrics",
     "RowMetricSeries",
@@ -135,13 +162,16 @@ __all__ = [
     "build_row_distance_metrics",
     "build_row_geometry_metrics",
     "build_nlm_metadata",
+    "build_polygon_mask_for_roi",
     "build_row_metric_series",
     "describe_point_status",
     "export_point_rows_to_csv",
     "fit_gaussian_to_roi_patch",
+    "fit_local_peak",
     "is_bm3d_available",
     "load_session_from_file",
     "load_loaded_image",
     "save_session_to_file",
     "sorted_row_points",
+    "VoigtFitSettings",
 ]

@@ -42,6 +42,24 @@ def test_build_point_export_rows_includes_px_nm_fit_and_status_fields():
         points=(
             AtomPoint(
                 row_id="row-1",
+                image_id=original.image_id,
+                source_group_id=original.source_group_id,
+                point_index=0,
+                x_px=1.0,
+                y_px=2.0,
+                x_nm=1.0,
+                y_nm=2.0,
+                point_id="point-1",
+                fit_success=True,
+                metadata={
+                    "fit_model": "gaussian",
+                    "fit_method": "gaussian_fit",
+                    "fit_mask_active": False,
+                    "fit_mask_pixel_count": None,
+                },
+            ),
+            AtomPoint(
+                row_id="row-1",
                 image_id=variant.image_id,
                 source_group_id=original.source_group_id,
                 point_index=1,
@@ -59,25 +77,41 @@ def test_build_point_export_rows_includes_px_nm_fit_and_status_fields():
                 fit_error_message="fallback",
                 manual_override=True,
                 manual_override_source="drag",
+                metadata={
+                    "fit_model": "voigt",
+                    "fit_method": "voigt_fit",
+                    "fit_mask_active": True,
+                    "fit_mask_pixel_count": 37,
+                },
             ),
         ),
     )
 
     export_rows = build_point_export_rows((row,), (original, variant))
 
-    assert len(export_rows) == 1
+    assert len(export_rows) == 2
     assert tuple(export_rows[0].keys()) == POINT_EXPORT_FIELDNAMES
-    assert export_rows[0]["image_name"] == variant.display_name
-    assert export_rows[0]["image_variant"] == "blur"
-    assert export_rows[0]["row_name"] == "Row 1"
-    assert export_rows[0]["x_px"] == "3.500000"
-    assert export_rows[0]["y_nm"] == "4.500000"
-    assert export_rows[0]["amplitude"] == "17.000000"
-    assert export_rows[0]["sigma_x_px"] == "1.100000"
-    assert export_rows[0]["fit_success"] == "false"
-    assert export_rows[0]["manual_override"] == "true"
-    assert export_rows[0]["manual_override_source"] == "drag"
-    assert export_rows[0]["status"] == "manual (drag)"
+    assert export_rows[1]["image_name"] == variant.display_name
+    assert export_rows[1]["image_variant"] == "blur"
+    assert export_rows[1]["row_name"] == "Row 1"
+    assert export_rows[1]["previous_point_id"] == "point-1"
+    assert export_rows[1]["next_point_id"] == ""
+    assert export_rows[1]["x_px"] == "3.500000"
+    assert export_rows[1]["y_nm"] == "4.500000"
+    assert export_rows[1]["distance_to_previous_px"] == "3.535534"
+    assert export_rows[1]["distance_to_next_px"] == ""
+    assert export_rows[1]["distance_to_previous_nm"] == "3.535534"
+    assert export_rows[1]["distance_to_next_nm"] == ""
+    assert export_rows[1]["amplitude"] == "17.000000"
+    assert export_rows[1]["sigma_x_px"] == "1.100000"
+    assert export_rows[1]["fit_success"] == "false"
+    assert export_rows[1]["fit_model"] == "voigt"
+    assert export_rows[1]["fit_method"] == "voigt_fit"
+    assert export_rows[1]["fit_mask_active"] == "true"
+    assert export_rows[1]["fit_mask_pixel_count"] == "37"
+    assert export_rows[1]["manual_override"] == "true"
+    assert export_rows[1]["manual_override_source"] == "drag"
+    assert export_rows[1]["status"] == "manual (drag)"
 
 
 def test_export_point_rows_to_csv_writes_header_and_rows(tmp_path: Path):
@@ -97,6 +131,11 @@ def test_export_point_rows_to_csv_writes_header_and_rows(tmp_path: Path):
                 x_nm=1.0,
                 y_nm=2.0,
                 point_id="point-1",
+                metadata={
+                    "fit_method": "gaussian_fit",
+                    "fit_mask_active": False,
+                    "fit_mask_pixel_count": None,
+                },
             ),
         ),
     )
@@ -111,8 +150,18 @@ def test_export_point_rows_to_csv_writes_header_and_rows(tmp_path: Path):
     assert len(rows) == 1
     assert rows[0]["image_name"] == "export.stp"
     assert rows[0]["point_id"] == "point-1"
+    assert rows[0]["previous_point_id"] == ""
+    assert rows[0]["next_point_id"] == ""
+    assert rows[0]["distance_to_previous_px"] == ""
+    assert rows[0]["distance_to_next_px"] == ""
+    assert rows[0]["distance_to_previous_nm"] == ""
+    assert rows[0]["distance_to_next_nm"] == ""
     assert rows[0]["status"] == "fit"
     assert rows[0]["x_nm"] == "1.000000"
+    assert rows[0]["fit_model"] == "gaussian"
+    assert rows[0]["fit_method"] == "gaussian_fit"
+    assert rows[0]["fit_mask_active"] == "false"
+    assert rows[0]["fit_mask_pixel_count"] == ""
     assert rows[0]["manual_override"] == "false"
 
 

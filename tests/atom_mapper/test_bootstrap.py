@@ -45,6 +45,8 @@ def test_create_main_window(qtbot):
     assert window.save_session_button.isEnabled() is True
     assert window.load_session_button.isEnabled() is True
     assert window.analysis_dock.widget() == window.analysis_dock_content
+    assert window.fit_settings_dock.widget() == window.fit_settings_panel
+    assert window.fit_settings_dock.isHidden() is True
 
 
 def test_main_window_syncs_file_list_with_controller(qtbot):
@@ -83,18 +85,15 @@ def test_main_window_places_saved_points_in_bottom_analysis_dock(qtbot):
     grid_layout = window.analysis_grid_panel.layout()
     assert grid_layout is not None
 
-    roi_index = grid_layout.indexOf(window.roi_preview)
     fit_index = grid_layout.indexOf(window.gaussian_fit_preview)
     image_index = grid_layout.indexOf(window.image_viewport)
 
-    assert roi_index >= 0
     assert fit_index >= 0
     assert image_index >= 0
 
-    assert grid_layout.getItemPosition(roi_index) == (0, 0, 1, 1)
-    assert grid_layout.getItemPosition(fit_index) == (1, 0, 1, 1)
+    assert grid_layout.getItemPosition(fit_index) == (0, 0, 1, 1)
     assert grid_layout.indexOf(window.saved_points_panel) == -1
-    assert grid_layout.getItemPosition(image_index) == (0, 1, 2, 1)
+    assert grid_layout.getItemPosition(image_index) == (0, 1, 1, 1)
     assert window.analysis_dock.widget() == window.analysis_dock_content
     analysis_layout = window.analysis_dock_content.layout()
     assert analysis_layout is not None
@@ -104,3 +103,4 @@ def test_main_window_places_saved_points_in_bottom_analysis_dock(qtbot):
     assert analysis_layout.indexOf(window.row_metrics_widget) >= 0
     assert analysis_layout.indexOf(window.row_disturbance_widget) >= 0
     assert window.dockWidgetArea(window.analysis_dock) == Qt.DockWidgetArea.BottomDockWidgetArea
+    assert window.dockWidgetArea(window.fit_settings_dock) == Qt.DockWidgetArea.RightDockWidgetArea

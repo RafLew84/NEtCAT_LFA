@@ -9,12 +9,14 @@ from pathlib import Path
 import numpy as np
 import pytest
 from PyQt6.QtCore import QTimer, Qt
-from PyQt6.QtWidgets import QDialog, QMessageBox
+from PyQt6.QtWidgets import QCheckBox, QDialog, QLineEdit, QMessageBox, QSpinBox
 
 from AtomMapper.app.controller import AtomMapperController
+from AtomMapper.app.fit_models import LocalFitModelType
 from AtomMapper.app.main import create_main_window
 from AtomMapper.app.main_window import AtomMapperMainWindow
 from AtomMapper.app.models import AtomPoint, LoadedImage, ROIState
+from AtomMapper.app.polygon_mask import PolygonMaskState
 from AtomMapper.app.plots import PlotUnit, RowPlotMode
 from AtomMapper.app.preprocessing import is_bm3d_available
 from AtomMapper.app.preprocessing_dialog import PreprocessingDialog
@@ -69,6 +71,101 @@ def _make_gaussian_image(
     return _make_loaded_image(name, image_data)
 
 
+def _make_lorentzian_image(
+    name: str,
+    size: int = 40,
+    *,
+    amplitude: float = 20.0,
+    offset: float = 1.0,
+) -> LoadedImage:
+    image_data = np.full((size, size), offset, dtype=float)
+    patch_half = 6
+    center = size // 2
+    y_grid, x_grid = np.mgrid[-patch_half : patch_half + 1, -patch_half : patch_half + 1]
+    theta = 0.1
+    y_rot = np.cos(theta) * y_grid + np.sin(theta) * x_grid
+    x_rot = -np.sin(theta) * y_grid + np.cos(theta) * x_grid
+    lorentzian_patch = amplitude / (1.0 + (y_rot / 1.6) ** 2 + (x_rot / 1.9) ** 2)
+    image_data[
+        center - patch_half : center + patch_half + 1,
+        center - patch_half : center + patch_half + 1,
+    ] += lorentzian_patch
+    return _make_loaded_image(name, image_data)
+
+
+def _make_voigt_image(
+    name: str,
+    size: int = 40,
+    *,
+    amplitude: float = 20.0,
+    offset: float = 1.0,
+) -> LoadedImage:
+    from scipy.special import voigt_profile
+
+    image_data = np.full((size, size), offset, dtype=float)
+    patch_half = 6
+    center = size // 2
+    y_grid, x_grid = np.mgrid[-patch_half : patch_half + 1, -patch_half : patch_half + 1]
+    theta = 0.08
+    y_rot = np.cos(theta) * y_grid + np.sin(theta) * x_grid
+    x_rot = -np.sin(theta) * y_grid + np.cos(theta) * x_grid
+    profile_y = voigt_profile(y_rot, 1.2, 0.7)
+    profile_x = voigt_profile(x_rot, 1.8, 1.1)
+    profile_y /= float(voigt_profile(np.array([0.0]), 1.2, 0.7)[0])
+    profile_x /= float(voigt_profile(np.array([0.0]), 1.8, 1.1)[0])
+    voigt_patch = amplitude * profile_y * profile_x
+    image_data[
+        center - patch_half : center + patch_half + 1,
+        center - patch_half : center + patch_half + 1,
+    ] += voigt_patch
+    return _make_loaded_image(name, image_data)
+
+
+def _make_overlapping_lorentzian_image(
+    name: str,
+    size: int = 48,
+    *,
+    offset: float = 1.0,
+    primary_amplitude: float = 16.0,
+    secondary_amplitude: float = 28.0,
+) -> LoadedImage:
+    y_grid, x_grid = np.mgrid[0:size, 0:size].astype(float)
+
+    def lorentzian_peak(
+        center_y: float,
+        center_x: float,
+        amplitude: float,
+        gamma_y: float,
+        gamma_x: float,
+        theta: float,
+    ) -> np.ndarray:
+        y_shift = y_grid - center_y
+        x_shift = x_grid - center_x
+        y_rot = np.cos(theta) * y_shift + np.sin(theta) * x_shift
+        x_rot = -np.sin(theta) * y_shift + np.cos(theta) * x_shift
+        return amplitude / (1.0 + (y_rot / gamma_y) ** 2 + (x_rot / gamma_x) ** 2)
+
+    center = size / 2.0
+    image_data = np.full((size, size), offset, dtype=float)
+    image_data += lorentzian_peak(
+        center,
+        center - 4.0,
+        primary_amplitude,
+        1.4,
+        1.7,
+        0.08,
+    )
+    image_data += lorentzian_peak(
+        center,
+        center + 4.0,
+        secondary_amplitude,
+        1.6,
+        1.9,
+        -0.05,
+    )
+    return _make_loaded_image(name, image_data)
+
+
 def test_main_window_loads_sample_file_via_button(qtbot, monkeypatch):
     window = create_main_window()
     qtbot.addWidget(window)
@@ -94,9 +191,8 @@ def test_main_window_loads_sample_file_via_button(qtbot, monkeypatch):
     assert window.image_viewport.stack.currentWidget() == window.image_viewport.plot_widget
     assert "nm" in window.active_image_label.text()
     assert "nm/px" in window.active_image_label.toolTip()
-    assert window.roi_preview.current_loaded_image is not None
-    assert window.roi_preview.current_patch_data is not None
-    assert window.roi_preview.preview_label.pixmap() is not None
+    assert window.preview_bridge.current_roi_patch_data is not None
+    assert window.gaussian_fit_preview.current_fit_result is not None
     assert "Loaded 1 STM file." in window.statusBar().currentMessage()
     assert window.file_list_hint_label.text() == "1 STM file loaded."
 
@@ -132,7 +228,7 @@ def test_main_window_reports_load_errors(qtbot, monkeypatch, tmp_path: Path):
     assert "Some files failed to load." in window.statusBar().currentMessage()
 
 
-def test_main_window_updates_roi_preview_when_roi_changes(qtbot):
+def test_main_window_updates_current_roi_patch_when_roi_changes(qtbot):
     controller = AtomMapperController()
     image = _make_loaded_image(
         "roi-sync.stp",
@@ -143,12 +239,12 @@ def test_main_window_updates_roi_preview_when_roi_changes(qtbot):
     window = AtomMapperMainWindow(controller=controller)
     qtbot.addWidget(window)
 
-    initial_patch = window.roi_preview.current_patch_data
+    initial_patch = window.preview_bridge.current_roi_patch_data
     assert initial_patch is not None
 
     clamped_roi = controller.update_active_roi_state(ROIState(x=2, y=3, width=6, height=5))
 
-    updated_patch = window.roi_preview.current_patch_data
+    updated_patch = window.preview_bridge.current_roi_patch_data
     assert updated_patch is not None
     assert updated_patch.shape == (clamped_roi.height, clamped_roi.width)
     assert np.array_equal(
@@ -216,6 +312,220 @@ def test_main_window_checkbox_controls_gaussian_fit_preview(qtbot):
     assert window.gaussian_fit_preview.current_fit_result.success is False
 
 
+def test_fit_settings_dock_is_non_modal_and_syncs_context(qtbot):
+    controller = AtomMapperController()
+    first = _make_gaussian_image("fit-first.stp", size=40)
+    second = _make_gaussian_image("fit-second.stp", size=44, amplitude=16.0, offset=2.0)
+    controller.set_loaded_images([first, second])
+
+    window = AtomMapperMainWindow(controller=controller)
+    qtbot.addWidget(window)
+
+    assert window.fit_settings_dock.isHidden() is True
+
+    qtbot.mouseClick(window.fit_settings_button, Qt.MouseButton.LeftButton)
+
+    assert window.fit_settings_dock.isHidden() is False
+    assert "fit-first.stp" in window.fit_settings_panel.context_label.text()
+
+    model_index = window.fit_settings_panel.model_combo.findData(LocalFitModelType.VOIGT)
+    window.fit_settings_panel.model_combo.setCurrentIndex(model_index)
+
+    max_nfev_spinbox = window.fit_settings_panel.findChild(QSpinBox, "atommapper_fit_common_max_nfev_spinbox")
+    assert max_nfev_spinbox is not None
+    max_nfev_spinbox.setValue(4200)
+
+    window.file_list_widget.setCurrentRow(1)
+    assert controller.active_image == second
+    assert "fit-second.stp" in window.fit_settings_panel.context_label.text()
+    assert window.fit_settings_state.model is LocalFitModelType.VOIGT
+    assert window.fit_settings_state.common.max_nfev == 4200
+
+    controller.update_active_roi_state(ROIState(x=3, y=4, width=7, height=8))
+    assert "ROI: x=3, y=4, 7x8 px" in window.fit_settings_panel.context_label.text()
+
+    window.fit_settings_dock.close()
+    assert window.fit_settings_dock.isHidden() is True
+
+    qtbot.mouseClick(window.fit_settings_button, Qt.MouseButton.LeftButton)
+    assert window.fit_settings_dock.isHidden() is False
+
+
+def test_fit_settings_panel_refreshes_preview_and_add_point_uses_same_gaussian_settings(qtbot):
+    controller = AtomMapperController()
+    image = _make_gaussian_image("fit-settings-gaussian.stp", size=40, amplitude=22.0, offset=1.0)
+    controller.set_loaded_images([image])
+
+    window = AtomMapperMainWindow(controller=controller)
+    qtbot.addWidget(window)
+    qtbot.mouseClick(window.new_row_button, Qt.MouseButton.LeftButton)
+
+    before_result = window.gaussian_fit_preview.current_fit_result
+    assert before_result is not None
+    assert before_result.success is True
+
+    qtbot.mouseClick(window.fit_settings_button, Qt.MouseButton.LeftButton)
+    model_index = window.fit_settings_panel.model_combo.findData(LocalFitModelType.GAUSSIAN)
+    window.fit_settings_panel.model_combo.setCurrentIndex(model_index)
+
+    max_nfev_spinbox = window.fit_settings_panel.findChild(QSpinBox, "atommapper_fit_common_max_nfev_spinbox")
+    assert max_nfev_spinbox is not None
+    max_nfev_spinbox.setValue(2800)
+
+    custom_initial_guess_checkbox = window.fit_settings_panel.findChild(
+        QCheckBox,
+        "atommapper_fit_common_use_custom_initial_guess_checkbox",
+    )
+    assert custom_initial_guess_checkbox is not None
+    custom_initial_guess_checkbox.setChecked(True)
+
+    gaussian_sigma_y_edit = window.fit_settings_panel.findChild(
+        QLineEdit,
+        "atommapper_fit_gaussian_sigma_y_init_lineedit",
+    )
+    assert gaussian_sigma_y_edit is not None
+    gaussian_sigma_y_edit.setText("1.1")
+    gaussian_sigma_y_edit.editingFinished.emit()
+
+    assert window.fit_settings_state.common.max_nfev == 2800
+    assert window.fit_settings_state.common.use_custom_initial_guess is True
+    assert window.fit_settings_state.gaussian.sigma_y_init == 1.1
+
+    refreshed_result = window.preview_bridge.compute_current_fit_result()
+    assert refreshed_result is not None
+    assert refreshed_result.success is True
+    assert refreshed_result.raw_result is not None
+    assert refreshed_result.raw_result.metadata["max_nfev"] == 2800
+    assert refreshed_result.raw_result.metadata["initial_params"][3] == pytest.approx(1.1)
+
+    qtbot.mouseClick(window.add_point_button, Qt.MouseButton.LeftButton)
+
+    active_row = controller.active_row
+    assert active_row is not None
+    point = active_row.points[0]
+    assert point.fit_success is True
+    assert point.metadata["fallback_used"] is False
+    assert point.metadata["fit_method"] == "gaussian_fit"
+    assert "from Gaussian fit" in window.workflow_status_label.text()
+
+
+def test_fit_settings_panel_refreshes_preview_and_add_point_uses_same_lorentzian_settings(qtbot):
+    controller = AtomMapperController()
+    image = _make_lorentzian_image("fit-settings-lorentzian.stp", size=40, amplitude=24.0, offset=1.5)
+    controller.set_loaded_images([image])
+
+    window = AtomMapperMainWindow(controller=controller)
+    qtbot.addWidget(window)
+    qtbot.mouseClick(window.new_row_button, Qt.MouseButton.LeftButton)
+
+    qtbot.mouseClick(window.fit_settings_button, Qt.MouseButton.LeftButton)
+    model_index = window.fit_settings_panel.model_combo.findData(LocalFitModelType.LORENTZIAN)
+    window.fit_settings_panel.model_combo.setCurrentIndex(model_index)
+
+    max_nfev_spinbox = window.fit_settings_panel.findChild(QSpinBox, "atommapper_fit_common_max_nfev_spinbox")
+    assert max_nfev_spinbox is not None
+    max_nfev_spinbox.setValue(3300)
+
+    custom_initial_guess_checkbox = window.fit_settings_panel.findChild(
+        QCheckBox,
+        "atommapper_fit_common_use_custom_initial_guess_checkbox",
+    )
+    assert custom_initial_guess_checkbox is not None
+    custom_initial_guess_checkbox.setChecked(True)
+
+    lorentzian_gamma_y_edit = window.fit_settings_panel.findChild(
+        QLineEdit,
+        "atommapper_fit_lorentzian_gamma_y_init_lineedit",
+    )
+    assert lorentzian_gamma_y_edit is not None
+    lorentzian_gamma_y_edit.setText("1.3")
+    lorentzian_gamma_y_edit.editingFinished.emit()
+
+    assert window.fit_settings_state.model is LocalFitModelType.LORENTZIAN
+    assert window.fit_settings_state.common.max_nfev == 3300
+    assert window.fit_settings_state.common.use_custom_initial_guess is True
+    assert window.fit_settings_state.lorentzian.gamma_y_init == 1.3
+
+    refreshed_result = window.preview_bridge.compute_current_fit_result()
+    assert refreshed_result is not None
+    assert refreshed_result.model is LocalFitModelType.LORENTZIAN
+    assert refreshed_result.success is True
+    assert refreshed_result.raw_result is not None
+    assert refreshed_result.raw_result.metadata["max_nfev"] == 3300
+    assert refreshed_result.raw_result.metadata["initial_params"][3] == pytest.approx(1.3)
+    assert "Lorentzian" in window.gaussian_fit_preview.title_label.text()
+
+    qtbot.mouseClick(window.add_point_button, Qt.MouseButton.LeftButton)
+
+    active_row = controller.active_row
+    assert active_row is not None
+    point = active_row.points[0]
+    assert point.fit_success is True
+    assert point.metadata["fallback_used"] is False
+    assert point.metadata["fit_method"] == "lorentzian_fit"
+    assert "from Lorentzian fit" in window.workflow_status_label.text()
+
+
+def test_fit_settings_panel_refreshes_preview_and_add_point_uses_same_voigt_settings(qtbot):
+    controller = AtomMapperController()
+    image = _make_voigt_image("fit-settings-voigt.stp", size=40, amplitude=26.0, offset=1.2)
+    controller.set_loaded_images([image])
+
+    window = AtomMapperMainWindow(controller=controller)
+    qtbot.addWidget(window)
+    qtbot.mouseClick(window.new_row_button, Qt.MouseButton.LeftButton)
+
+    qtbot.mouseClick(window.fit_settings_button, Qt.MouseButton.LeftButton)
+    model_index = window.fit_settings_panel.model_combo.findData(LocalFitModelType.VOIGT)
+    window.fit_settings_panel.model_combo.setCurrentIndex(model_index)
+
+    max_nfev_spinbox = window.fit_settings_panel.findChild(QSpinBox, "atommapper_fit_common_max_nfev_spinbox")
+    assert max_nfev_spinbox is not None
+    max_nfev_spinbox.setValue(3600)
+
+    custom_initial_guess_checkbox = window.fit_settings_panel.findChild(
+        QCheckBox,
+        "atommapper_fit_common_use_custom_initial_guess_checkbox",
+    )
+    assert custom_initial_guess_checkbox is not None
+    custom_initial_guess_checkbox.setChecked(True)
+
+    voigt_gamma_y_edit = window.fit_settings_panel.findChild(
+        QLineEdit,
+        "atommapper_fit_voigt_gamma_y_init_lineedit",
+    )
+    assert voigt_gamma_y_edit is not None
+    voigt_gamma_y_edit.setText("0.9")
+    voigt_gamma_y_edit.editingFinished.emit()
+
+    assert window.fit_settings_state.model is LocalFitModelType.VOIGT
+    assert window.fit_settings_state.common.max_nfev == 3600
+    assert window.fit_settings_state.common.use_custom_initial_guess is True
+    assert window.fit_settings_state.voigt.gamma_y_init == 0.9
+
+    refreshed_result = window.preview_bridge.compute_current_fit_result()
+    assert refreshed_result is not None
+    assert refreshed_result.model is LocalFitModelType.VOIGT
+    assert refreshed_result.success is True
+    assert refreshed_result.raw_result is not None
+    assert refreshed_result.raw_result.metadata["max_nfev"] == 3600
+    assert refreshed_result.raw_result.metadata["initial_params"][5] == pytest.approx(0.9)
+    assert refreshed_result.shape_parameters["gamma_y"] is not None
+    assert "Voigt" in window.gaussian_fit_preview.title_label.text()
+
+    qtbot.mouseClick(window.add_point_button, Qt.MouseButton.LeftButton)
+
+    active_row = controller.active_row
+    assert active_row is not None
+    point = active_row.points[0]
+    assert point.fit_success is True
+    assert point.metadata["fallback_used"] is False
+    assert point.metadata["fit_method"] == "voigt_fit"
+    assert point.metadata["fit_shape_parameters"]["gamma_y"] is not None
+    assert point.metadata["fit_shape_parameters"]["gamma_x"] is not None
+    assert "from Voigt fit" in window.workflow_status_label.text()
+
+
 def test_main_window_end_to_end_roi_fit_workflow(qtbot, monkeypatch):
     window = create_main_window()
     qtbot.addWidget(window)
@@ -243,21 +553,21 @@ def test_main_window_end_to_end_roi_fit_workflow(qtbot, monkeypatch):
     assert window.controller.active_image.display_name == "fake-first.stp"
     assert window.image_viewport.image_item is not None
     assert window.image_viewport.image_item.image is not None
-    assert window.roi_preview.current_patch_data is not None
+    assert window.preview_bridge.current_roi_patch_data is not None
     assert window.gaussian_fit_preview.current_fit_result is not None
     assert window.gaussian_fit_preview.current_fit_result.success is True
     assert "Gaussian center" in window.workflow_status_label.text()
 
-    first_patch = np.array(window.roi_preview.current_patch_data, copy=True)
+    first_patch = np.array(window.preview_bridge.current_roi_patch_data, copy=True)
 
     window.file_list_widget.setCurrentRow(1)
 
     assert window.controller.active_image is not None
     assert window.controller.active_image.display_name == "fake-second.stp"
-    assert window.roi_preview.current_loaded_image is not None
-    assert window.roi_preview.current_loaded_image.display_name == "fake-second.stp"
-    assert window.roi_preview.current_patch_data is not None
-    assert not np.array_equal(window.roi_preview.current_patch_data, first_patch)
+    assert window.image_viewport.current_loaded_image is not None
+    assert window.image_viewport.current_loaded_image.display_name == "fake-second.stp"
+    assert window.preview_bridge.current_roi_patch_data is not None
+    assert not np.array_equal(window.preview_bridge.current_roi_patch_data, first_patch)
     assert window.gaussian_fit_preview.current_fit_result is not None
     assert window.statusBar().currentMessage() == "Selected fake-second.stp."
 
@@ -290,7 +600,7 @@ def test_main_window_groups_variants_under_original_and_keeps_selection_stable(q
 
     window.file_list_widget.setCurrentRow(1)
     assert window.controller.active_image == variant
-    assert window.roi_preview.current_loaded_image == variant
+    assert window.image_viewport.current_loaded_image == variant
 
     window.file_list_widget.setCurrentRow(2)
     assert window.controller.active_image == second
@@ -545,6 +855,11 @@ def test_main_window_exports_active_family_points_to_csv(qtbot, monkeypatch, tmp
         y_nm=11.0,
         point_id="point-1",
         fit_success=True,
+        metadata={
+            "fit_method": "gaussian_fit",
+            "fit_mask_active": False,
+            "fit_mask_pixel_count": None,
+        },
     )
     variant_point = AtomPoint(
         row_id=row.row_id,
@@ -559,6 +874,12 @@ def test_main_window_exports_active_family_points_to_csv(qtbot, monkeypatch, tmp
         fit_success=False,
         manual_override=True,
         manual_override_source="drag",
+        metadata={
+            "fit_model": "lorentzian",
+            "fit_method": "lorentzian_fit",
+            "fit_mask_active": True,
+            "fit_mask_pixel_count": 28,
+        },
     )
     controller.add_point_to_row(original_point)
     controller.add_point_to_row(variant_point)
@@ -582,13 +903,32 @@ def test_main_window_exports_active_family_points_to_csv(qtbot, monkeypatch, tmp
     assert rows[0]["image_name"] == original.display_name
     assert rows[0]["image_variant"] == "original"
     assert rows[0]["point_id"] == "point-1"
+    assert rows[0]["previous_point_id"] == ""
+    assert rows[0]["next_point_id"] == "point-2"
+    assert rows[0]["distance_to_previous_px"] == ""
+    assert rows[0]["distance_to_next_px"] == "12.020815"
+    assert rows[0]["distance_to_previous_nm"] == ""
+    assert rows[0]["distance_to_next_nm"] == "12.020815"
     assert rows[0]["status"] == "fit"
+    assert rows[0]["fit_model"] == "gaussian"
+    assert rows[0]["fit_method"] == "gaussian_fit"
+    assert rows[0]["fit_mask_active"] == "false"
     assert rows[1]["image_name"] == variant.display_name
     assert rows[1]["image_variant"] == "blur"
     assert rows[1]["point_id"] == "point-2"
+    assert rows[1]["previous_point_id"] == "point-1"
+    assert rows[1]["next_point_id"] == ""
+    assert rows[1]["distance_to_previous_px"] == "12.020815"
+    assert rows[1]["distance_to_next_px"] == ""
+    assert rows[1]["distance_to_previous_nm"] == "12.020815"
+    assert rows[1]["distance_to_next_nm"] == ""
     assert rows[1]["manual_override"] == "true"
     assert rows[1]["status"] == "manual (drag)"
     assert rows[1]["x_nm"] == "18.500000"
+    assert rows[1]["fit_model"] == "lorentzian"
+    assert rows[1]["fit_method"] == "lorentzian_fit"
+    assert rows[1]["fit_mask_active"] == "true"
+    assert rows[1]["fit_mask_pixel_count"] == "28"
     assert window.statusBar().currentMessage() == "Exported 2 points to family_points.csv."
     assert "exported 2 points to CSV" in window.workflow_status_label.text()
     assert window.image_viewport.current_active_point_id is None
@@ -629,6 +969,13 @@ def test_main_window_saves_project_session_to_file(qtbot, monkeypatch, tmp_path:
     window.global_scatter_plot_widget.unit_combo.setCurrentIndex(
         window.global_scatter_plot_widget.unit_combo.findData(PlotUnit.NM)
     )
+    qtbot.mouseClick(window.polygon_mask_button, Qt.MouseButton.LeftButton)
+    assert window.image_viewport.add_polygon_mask_vertex(12.0, 13.0) is True
+    assert window.image_viewport.add_polygon_mask_vertex(22.0, 13.0) is True
+    assert window.image_viewport.add_polygon_mask_vertex(22.0, 23.0) is True
+    assert window.image_viewport.add_polygon_mask_vertex(12.0, 23.0) is True
+    assert window.image_viewport.finish_polygon_mask() is True
+    qtbot.waitUntil(lambda: window.image_viewport.current_polygon_mask_state is not None)
 
     session_path = tmp_path / "session-save.atommapper_proj"
     monkeypatch.setattr(
@@ -657,6 +1004,8 @@ def test_main_window_saves_project_session_to_file(qtbot, monkeypatch, tmp_path:
     assert payload["view_state"]["row_plot_unit"] == "px"
     assert payload["view_state"]["row_metrics_unit"] == "nm"
     assert payload["view_state"]["global_scatter_unit"] == "nm"
+    assert payload["view_state"]["active_polygon_mask"] is not None
+    assert len(payload["view_state"]["active_polygon_mask"]["vertices_xy"]) == 4
     assert len(payload["rows"]) == 1
     assert payload["rows"][0]["points"][0]["point_id"] == "point-1"
     assert window.statusBar().currentMessage() == "Saved session to session-save.atommapper_proj."
@@ -702,6 +1051,9 @@ def test_main_window_loads_project_session_from_file(qtbot, monkeypatch, tmp_pat
             row_plot_unit=PlotUnit.NM,
             row_metrics_unit=PlotUnit.NM,
             global_scatter_unit=PlotUnit.NM,
+            active_polygon_mask=PolygonMaskState(
+                vertices_xy=((10.0, 11.0), (20.0, 11.0), (20.0, 21.0), (10.0, 21.0))
+            ),
         ),
     )
     session_path = tmp_path / "session-load.atommapper_proj"
@@ -744,6 +1096,10 @@ def test_main_window_loads_project_session_from_file(qtbot, monkeypatch, tmp_pat
     assert window.row_plot_widget.current_unit is PlotUnit.NM
     assert window.row_metrics_widget.current_unit is PlotUnit.NM
     assert window.global_scatter_plot_widget.current_unit is PlotUnit.NM
+    assert window.preview_bridge.current_polygon_mask_state is not None
+    assert window.image_viewport.current_polygon_mask_state is not None
+    assert len(window.image_viewport.current_polygon_mask_state.vertices_xy) == 4
+    assert window.clear_polygon_mask_button.isEnabled() is True
     assert len(window.image_viewport.point_scatter_item.points()) == 2
     assert window.file_list_widget.count() == 2
     assert window.statusBar().currentMessage() == "Loaded session from session-load.atommapper_proj."
@@ -1039,6 +1395,165 @@ def test_main_window_add_point_uses_gaussian_fit_for_active_row(qtbot):
     assert (first_spot.pos().x(), first_spot.pos().y()) == pytest.approx(
         (point.x_px, point.y_px)
     )
+
+
+def test_main_window_polygon_mask_limits_fit_and_is_saved_with_point_metadata(qtbot):
+    controller = AtomMapperController()
+    image = _make_gaussian_image("point-mask.stp", size=40, amplitude=22.0, offset=1.0)
+    controller.set_loaded_images([image])
+
+    window = AtomMapperMainWindow(controller=controller)
+    qtbot.addWidget(window)
+
+    qtbot.mouseClick(window.new_row_button, Qt.MouseButton.LeftButton)
+    qtbot.mouseClick(window.polygon_mask_button, Qt.MouseButton.LeftButton)
+
+    assert window.image_viewport.add_polygon_mask_vertex(16.0, 16.0) is True
+    assert window.image_viewport.add_polygon_mask_vertex(24.0, 16.0) is True
+    assert window.image_viewport.add_polygon_mask_vertex(24.0, 24.0) is True
+    assert window.image_viewport.add_polygon_mask_vertex(16.0, 24.0) is True
+    assert window.image_viewport.finish_polygon_mask() is True
+    qtbot.waitUntil(lambda: window.image_viewport.current_polygon_mask_state is not None)
+
+    fit_result = window.preview_bridge.compute_current_fit_result()
+    assert fit_result is not None
+    assert fit_result.fit_mask is not None
+    assert int(fit_result.fit_mask.sum()) > 0
+    assert fit_result.raw_result is not None
+    assert fit_result.raw_result.metadata["fit_mask_pixel_count"] == int(fit_result.fit_mask.sum())
+
+    qtbot.mouseClick(window.add_point_button, Qt.MouseButton.LeftButton)
+
+    active_row = controller.active_row
+    assert active_row is not None
+    point = active_row.points[0]
+    assert point.metadata["fit_mask_active"] is True
+    assert point.metadata["fit_mask_pixel_count"] == int(fit_result.fit_mask.sum())
+
+    qtbot.mouseClick(window.clear_polygon_mask_button, Qt.MouseButton.LeftButton)
+
+    assert window.preview_bridge.current_polygon_mask_state is None
+    assert window.image_viewport.current_polygon_mask_state is None
+
+
+def test_main_window_end_to_end_stage7_fit_model_mask_workflow_with_session_restore(
+    qtbot, monkeypatch, tmp_path: Path
+):
+    controller = AtomMapperController()
+    image = _make_overlapping_lorentzian_image("stage7-overlap.stp")
+    controller.set_loaded_images([image])
+    controller.update_active_roi_state(ROIState(x=14, y=16, width=20, height=16))
+
+    window = AtomMapperMainWindow(controller=controller)
+    qtbot.addWidget(window)
+    qtbot.mouseClick(window.new_row_button, Qt.MouseButton.LeftButton)
+    qtbot.mouseClick(window.fit_settings_button, Qt.MouseButton.LeftButton)
+
+    model_index = window.fit_settings_panel.model_combo.findData(LocalFitModelType.LORENTZIAN)
+    window.fit_settings_panel.model_combo.setCurrentIndex(model_index)
+
+    max_nfev_spinbox = window.fit_settings_panel.findChild(
+        QSpinBox,
+        "atommapper_fit_common_max_nfev_spinbox",
+    )
+    assert max_nfev_spinbox is not None
+    max_nfev_spinbox.setValue(3400)
+
+    custom_initial_guess_checkbox = window.fit_settings_panel.findChild(
+        QCheckBox,
+        "atommapper_fit_common_use_custom_initial_guess_checkbox",
+    )
+    assert custom_initial_guess_checkbox is not None
+    custom_initial_guess_checkbox.setChecked(True)
+
+    gamma_x_edit = window.fit_settings_panel.findChild(
+        QLineEdit,
+        "atommapper_fit_lorentzian_gamma_x_init_lineedit",
+    )
+    assert gamma_x_edit is not None
+    gamma_x_edit.setText("1.8")
+    gamma_x_edit.editingFinished.emit()
+
+    assert window.fit_settings_state.model is LocalFitModelType.LORENTZIAN
+    assert window.fit_settings_state.common.max_nfev == 3400
+    assert window.fit_settings_state.lorentzian.gamma_x_init == 1.8
+    assert window.fit_settings_dock.isHidden() is False
+
+    unmasked_result = window.preview_bridge.compute_current_fit_result()
+    assert unmasked_result is not None
+    assert unmasked_result.success is True
+    assert unmasked_result.center_image_yx is not None
+    assert unmasked_result.center_image_yx[1] > 24.5
+
+    qtbot.mouseClick(window.polygon_mask_button, Qt.MouseButton.LeftButton)
+    assert window.image_viewport.add_polygon_mask_vertex(15.5, 18.0) is True
+    assert window.image_viewport.add_polygon_mask_vertex(24.0, 18.0) is True
+    assert window.image_viewport.add_polygon_mask_vertex(24.0, 30.0) is True
+    assert window.image_viewport.add_polygon_mask_vertex(15.5, 30.0) is True
+    assert window.image_viewport.finish_polygon_mask() is True
+    qtbot.waitUntil(lambda: window.image_viewport.current_polygon_mask_state is not None)
+
+    masked_result = window.preview_bridge.compute_current_fit_result()
+    assert masked_result is not None
+    assert masked_result.model is LocalFitModelType.LORENTZIAN
+    assert masked_result.success is True
+    assert masked_result.center_image_yx is not None
+    assert masked_result.fit_mask is not None
+    assert masked_result.center_image_yx[1] < 24.0
+    assert "Lorentzian" in window.gaussian_fit_preview.title_label.text()
+    assert "mask=" in window.gaussian_fit_preview.info_label.text()
+
+    qtbot.mouseClick(window.add_point_button, Qt.MouseButton.LeftButton)
+
+    active_row = controller.active_row
+    assert active_row is not None
+    point = active_row.points[0]
+    assert point.fit_success is True
+    assert point.metadata["fit_model"] == "lorentzian"
+    assert point.metadata["fit_method"] == "lorentzian_fit"
+    assert point.metadata["fit_mask_active"] is True
+    assert int(point.metadata["fit_mask_pixel_count"]) > 0
+    assert "from Lorentzian fit" in window.workflow_status_label.text()
+
+    session_path = tmp_path / "stage7-overlap.atommapper_proj"
+    monkeypatch.setattr(
+        "AtomMapper.app.main_window.QFileDialog.getSaveFileName",
+        lambda *args, **kwargs: (str(session_path), "AtomMapper project (*.atommapper_proj)"),
+    )
+    qtbot.mouseClick(window.save_session_button, Qt.MouseButton.LeftButton)
+    assert session_path.exists()
+
+    restored_controller = AtomMapperController()
+    restored_window = AtomMapperMainWindow(controller=restored_controller)
+    qtbot.addWidget(restored_window)
+    monkeypatch.setattr(
+        "AtomMapper.app.main_window.QFileDialog.getOpenFileName",
+        lambda *args, **kwargs: (str(session_path), "AtomMapper project (*.atommapper_proj)"),
+    )
+    qtbot.mouseClick(restored_window.load_session_button, Qt.MouseButton.LeftButton)
+
+    qtbot.waitUntil(
+        lambda: (
+            restored_window.controller.active_image is not None
+            and restored_window.preview_bridge.current_polygon_mask_state is not None
+            and restored_window.controller.active_row is not None
+            and restored_window.controller.active_row.point_count == 1
+        )
+    )
+
+    assert restored_window.fit_settings_state.model is LocalFitModelType.LORENTZIAN
+    assert restored_window.fit_settings_state.common.max_nfev == 3400
+    assert restored_window.fit_settings_state.lorentzian.gamma_x_init == 1.8
+    assert restored_window.preview_bridge.current_polygon_mask_state is not None
+    assert restored_window.image_viewport.current_polygon_mask_state is not None
+    assert restored_window.gaussian_fit_preview.current_fit_result is not None
+    assert restored_window.gaussian_fit_preview.current_fit_result.model is LocalFitModelType.LORENTZIAN
+    assert restored_window.gaussian_fit_preview.current_fit_result.fit_mask is not None
+    assert restored_window.gaussian_fit_preview.current_fit_result.center_image_yx is not None
+    assert restored_window.gaussian_fit_preview.current_fit_result.center_image_yx[1] < 24.0
+    assert restored_window.points_table_widget.rowCount() == 1
+    assert restored_window.points_table_widget.item(0, 6).text() == "fit"
+    assert "loaded project session" in restored_window.workflow_status_label.text()
 
 
 def test_main_window_add_point_falls_back_to_roi_center_when_fit_is_unavailable(qtbot):

@@ -459,3 +459,59 @@ def test_pyqtgraph_viewport_clears_row_geometry_overlay_when_unset(qtbot):
     assert viewport.row_axis_item.isVisible() is False
     assert viewport.row_disturbance_scatter_item is not None
     assert viewport.row_disturbance_scatter_item.isVisible() is False
+
+
+def test_pyqtgraph_viewport_builds_and_clears_polygon_mask_overlay(qtbot):
+    viewport = PyQtGraphSTMViewport()
+    qtbot.addWidget(viewport)
+
+    image = _make_loaded_image("pg-polygon.stp", width=20, height=20)
+    viewport.set_loaded_image(image)
+    viewport.set_roi_state(ROIState(x=4, y=5, width=10, height=10))
+    viewport.set_polygon_mask_drawing_enabled(True)
+
+    emitted: list[object] = []
+    viewport.polygon_mask_state_changed.connect(emitted.append)
+
+    assert viewport.add_polygon_mask_vertex(6.0, 7.0) is True
+    assert viewport.add_polygon_mask_vertex(12.0, 7.0) is True
+    assert viewport.add_polygon_mask_vertex(12.0, 13.0) is True
+    assert viewport.add_polygon_mask_vertex(6.0, 13.0) is True
+    assert viewport.finish_polygon_mask() is True
+
+    assert emitted
+    polygon_state = emitted[-1]
+    assert polygon_state is not None
+    assert viewport.current_polygon_mask_state is not None
+    assert viewport.current_polygon_mask_state.is_valid is True
+    assert viewport.has_polygon_mask_or_draft is True
+    assert viewport.polygon_mask_curve_item is not None
+    assert viewport.polygon_mask_curve_item.isVisible() is True
+    assert viewport.polygon_mask_vertex_item is not None
+    assert viewport.polygon_mask_vertex_item.isVisible() is True
+
+    viewport.clear_polygon_mask()
+
+    assert emitted[-1] is None
+    assert viewport.current_polygon_mask_state is None
+    assert viewport.has_polygon_mask_or_draft is False
+    assert viewport.polygon_mask_curve_item.isVisible() is False
+    assert viewport.polygon_mask_vertex_item.isVisible() is False
+
+
+def test_pyqtgraph_viewport_rejects_polygon_vertices_outside_current_roi(qtbot):
+    viewport = PyQtGraphSTMViewport()
+    qtbot.addWidget(viewport)
+
+    image = _make_loaded_image("pg-polygon-bounds.stp", width=20, height=20)
+    viewport.set_loaded_image(image)
+    viewport.set_roi_state(ROIState(x=4, y=5, width=8, height=8))
+    viewport.set_polygon_mask_drawing_enabled(True)
+
+    assert viewport.add_polygon_mask_vertex(2.0, 2.0) is False
+    assert viewport.add_polygon_mask_vertex(5.0, 6.0) is True
+    assert viewport.add_polygon_mask_vertex(11.0, 6.0) is True
+    assert viewport.add_polygon_mask_vertex(11.0, 12.0) is True
+    assert viewport.finish_polygon_mask() is True
+    assert viewport.current_polygon_mask_state is not None
+    assert viewport.current_polygon_mask_state.vertices_xy[0] == pytest.approx((5.0, 6.0))

@@ -8,7 +8,10 @@ from pathlib import Path
 import numpy as np
 
 from AtomMapper.app.controller import AtomMapperController
+from AtomMapper.app.fit_models import LocalFitModelType
+from AtomMapper.app.fit_settings import FitSettingsState, LorentzianFitSettings
 from AtomMapper.app.models import AtomPoint, LoadedImage, ROIState
+from AtomMapper.app.polygon_mask import PolygonMaskState
 from AtomMapper.app.plots import PlotUnit, RowPlotMode
 from AtomMapper.app.session_io import (
     build_session_from_runtime,
@@ -55,12 +58,23 @@ def test_build_session_from_runtime_captures_controller_and_view_state():
     session = build_session_from_runtime(
         controller,
         active_point_id_by_source_group={original.source_group_id: "point-1"},
+        fit_settings=FitSettingsState(
+            model=LocalFitModelType.LORENTZIAN,
+            lorentzian=LorentzianFitSettings(
+                amplitude_init=7.0,
+                gamma_y_init=1.2,
+                gamma_x_init=1.5,
+            ),
+        ),
         view_state=SessionViewState(
             show_gaussian_fit=False,
             row_plot_mode=RowPlotMode.DISTANCE_PX,
             row_plot_unit=PlotUnit.PX,
             row_metrics_unit=PlotUnit.NM,
             global_scatter_unit=PlotUnit.NM,
+            active_polygon_mask=PolygonMaskState(
+                vertices_xy=((2.0, 3.0), (7.0, 3.0), (7.0, 8.0), (2.0, 8.0))
+            ),
         ),
     )
 
@@ -68,10 +82,13 @@ def test_build_session_from_runtime_captures_controller_and_view_state():
     assert session.roi_states_by_image_id[original.image_id] == ROIState(x=2, y=3, width=6, height=6)
     assert session.active_row_id_by_source_group[original.source_group_id] == row.row_id
     assert session.active_point_id_by_source_group[original.source_group_id] == "point-1"
+    assert session.fit_settings.model is LocalFitModelType.LORENTZIAN
+    assert session.fit_settings.lorentzian.gamma_y_init == 1.2
     assert session.view_state.show_gaussian_fit is False
     assert session.view_state.row_plot_mode is RowPlotMode.DISTANCE_PX
     assert session.view_state.row_metrics_unit is PlotUnit.NM
     assert session.view_state.global_scatter_unit is PlotUnit.NM
+    assert session.view_state.active_polygon_mask is not None
 
 
 def test_save_session_to_file_writes_json_project(tmp_path: Path):
@@ -79,7 +96,14 @@ def test_save_session_to_file_writes_json_project(tmp_path: Path):
     image = _make_loaded_image("sample.stp")
     controller.set_loaded_images([image])
 
-    session = build_session_from_runtime(controller)
+    session = build_session_from_runtime(
+        controller,
+        view_state=SessionViewState(
+            active_polygon_mask=PolygonMaskState(
+                vertices_xy=((1.0, 1.0), (4.0, 1.0), (4.0, 4.0), (1.0, 4.0))
+            )
+        ),
+    )
     project_path = tmp_path / "sample.atommapper_proj"
     saved_path = save_session_to_file(project_path, session)
 
@@ -90,6 +114,8 @@ def test_save_session_to_file_writes_json_project(tmp_path: Path):
     assert payload["version"] == 1
     assert len(payload["loaded_images"]) == 1
     assert payload["loaded_images"][0]["display_name"] == "sample.stp"
+    assert payload["fit_settings"]["model"] == "gaussian"
+    assert payload["view_state"]["active_polygon_mask"]["vertices_xy"][0] == {"x": 1.0, "y": 1.0}
 
 
 def test_load_session_from_file_round_trips_saved_project(tmp_path: Path):
@@ -119,6 +145,9 @@ def test_load_session_from_file_round_trips_saved_project(tmp_path: Path):
             row_plot_unit=PlotUnit.PX,
             row_metrics_unit=PlotUnit.NM,
             global_scatter_unit=PlotUnit.NM,
+            active_polygon_mask=PolygonMaskState(
+                vertices_xy=((1.0, 2.0), (4.0, 2.0), (4.0, 6.0), (1.0, 6.0))
+            ),
         ),
     )
     project_path = tmp_path / "roundtrip.atommapper_proj"

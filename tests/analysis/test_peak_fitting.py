@@ -3,6 +3,7 @@
 Unit tests for peak fitting functions in lfa.analysis.peak_fitting.
 """
 import sys
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -14,11 +15,15 @@ import logging
 # Importuj funkcje do testowania
 try:
     from lfa.analysis.peak_fitting import (
+        OptimizeWarning,
         SCIPY_AVAILABLE,
         find_max_pixel_in_roi,
         fit_2d_gaussian_on_patch,
         fit_2d_gaussian_in_roi,
+        fit_2d_lorentzian_on_patch,
+        fit_2d_voigt_on_patch,
     )
+    import lfa.analysis.peak_fitting as peak_fitting_module
 except ImportError:
     pytest.fail("Could not import from lfa.analysis.peak_fitting", pytrace=False)
 
@@ -64,6 +69,54 @@ def gaussian_peak_image() -> tuple[np.ndarray, tuple[float, float], tuple[float,
     c = (np.sin(theta)**2)/(2*sigma_y**2) + (np.cos(theta)**2)/(2*sigma_x**2)
     g = offset + amplitude * np.exp( - (a*((Y-y0)**2) + 2*b*(Y-y0)*(X-x0) + c*((X-x0)**2)))
     return g.astype(np.float32), (y0, x0), (sigma_y, sigma_x)
+
+
+@pytest.fixture
+def lorentzian_peak_image() -> tuple[np.ndarray, tuple[float, float], tuple[float, float]]:
+    """A 20x20 image with a rotated 2D Lorentzian peak."""
+
+    size = 20
+    y_grid, x_grid = np.mgrid[0:size, 0:size]
+    amplitude = 90.0
+    y0, x0 = 9.2, 10.4
+    gamma_y, gamma_x = 1.8, 2.4
+    offset = 4.0
+    theta = 0.15
+
+    dy = y_grid - y0
+    dx = x_grid - x0
+    y_rot = np.cos(theta) * dy + np.sin(theta) * dx
+    x_rot = -np.sin(theta) * dy + np.cos(theta) * dx
+    q = (y_rot / gamma_y) ** 2 + (x_rot / gamma_x) ** 2
+    image = offset + amplitude / (1.0 + q)
+    return image.astype(np.float32), (y0, x0), (gamma_y, gamma_x)
+
+
+@pytest.fixture
+def voigt_peak_image() -> tuple[np.ndarray, tuple[float, float], tuple[float, float, float, float]]:
+    """A 20x20 image with a rotated separable 2D Voigt peak."""
+
+    from scipy.special import voigt_profile
+
+    size = 20
+    y_grid, x_grid = np.mgrid[0:size, 0:size]
+    amplitude = 85.0
+    y0, x0 = 9.1, 10.2
+    sigma_y, sigma_x = 1.3, 1.9
+    gamma_y, gamma_x = 0.7, 1.1
+    offset = 3.0
+    theta = 0.12
+
+    dy = y_grid - y0
+    dx = x_grid - x0
+    y_rot = np.cos(theta) * dy + np.sin(theta) * dx
+    x_rot = -np.sin(theta) * dy + np.cos(theta) * dx
+    profile_y = voigt_profile(y_rot, sigma_y, gamma_y)
+    profile_x = voigt_profile(x_rot, sigma_x, gamma_x)
+    profile_y /= float(voigt_profile(np.array([0.0]), sigma_y, gamma_y)[0])
+    profile_x /= float(voigt_profile(np.array([0.0]), sigma_x, gamma_x)[0])
+    image = offset + amplitude * profile_y * profile_x
+    return image.astype(np.float32), (y0, x0), (sigma_y, sigma_x, gamma_y, gamma_x)
 
 
 # --- Tests for find_max_pixel_in_roi ---
@@ -182,6 +235,67 @@ def test_fit_gaussian_flat_roi(simple_peak_image):
     # The function is designed to return None on RuntimeError.
     assert fit_result is None, "Gaussian fit should fail or return None for flat ROI"
 
+
+@pytest.mark.skipif(not SCIPY_AVAILABLE, reason="SciPy not available, skipping Gaussian fit tests")
+def test_fit_gaussian_on_patch_suppresses_optimize_warning(monkeypatch, gaussian_peak_image):
+    patch_source, _, _ = gaussian_peak_image
+    roi_patch = np.asarray(patch_source[4:15, 4:15], dtype=float)
+
+    def _fake_curve_fit(*args, **kwargs):
+        warnings.warn(
+            "Covariance of the parameters could not be estimated",
+            OptimizeWarning,
+        )
+        return (
+            np.array([100.0, 5.5, 5.5, 1.8, 1.8, 0.0, 10.0], dtype=float),
+            np.full((7, 7), np.inf, dtype=float),
+        )
+
+    monkeypatch.setattr(peak_fitting_module, "curve_fit", _fake_curve_fit)
+    monkeypatch.setattr(
+        peak_fitting_module,
+        "_monte_carlo_uncertainty",
+        lambda *args, **kwargs: (0.2, 0.3),
+    )
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        fit_result = fit_2d_gaussian_on_patch(roi_patch, roi_origin_yx=(4, 4))
+
+    assert fit_result is not None
+    assert fit_result.success is True
+    assert not any(issubclass(item.category, OptimizeWarning) for item in caught)
+
+
+@pytest.mark.skipif(not SCIPY_AVAILABLE, reason="SciPy not available, skipping Gaussian fit tests")
+def test_gaussian_fit_estimator_suppresses_optimize_warning(monkeypatch, gaussian_peak_image):
+    patch_source, _, _ = gaussian_peak_image
+    roi_patch = np.asarray(patch_source[4:15, 4:15], dtype=float)
+
+    def _fake_curve_fit(*args, **kwargs):
+        warnings.warn(
+            "Covariance of the parameters could not be estimated",
+            OptimizeWarning,
+        )
+        return (
+            np.array([100.0, 5.5, 5.5, 1.8, 1.8, 0.0, 10.0], dtype=float),
+            np.full((7, 7), np.inf, dtype=float),
+        )
+
+    monkeypatch.setattr(peak_fitting_module, "curve_fit", _fake_curve_fit)
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        center = peak_fitting_module._gaussian_fit_estimator(
+            roi_patch,
+            4,
+            4,
+            [100.0, 5.5, 5.5, 1.8, 1.8, 0.0, 10.0],
+        )
+
+    assert center is not None
+    assert not any(issubclass(item.category, OptimizeWarning) for item in caught)
+
 @pytest.mark.skipif(not SCIPY_AVAILABLE, reason="SciPy not available, skipping Gaussian fit tests")
 def test_fit_gaussian_invalid_input(simple_peak_image):
     """Test invalid inputs for Gaussian fitting."""
@@ -233,6 +347,135 @@ def test_fit_gaussian_on_patch_perfect_peak(gaussian_peak_image):
 def test_fit_gaussian_on_patch_flat_roi_returns_none():
     img = np.zeros((8, 8), dtype=float)
     assert fit_2d_gaussian_on_patch(img) is None
+
+
+@pytest.mark.skipif(not SCIPY_AVAILABLE, reason="SciPy not available, skipping Gaussian fit tests")
+def test_fit_gaussian_on_patch_accepts_custom_initial_params_bounds_and_maxfev(gaussian_peak_image):
+    img, (y0_true, x0_true), _ = gaussian_peak_image
+
+    fit_result = fit_2d_gaussian_on_patch(
+        img,
+        roi_origin_yx=(10, 20),
+        initial_params=[95.0, 9.0, 10.0, 2.3, 1.9, 0.05, 8.0],
+        parameter_bounds=(
+            [0.0, 6.0, 6.0, 0.5, 0.5, -np.pi / 2.0, 0.0],
+            [200.0, 13.0, 13.0, 5.0, 5.0, np.pi / 2.0, 30.0],
+        ),
+        max_nfev=3200,
+        compute_uncertainty=False,
+    )
+
+    assert fit_result is not None
+    assert np.isclose(fit_result.center[0], 10 + y0_true, atol=0.1)
+    assert np.isclose(fit_result.center[1], 20 + x0_true, atol=0.1)
+    assert fit_result.metadata["initial_params"] == pytest.approx((95.0, 9.0, 10.0, 2.3, 1.9, 0.05, 8.0))
+    assert fit_result.metadata["parameter_bounds"] is not None
+    assert fit_result.metadata["parameter_bounds"]["lower"] == pytest.approx(
+        (0.0, 6.0, 6.0, 0.5, 0.5, -np.pi / 2.0, 0.0)
+    )
+    assert fit_result.metadata["parameter_bounds"]["upper"] == pytest.approx(
+        (200.0, 13.0, 13.0, 5.0, 5.0, np.pi / 2.0, 30.0)
+    )
+    assert fit_result.metadata["max_nfev"] == 3200
+
+
+@pytest.mark.skipif(not SCIPY_AVAILABLE, reason="SciPy not available, skipping Gaussian fit tests")
+def test_fit_gaussian_on_patch_accepts_fit_mask(gaussian_peak_image):
+    img, _, _ = gaussian_peak_image
+    fit_mask = np.zeros_like(img, dtype=bool)
+    fit_mask[4:16, 4:16] = True
+
+    fit_result = fit_2d_gaussian_on_patch(img, fit_mask=fit_mask)
+
+    assert fit_result is not None
+    assert fit_result.metadata["fit_mask_pixel_count"] == int(fit_mask.sum())
+    assert fit_result.metadata["fit_mask_fraction"] == pytest.approx(float(fit_mask.mean()))
+
+
+@pytest.mark.skipif(not SCIPY_AVAILABLE, reason="SciPy not available, skipping Lorentzian fit tests")
+def test_fit_lorentzian_on_patch_perfect_peak(lorentzian_peak_image):
+    img, (y0_true, x0_true), _ = lorentzian_peak_image
+
+    fit_result = fit_2d_lorentzian_on_patch(img, roi_origin_yx=(12, 28))
+
+    assert fit_result is not None
+    assert np.isclose(fit_result.center[0], 12 + y0_true, atol=0.15)
+    assert np.isclose(fit_result.center[1], 28 + x0_true, atol=0.15)
+    assert fit_result.center_std is not None
+    assert fit_result.method == "lorentzian_fit"
+
+
+@pytest.mark.skipif(not SCIPY_AVAILABLE, reason="SciPy not available, skipping Lorentzian fit tests")
+def test_fit_lorentzian_on_patch_accepts_custom_initial_params_bounds_and_maxfev(lorentzian_peak_image):
+    img, (y0_true, x0_true), _ = lorentzian_peak_image
+
+    fit_result = fit_2d_lorentzian_on_patch(
+        img,
+        roi_origin_yx=(7, 9),
+        initial_params=[85.0, 8.8, 10.1, 1.5, 2.1, 0.1, 3.5],
+        parameter_bounds=(
+            [0.0, 6.0, 7.0, 0.5, 0.5, -np.pi / 2.0, 0.0],
+            [150.0, 13.0, 14.0, 4.0, 5.0, np.pi / 2.0, 20.0],
+        ),
+        max_nfev=2600,
+        compute_uncertainty=False,
+    )
+
+    assert fit_result is not None
+    assert np.isclose(fit_result.center[0], 7 + y0_true, atol=0.15)
+    assert np.isclose(fit_result.center[1], 9 + x0_true, atol=0.15)
+    assert fit_result.metadata["initial_params"] == pytest.approx((85.0, 8.8, 10.1, 1.5, 2.1, 0.1, 3.5))
+    assert fit_result.metadata["parameter_bounds"] is not None
+    assert fit_result.metadata["parameter_bounds"]["lower"] == pytest.approx(
+        (0.0, 6.0, 7.0, 0.5, 0.5, -np.pi / 2.0, 0.0)
+    )
+    assert fit_result.metadata["parameter_bounds"]["upper"] == pytest.approx(
+        (150.0, 13.0, 14.0, 4.0, 5.0, np.pi / 2.0, 20.0)
+    )
+    assert fit_result.metadata["max_nfev"] == 2600
+
+
+@pytest.mark.skipif(not SCIPY_AVAILABLE, reason="SciPy not available, skipping Voigt fit tests")
+def test_fit_voigt_on_patch_perfect_peak(voigt_peak_image):
+    img, (y0_true, x0_true), _ = voigt_peak_image
+
+    fit_result = fit_2d_voigt_on_patch(img, roi_origin_yx=(11, 27))
+
+    assert fit_result is not None
+    assert np.isclose(fit_result.center[0], 11 + y0_true, atol=0.2)
+    assert np.isclose(fit_result.center[1], 27 + x0_true, atol=0.2)
+    assert fit_result.center_std is not None
+    assert fit_result.method == "voigt_fit"
+
+
+@pytest.mark.skipif(not SCIPY_AVAILABLE, reason="SciPy not available, skipping Voigt fit tests")
+def test_fit_voigt_on_patch_accepts_custom_initial_params_bounds_and_maxfev(voigt_peak_image):
+    img, (y0_true, x0_true), _ = voigt_peak_image
+
+    fit_result = fit_2d_voigt_on_patch(
+        img,
+        roi_origin_yx=(5, 8),
+        initial_params=[80.0, 8.8, 10.0, 1.1, 1.8, 0.6, 1.0, 0.1, 2.5],
+        parameter_bounds=(
+            [0.0, 6.0, 7.0, 0.3, 0.3, 0.1, 0.1, -np.pi / 2.0, 0.0],
+            [140.0, 13.0, 14.0, 4.0, 4.0, 3.0, 3.0, np.pi / 2.0, 20.0],
+        ),
+        max_nfev=3600,
+        compute_uncertainty=False,
+    )
+
+    assert fit_result is not None
+    assert np.isclose(fit_result.center[0], 5 + y0_true, atol=0.2)
+    assert np.isclose(fit_result.center[1], 8 + x0_true, atol=0.2)
+    assert fit_result.metadata["initial_params"] == pytest.approx((80.0, 8.8, 10.0, 1.1, 1.8, 0.6, 1.0, 0.1, 2.5))
+    assert fit_result.metadata["parameter_bounds"] is not None
+    assert fit_result.metadata["parameter_bounds"]["lower"] == pytest.approx(
+        (0.0, 6.0, 7.0, 0.3, 0.3, 0.1, 0.1, -np.pi / 2.0, 0.0)
+    )
+    assert fit_result.metadata["parameter_bounds"]["upper"] == pytest.approx(
+        (140.0, 13.0, 14.0, 4.0, 4.0, 3.0, 3.0, np.pi / 2.0, 20.0)
+    )
+    assert fit_result.metadata["max_nfev"] == 3600
 
 def test_internal_gaussian_2d_function():
     """Test the _gaussian_2d helper function directly (optional)."""

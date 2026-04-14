@@ -10,7 +10,10 @@ pytest.importorskip("pytestqt", reason="pytest-qt is required for AtomMapper GUI
 pytest.importorskip("pyqtgraph", reason="pyqtgraph is required for the 2B viewport refactor")
 
 from AtomMapper.app.gaussian_preview import GaussianFitPreviewWidget
+from AtomMapper.app.fit_models import LocalFitModelType
+from AtomMapper.app.fit_settings import FitSettingsState
 from AtomMapper.app.models import LoadedImage, ROIState
+from AtomMapper.app.polygon_mask import PolygonMaskState
 from AtomMapper.app.pyqtgraph_image_view import PyQtGraphSTMViewport
 from AtomMapper.app.pyqtgraph_preview_bridge import PyQtGraphPreviewBridge
 from AtomMapper.app.roi_preview import ROIPreviewWidget
@@ -41,6 +44,44 @@ def _make_gaussian_image(name: str, size: int = 40, *, amplitude: float = 20.0, 
         center - patch_half : center + patch_half + 1,
         center - patch_half : center + patch_half + 1,
     ] += gaussian_patch
+    return _make_loaded_image(name, image_data)
+
+
+def _make_lorentzian_image(name: str, size: int = 40, *, amplitude: float = 20.0, offset: float = 1.0) -> LoadedImage:
+    image_data = np.full((size, size), offset, dtype=float)
+    patch_half = 6
+    center = size // 2
+    y_grid, x_grid = np.mgrid[-patch_half : patch_half + 1, -patch_half : patch_half + 1]
+    theta = 0.1
+    y_rot = np.cos(theta) * y_grid + np.sin(theta) * x_grid
+    x_rot = -np.sin(theta) * y_grid + np.cos(theta) * x_grid
+    lorentzian_patch = amplitude / (1.0 + (y_rot / 1.6) ** 2 + (x_rot / 1.9) ** 2)
+    image_data[
+        center - patch_half : center + patch_half + 1,
+        center - patch_half : center + patch_half + 1,
+    ] += lorentzian_patch
+    return _make_loaded_image(name, image_data)
+
+
+def _make_voigt_image(name: str, size: int = 40, *, amplitude: float = 20.0, offset: float = 1.0) -> LoadedImage:
+    from scipy.special import voigt_profile
+
+    image_data = np.full((size, size), offset, dtype=float)
+    patch_half = 6
+    center = size // 2
+    y_grid, x_grid = np.mgrid[-patch_half : patch_half + 1, -patch_half : patch_half + 1]
+    theta = 0.08
+    y_rot = np.cos(theta) * y_grid + np.sin(theta) * x_grid
+    x_rot = -np.sin(theta) * y_grid + np.cos(theta) * x_grid
+    profile_y = voigt_profile(y_rot, 1.2, 0.7)
+    profile_x = voigt_profile(x_rot, 1.8, 1.1)
+    profile_y /= float(voigt_profile(np.array([0.0]), 1.2, 0.7)[0])
+    profile_x /= float(voigt_profile(np.array([0.0]), 1.8, 1.1)[0])
+    voigt_patch = amplitude * profile_y * profile_x
+    image_data[
+        center - patch_half : center + patch_half + 1,
+        center - patch_half : center + patch_half + 1,
+    ] += voigt_patch
     return _make_loaded_image(name, image_data)
 
 
@@ -129,3 +170,67 @@ def test_pyqtgraph_preview_bridge_is_unchanged_by_histogram_level_changes(qtbot)
     assert np.array_equal(roi_preview.current_patch_data, patch_before)
     assert gaussian_preview.current_fit_result is fit_before
     assert gaussian_preview.current_fit_result.center_patch_yx == center_before
+
+
+def test_pyqtgraph_preview_bridge_refreshes_fit_when_model_selection_changes(qtbot):
+    viewport, roi_preview, gaussian_preview, bridge = _make_bridge(qtbot)
+    image = _make_lorentzian_image("bridge-model-switch.stp", size=40)
+
+    bridge.set_loaded_image(image)
+    bridge.set_roi_state(ROIState(x=14, y=14, width=12, height=12))
+
+    assert gaussian_preview.current_fit_result is not None
+    assert gaussian_preview.current_fit_result.model is LocalFitModelType.GAUSSIAN
+    assert gaussian_preview.current_fit_result.success is True
+
+    bridge.set_fit_settings_state(FitSettingsState(model=LocalFitModelType.LORENTZIAN))
+
+    assert gaussian_preview.current_fit_result is not None
+    assert gaussian_preview.current_fit_result.model is LocalFitModelType.LORENTZIAN
+    assert gaussian_preview.current_fit_result.success is True
+    assert "Lorentzian" in gaussian_preview.title_label.text()
+
+
+def test_pyqtgraph_preview_bridge_supports_voigt_model_preview(qtbot):
+    viewport, roi_preview, gaussian_preview, bridge = _make_bridge(qtbot)
+    image = _make_voigt_image("bridge-voigt.stp", size=40)
+
+    bridge.set_loaded_image(image)
+    bridge.set_roi_state(ROIState(x=14, y=14, width=12, height=12))
+    bridge.set_fit_settings_state(FitSettingsState(model=LocalFitModelType.VOIGT))
+
+    assert gaussian_preview.current_fit_result is not None
+    assert gaussian_preview.current_fit_result.model is LocalFitModelType.VOIGT
+    assert gaussian_preview.current_fit_result.success is True
+    assert gaussian_preview.current_fit_result.model_patch is not None
+    assert gaussian_preview.current_fit_result.shape_parameters["gamma_y"] is not None
+    assert gaussian_preview.current_fit_result.shape_parameters["gamma_x"] is not None
+    assert "Voigt" in gaussian_preview.title_label.text()
+
+
+def test_pyqtgraph_preview_bridge_passes_polygon_mask_to_current_fit(qtbot):
+    viewport, roi_preview, gaussian_preview, bridge = _make_bridge(qtbot)
+    image = _make_gaussian_image("bridge-mask.stp", size=40)
+
+    bridge.set_loaded_image(image)
+    bridge.set_roi_state(ROIState(x=14, y=14, width=12, height=12))
+    bridge.set_polygon_mask_state(
+        PolygonMaskState(
+            vertices_xy=(
+                (17.0, 17.0),
+                (23.0, 17.0),
+                (23.0, 23.0),
+                (17.0, 23.0),
+            )
+        )
+    )
+
+    fit_result = bridge.compute_current_fit_result()
+
+    assert fit_result is not None
+    assert fit_result.fit_mask is not None
+    assert int(fit_result.fit_mask.sum()) > 0
+    assert fit_result.raw_result is not None
+    assert fit_result.raw_result.metadata["fit_mask_pixel_count"] == int(fit_result.fit_mask.sum())
+    assert gaussian_preview.current_fit_result is not None
+    assert gaussian_preview.current_fit_result.fit_mask is not None

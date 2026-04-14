@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Mapping
 
 from .controller import AtomMapperController
+from .fit_settings import FitSettingsState
 from .session_model import AtomMapperSession, SessionViewState
 
 
@@ -14,6 +15,7 @@ def build_session_from_runtime(
     controller: AtomMapperController,
     *,
     active_point_id_by_source_group: Mapping[str, str] | None = None,
+    fit_settings: FitSettingsState | None = None,
     view_state: SessionViewState | None = None,
 ) -> AtomMapperSession:
     """Build a versioned session snapshot from the live application runtime."""
@@ -29,6 +31,7 @@ def build_session_from_runtime(
         rows=controller.atom_rows,
         active_row_id_by_source_group=controller.active_row_id_by_source_group,
         active_point_id_by_source_group=active_point_mapping,
+        fit_settings=fit_settings or FitSettingsState(),
         view_state=view_state or SessionViewState(),
     )
 

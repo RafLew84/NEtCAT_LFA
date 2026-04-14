@@ -30,8 +30,11 @@ from PyQt6.QtWidgets import (
 
 from .controller import AtomMapperController
 from .csv_export import describe_point_status, export_point_rows_to_csv
+from .fit_settings import FitSettingsState
+from .fit_settings_panel import FitSettingsPanelWidget
 from .gaussian_preview import GaussianFitPreviewWidget
 from .global_scatter_plot_widget import GlobalScatterPlotWidget
+from .image_utils import extract_roi_patch
 from .io import SUPPORTED_STM_EXTENSIONS
 from .models import AtomPoint
 from .plots import PlotUnit, build_row_geometry_metrics
@@ -39,7 +42,6 @@ from .pyqtgraph_image_view import PyQtGraphSTMViewport
 from .pyqtgraph_preview_bridge import PyQtGraphPreviewBridge
 from .preprocessing_dialog import PreprocessingDialog
 from .preprocessing_state import PreprocessingMethod
-from .roi_preview import ROIPreviewWidget
 from .row_disturbance_widget import RowDisturbanceWidget
 from .row_geometry import RowGeometryUnit, build_row_disturbance_series, fit_row_geometry
 from .row_metrics_widget import RowMetricsWidget
@@ -76,6 +78,13 @@ class AtomMapperMainWindow(QMainWindow):
         self.load_button = QPushButton("Load STM Files...")
         self.preprocessing_button = QPushButton("Preprocessing")
         self.preprocessing_button.setObjectName("atommapper_preprocessing_button")
+        self.fit_settings_button = QPushButton("Fit Settings")
+        self.fit_settings_button.setObjectName("atommapper_fit_settings_button")
+        self.polygon_mask_button = QPushButton("Polygon Mask")
+        self.polygon_mask_button.setObjectName("atommapper_polygon_mask_button")
+        self.polygon_mask_button.setCheckable(True)
+        self.clear_polygon_mask_button = QPushButton("Clear Mask")
+        self.clear_polygon_mask_button.setObjectName("atommapper_clear_polygon_mask_button")
         self.export_csv_button = QPushButton("Export CSV")
         self.export_csv_button.setObjectName("atommapper_export_csv_button")
         self.save_session_button = QPushButton("Save Session")
@@ -117,6 +126,9 @@ class AtomMapperMainWindow(QMainWindow):
         left_layout.addWidget(left_title)
         left_layout.addWidget(self.load_button)
         left_layout.addWidget(self.preprocessing_button)
+        left_layout.addWidget(self.fit_settings_button)
+        left_layout.addWidget(self.polygon_mask_button)
+        left_layout.addWidget(self.clear_polygon_mask_button)
         left_layout.addWidget(self.export_csv_button)
         left_layout.addWidget(self.save_session_button)
         left_layout.addWidget(self.load_session_button)
@@ -150,18 +162,17 @@ class AtomMapperMainWindow(QMainWindow):
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
         )
         self.active_image_label.setStyleSheet("font-size: 13px; color: palette(mid);")
-        self.show_gaussian_fit_checkbox = QCheckBox("Show Gaussian Fit", right_panel)
+        self.show_gaussian_fit_checkbox = QCheckBox("Show Fit Preview", right_panel)
         self.show_gaussian_fit_checkbox.setChecked(True)
         self.workflow_status_label = QLabel("Workflow status: load an STM image to begin.")
         self.workflow_status_label.setWordWrap(True)
         self.workflow_status_label.setStyleSheet("font-size: 12px; color: palette(mid);")
 
         self.image_viewport = PyQtGraphSTMViewport(right_panel)
-        self.roi_preview = ROIPreviewWidget(right_panel)
         self.gaussian_fit_preview = GaussianFitPreviewWidget(right_panel)
         self.preview_bridge = PyQtGraphPreviewBridge(
             self.image_viewport,
-            self.roi_preview,
+            None,
             self.gaussian_fit_preview,
             self,
         )
@@ -214,13 +225,11 @@ class AtomMapperMainWindow(QMainWindow):
         analysis_grid_layout.setContentsMargins(0, 0, 0, 0)
         analysis_grid_layout.setHorizontalSpacing(12)
         analysis_grid_layout.setVerticalSpacing(12)
-        analysis_grid_layout.addWidget(self.roi_preview, 0, 0)
-        analysis_grid_layout.addWidget(self.gaussian_fit_preview, 1, 0)
-        analysis_grid_layout.addWidget(self.image_viewport, 0, 1, 2, 1)
+        analysis_grid_layout.addWidget(self.gaussian_fit_preview, 0, 0)
+        analysis_grid_layout.addWidget(self.image_viewport, 0, 1)
         analysis_grid_layout.setColumnStretch(0, 2)
         analysis_grid_layout.setColumnStretch(1, 3)
         analysis_grid_layout.setRowStretch(0, 1)
-        analysis_grid_layout.setRowStretch(1, 1)
 
         right_layout.addWidget(title)
         right_layout.addWidget(subtitle)
@@ -262,6 +271,32 @@ class AtomMapperMainWindow(QMainWindow):
         analysis_dock_layout.setRowStretch(2, 1)
         self.analysis_dock.setWidget(self.analysis_dock_content)
         self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.analysis_dock)
+        self.fit_settings_state = FitSettingsState()
+        self.fit_settings_panel = FitSettingsPanelWidget(self)
+        self.fit_settings_panel.setObjectName("atommapper_fit_settings_panel_widget")
+        self.fit_settings_panel.set_fit_settings_state(self.fit_settings_state)
+        self.preview_bridge.set_fit_settings_state(self.fit_settings_state)
+        self.fit_settings_dock = QDockWidget("Fit Settings", self)
+        self.fit_settings_dock.setObjectName("atommapper_fit_settings_dock")
+        self.fit_settings_dock.setAllowedAreas(
+            Qt.DockWidgetArea.RightDockWidgetArea
+            | Qt.DockWidgetArea.LeftDockWidgetArea
+        )
+        self.fit_settings_dock.setFeatures(
+            QDockWidget.DockWidgetFeature.DockWidgetClosable
+            | QDockWidget.DockWidgetFeature.DockWidgetMovable
+            | QDockWidget.DockWidgetFeature.DockWidgetFloatable
+        )
+        self.fit_settings_dock.setWidget(self.fit_settings_panel)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.fit_settings_dock)
+        self.fit_settings_dock.hide()
+        view_menu = self.menuBar().addMenu("View")
+        analysis_toggle_action = self.analysis_dock.toggleViewAction()
+        analysis_toggle_action.setText("Analysis")
+        fit_settings_toggle_action = self.fit_settings_dock.toggleViewAction()
+        fit_settings_toggle_action.setText("Fit Settings")
+        view_menu.addAction(analysis_toggle_action)
+        view_menu.addAction(fit_settings_toggle_action)
         self._preprocessing_dialog_class = PreprocessingDialog
         self._active_point_id_by_source_group: dict[str, str] = {}
         self.statusBar().showMessage("Ready. Load an STM file to begin.", 5000)
@@ -274,6 +309,11 @@ class AtomMapperMainWindow(QMainWindow):
         self._update_active_image_label(self.controller.active_image)
         self._update_preprocess_controls(self.controller.active_image)
         self._update_export_controls(self.controller.active_image)
+        self._update_polygon_mask_controls(
+            self.controller.active_image,
+            self.controller.active_roi_state,
+        )
+        self._update_fit_settings_context()
         self._update_active_row_label(self.controller.active_row)
         self._update_row_controls(self.controller.active_image, self.controller.active_row)
         self._update_point_controls()
@@ -282,6 +322,9 @@ class AtomMapperMainWindow(QMainWindow):
     def _connect_signals(self) -> None:
         self.load_button.clicked.connect(self._open_file_dialog)
         self.preprocessing_button.clicked.connect(self._open_preprocessing_dialog)
+        self.fit_settings_button.clicked.connect(self._open_fit_settings_dock)
+        self.polygon_mask_button.toggled.connect(self._on_polygon_mask_toggled)
+        self.clear_polygon_mask_button.clicked.connect(self._clear_polygon_mask)
         self.export_csv_button.clicked.connect(self._export_points_csv)
         self.save_session_button.clicked.connect(self._save_session_to_project_file)
         self.load_session_button.clicked.connect(self._load_session_from_project_file)
@@ -297,11 +340,13 @@ class AtomMapperMainWindow(QMainWindow):
         self.controller.active_image_changed.connect(self._update_active_image_label)
         self.controller.active_image_changed.connect(self._update_preprocess_controls)
         self.controller.active_image_changed.connect(self._update_export_controls)
+        self.controller.active_image_changed.connect(lambda *_args: self._update_fit_settings_context())
         self.controller.active_image_changed.connect(self._handle_active_image_changed)
         self.controller.active_image_changed.connect(self._handle_active_image_changed_for_rows)
         self.controller.active_image_changed.connect(self._refresh_points_table)
         self.controller.active_image_changed.connect(self._refresh_image_point_overlay)
         self.controller.roi_state_changed.connect(self._handle_roi_state_changed)
+        self.controller.roi_state_changed.connect(lambda *_args: self._update_fit_settings_context())
         self.controller.rows_changed.connect(self._refresh_row_list)
         self.controller.rows_changed.connect(self._handle_rows_changed)
         self.controller.rows_changed.connect(self._refresh_points_table)
@@ -312,9 +357,11 @@ class AtomMapperMainWindow(QMainWindow):
         self.row_metrics_widget.unit_combo.currentIndexChanged.connect(
             self._on_row_geometry_unit_changed
         )
+        self.fit_settings_panel.fit_settings_changed.connect(self._handle_fit_settings_changed)
         self.preview_bridge.roi_state_edited.connect(self.controller.update_active_roi_state)
         self.image_viewport.point_selected.connect(self._handle_viewport_point_selected)
         self.image_viewport.point_move_requested.connect(self._handle_viewport_point_move_requested)
+        self.image_viewport.polygon_mask_state_changed.connect(self._handle_polygon_mask_state_changed)
 
     def _build_file_dialog_filter(self) -> str:
         patterns = " ".join(f"*{suffix}" for suffix in sorted(SUPPORTED_STM_EXTENSIONS))
@@ -776,6 +823,116 @@ class AtomMapperMainWindow(QMainWindow):
         self.load_session_button.setToolTip(
             "Load an AtomMapper project state from a .atommapper_proj file."
         )
+        self.fit_settings_button.setEnabled(True)
+        self.fit_settings_button.setToolTip(
+            "Open the non-modal fit-settings dock to edit the local peak model and its parameters."
+        )
+
+    def _update_polygon_mask_controls(self, active_image: Any, roi_state: Any) -> None:
+        has_image = active_image is not None
+        has_roi = roi_state is not None
+        has_mask = self.image_viewport.has_polygon_mask_or_draft
+        can_draw = has_image and has_roi
+
+        self.polygon_mask_button.setEnabled(can_draw)
+        self.clear_polygon_mask_button.setEnabled(has_mask or self.polygon_mask_button.isChecked())
+
+        if can_draw:
+            self.polygon_mask_button.setToolTip(
+                "Draw a polygon inside the active ROI. Click to add vertices, double click to close."
+            )
+        elif has_image:
+            self.polygon_mask_button.setToolTip("Define or select an ROI before drawing a polygon mask.")
+        else:
+            self.polygon_mask_button.setToolTip("Load or select an STM image first.")
+
+        if has_mask:
+            self.clear_polygon_mask_button.setToolTip("Clear the active polygon mask used for local fitting.")
+        else:
+            self.clear_polygon_mask_button.setToolTip("No polygon mask is currently active.")
+
+    def _update_fit_settings_context(self) -> None:
+        self.fit_settings_panel.set_context(
+            self.controller.active_image,
+            self.controller.active_roi_state,
+        )
+
+    def _open_fit_settings_dock(self) -> None:
+        self.fit_settings_dock.show()
+        self.fit_settings_dock.raise_()
+        self.statusBar().showMessage(
+            "Fit Settings dock opened. It stays non-modal while you work on the image.",
+            3000,
+        )
+
+    def _handle_fit_settings_changed(self, state: FitSettingsState) -> None:
+        self.fit_settings_state = state.normalized()
+        self.preview_bridge.set_fit_settings_state(self.fit_settings_state)
+        self._update_workflow_status()
+
+    def _on_polygon_mask_toggled(self, checked: bool) -> None:
+        if checked:
+            if self.controller.active_image is None or self.controller.active_roi_state is None:
+                self.polygon_mask_button.blockSignals(True)
+                self.polygon_mask_button.setChecked(False)
+                self.polygon_mask_button.blockSignals(False)
+                self.statusBar().showMessage("Select an STM image and ROI before drawing a polygon mask.", 4000)
+                self.workflow_status_label.setText(
+                    "Workflow status: select an STM image and ROI before drawing a polygon mask."
+                )
+                self._update_polygon_mask_controls(
+                    self.controller.active_image,
+                    self.controller.active_roi_state,
+                )
+                return
+
+            self.preview_bridge.set_polygon_mask_state(None)
+            self.image_viewport.clear_polygon_mask(emit_signal=False)
+            self.image_viewport.set_polygon_mask_drawing_enabled(True)
+            self.statusBar().showMessage(
+                "Polygon mask mode enabled. Click inside ROI to add vertices; double click to close.",
+                5000,
+            )
+            self.workflow_status_label.setText(
+                "Workflow status: polygon mask mode active. Click inside ROI to add vertices; double click to close."
+            )
+        else:
+            self.image_viewport.set_polygon_mask_drawing_enabled(False)
+            if self.image_viewport.current_polygon_mask_state is None:
+                self.statusBar().showMessage("Polygon mask drawing cancelled.", 3000)
+
+        self._update_polygon_mask_controls(
+            self.controller.active_image,
+            self.controller.active_roi_state,
+        )
+
+    def _handle_polygon_mask_state_changed(self, state: Any) -> None:
+        self.preview_bridge.set_polygon_mask_state(state)
+        if state is not None:
+            self.polygon_mask_button.blockSignals(True)
+            self.polygon_mask_button.setChecked(False)
+            self.polygon_mask_button.blockSignals(False)
+            self.image_viewport.set_polygon_mask_drawing_enabled(False)
+            self.statusBar().showMessage("Polygon mask applied to the current ROI fit.", 4000)
+        else:
+            self.statusBar().showMessage("Polygon mask cleared.", 3000)
+
+        self._update_polygon_mask_controls(
+            self.controller.active_image,
+            self.controller.active_roi_state,
+        )
+        self._update_workflow_status()
+
+    def _clear_polygon_mask(self) -> None:
+        self.polygon_mask_button.blockSignals(True)
+        self.polygon_mask_button.setChecked(False)
+        self.polygon_mask_button.blockSignals(False)
+        self.image_viewport.set_polygon_mask_drawing_enabled(False)
+        self.image_viewport.clear_polygon_mask()
+        self._update_polygon_mask_controls(
+            self.controller.active_image,
+            self.controller.active_roi_state,
+        )
 
     def _update_active_row_label(self, active_row: Any) -> None:
         if active_row is None:
@@ -1028,6 +1185,7 @@ class AtomMapperMainWindow(QMainWindow):
             row_plot_unit=self.row_plot_widget.current_unit,
             row_metrics_unit=self.row_metrics_widget.current_unit,
             global_scatter_unit=self.global_scatter_plot_widget.current_unit,
+            active_polygon_mask=self.image_viewport.current_polygon_mask_state,
         )
 
     def _save_session_to_project_file(self) -> None:
@@ -1053,6 +1211,7 @@ class AtomMapperMainWindow(QMainWindow):
             session = build_session_from_runtime(
                 self.controller,
                 active_point_id_by_source_group=self._active_point_id_by_source_group,
+                fit_settings=self.fit_settings_state,
                 view_state=self._build_session_view_state(),
             )
             saved_path = save_session_to_file(session_path, session)
@@ -1105,8 +1264,22 @@ class AtomMapperMainWindow(QMainWindow):
         if global_scatter_unit_index >= 0:
             self.global_scatter_plot_widget.unit_combo.setCurrentIndex(global_scatter_unit_index)
 
+        self.preview_bridge.set_polygon_mask_state(view_state.active_polygon_mask)
+        self.polygon_mask_button.blockSignals(True)
+        self.polygon_mask_button.setChecked(False)
+        self.polygon_mask_button.blockSignals(False)
+        self.image_viewport.set_polygon_mask_drawing_enabled(False)
+        self._update_polygon_mask_controls(self.controller.active_image, self.controller.active_roi_state)
+
         self._refresh_analysis_widgets()
         self._update_workflow_status()
+
+    def _apply_fit_settings_state(self, fit_settings_state: FitSettingsState) -> None:
+        """Restore persisted fit-settings state after a session load."""
+
+        self.fit_settings_state = fit_settings_state.normalized()
+        self.fit_settings_panel.set_fit_settings_state(self.fit_settings_state)
+        self.preview_bridge.set_fit_settings_state(self.fit_settings_state)
 
     def _load_session_from_project_file(self) -> None:
         session_path, _ = QFileDialog.getOpenFileName(
@@ -1129,12 +1302,14 @@ class AtomMapperMainWindow(QMainWindow):
             self._active_point_id_by_source_group = dict(
                 session.active_point_id_by_source_group
             )
+            self._apply_fit_settings_state(session.fit_settings)
             self._apply_session_view_state(session.view_state)
             self._refresh_file_list()
             self._refresh_row_list()
             self._refresh_points_table()
             self._refresh_image_point_overlay()
             self._refresh_analysis_widgets()
+            self._update_fit_settings_context()
             self._update_point_controls()
         except Exception as exc:  # pragma: no cover - GUI error path
             logger.exception("Failed to load session '%s': %s", session_path, exc)
@@ -1242,7 +1417,9 @@ class AtomMapperMainWindow(QMainWindow):
             fallback_used = True
             x_px = roi.x + (roi.width / 2.0)
             y_px = roi.y + (roi.height / 2.0)
-            fit_error_message = "Gaussian fit unavailable; ROI center fallback used."
+            fit_error_message = (
+                f"{self.fit_settings_state.model.value.capitalize()} fit unavailable; ROI center fallback used."
+            )
 
         if fit_result is not None and fit_result.center_image_yx is None:
             fallback_used = True
@@ -1250,7 +1427,10 @@ class AtomMapperMainWindow(QMainWindow):
             y_px = roi.y + (roi.height / 2.0)
             fit_success = False
             fit_method = f"{fit_result.method}_fallback"
-            fit_error_message = fit_result.error_message or "Gaussian fit unavailable; ROI center fallback used."
+            fit_error_message = (
+                fit_result.error_message
+                or f"{fit_result.model.value.capitalize()} fit unavailable; ROI center fallback used."
+            )
 
         point = AtomPoint(
             row_id=active_row.row_id,
@@ -1267,12 +1447,26 @@ class AtomMapperMainWindow(QMainWindow):
             fit_success=fit_success,
             fit_error_message=fit_error_message,
             metadata={
+                "fit_model": self.fit_settings_state.model.value,
                 "fit_method": fit_method,
                 "roi_x": roi.x,
                 "roi_y": roi.y,
                 "roi_width": roi.width,
                 "roi_height": roi.height,
                 "fallback_used": fallback_used,
+                "fit_mask_active": bool(fit_result is not None and fit_result.fit_mask is not None),
+                "fit_mask_pixel_count": (
+                    None
+                    if fit_result is None or fit_result.fit_mask is None
+                    else int(fit_result.fit_mask.sum())
+                ),
+                "fit_shape_parameters": {}
+                if fit_result is None
+                else {
+                    key: value
+                    for key, value in fit_result.shape_parameters.items()
+                    if value is not None
+                },
             },
         )
         updated_row = self.controller.add_point_to_row(point)
@@ -1286,7 +1480,7 @@ class AtomMapperMainWindow(QMainWindow):
             )
         else:
             self.workflow_status_label.setText(
-                f"Workflow status: added point {point.point_index} to {updated_row.display_name} from Gaussian fit."
+                f"Workflow status: added point {point.point_index} to {updated_row.display_name} from {self.fit_settings_state.model.value.capitalize()} fit."
             )
 
     def _delete_active_point(self) -> None:
@@ -1410,19 +1604,27 @@ class AtomMapperMainWindow(QMainWindow):
 
     def _handle_active_image_changed(self, active_image: Any) -> None:
         self.preview_bridge.set_loaded_image(active_image)
+        self.preview_bridge.set_polygon_mask_state(None)
         self.preview_bridge.set_roi_state(self.controller.active_roi_state)
+        self.polygon_mask_button.blockSignals(True)
+        self.polygon_mask_button.setChecked(False)
+        self.polygon_mask_button.blockSignals(False)
+        self.image_viewport.set_polygon_mask_drawing_enabled(False)
+        self._update_polygon_mask_controls(active_image, self.controller.active_roi_state)
         self._sync_gaussian_preview_visibility()
         self._refresh_analysis_widgets()
         self._update_workflow_status()
 
     def _handle_roi_state_changed(self, roi_state: Any) -> None:
         self.preview_bridge.set_roi_state(roi_state)
+        self._update_polygon_mask_controls(self.controller.active_image, roi_state)
         self._sync_gaussian_preview_visibility()
         self._update_workflow_status()
 
     def _update_workflow_status(self) -> None:
         image = self.controller.active_image
         roi = self.controller.active_roi_state
+        current_model_label = self.fit_settings_state.model.value.capitalize()
 
         if image is None:
             self.workflow_status_label.setText("Workflow status: load an STM image to begin.")
@@ -1436,11 +1638,13 @@ class AtomMapperMainWindow(QMainWindow):
 
         if not self.show_gaussian_fit_checkbox.isChecked():
             self.workflow_status_label.setText(
-                f"Workflow status: ROI preview active for {image.display_name}. Gaussian fit preview hidden."
+                f"Workflow status: image view active for {image.display_name}. Fit preview hidden."
             )
             return
 
-        patch = self.roi_preview.current_patch_data
+        patch = self.preview_bridge.current_roi_patch_data
+        if patch is None and image is not None and roi is not None:
+            patch = extract_roi_patch(image.image_data, roi)
         if patch is None:
             self.workflow_status_label.setText(
                 f"Workflow status: ROI for {image.display_name} is outside image bounds."
@@ -1448,11 +1652,14 @@ class AtomMapperMainWindow(QMainWindow):
             return
 
         fit_result = self.gaussian_fit_preview.current_fit_result
+        mask_suffix = ""
+        if fit_result is not None and fit_result.fit_mask is not None:
+            mask_suffix = f" Polygon mask active ({int(fit_result.fit_mask.sum())} px)."
         if fit_result is None:
             self.workflow_status_label.setText(
                 "Workflow status: "
                 f"ROI {patch.shape[1]}x{patch.shape[0]} px ready. "
-                "Gaussian fit preview is waiting for refresh."
+                f"{current_model_label} fit preview is waiting for refresh.{mask_suffix}"
             )
             return
 
@@ -1460,14 +1667,15 @@ class AtomMapperMainWindow(QMainWindow):
             self.workflow_status_label.setText(
                 "Workflow status: "
                 f"ROI {patch.shape[1]}x{patch.shape[0]} px ready. "
-                f"Gaussian center y={fit_result.center_patch_yx[0]:.2f} "
-                f"x={fit_result.center_patch_yx[1]:.2f}."
+                f"{fit_result.model.value.capitalize()} center y={fit_result.center_patch_yx[0]:.2f} "
+                f"x={fit_result.center_patch_yx[1]:.2f}.{mask_suffix}"
             )
         else:
             self.workflow_status_label.setText(
                 "Workflow status: "
                 f"ROI {patch.shape[1]}x{patch.shape[0]} px ready. "
-                f"{fit_result.error_message or 'Gaussian fit unavailable.'}"
+                f"{fit_result.error_message or f'{fit_result.model.value.capitalize()} fit unavailable.'}"
+                f"{mask_suffix}"
             )
 
     def _sync_gaussian_preview_visibility(self) -> None:
@@ -1478,7 +1686,7 @@ class AtomMapperMainWindow(QMainWindow):
 
     def _on_show_gaussian_fit_changed(self, state: int) -> None:
         is_visible = state == int(Qt.CheckState.Checked.value)
-        message = "Gaussian fit preview shown." if is_visible else "Gaussian fit preview hidden."
+        message = "Fit preview shown." if is_visible else "Fit preview hidden."
         self.statusBar().showMessage(message, 3000)
         if is_visible:
             self.preview_bridge.set_loaded_image(self.controller.active_image)

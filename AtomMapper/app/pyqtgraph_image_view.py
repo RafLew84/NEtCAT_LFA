@@ -10,6 +10,7 @@ from PyQt6.QtCore import QRectF, Qt, pyqtSignal
 from PyQt6.QtWidgets import QLabel, QStackedWidget, QVBoxLayout, QWidget
 
 from .models import AtomPoint, AtomRow, LoadedImage, ROIState
+from .polygon_mask import PolygonMaskState
 from .row_geometry import RowGeometry
 
 try:
@@ -24,6 +25,7 @@ class PyQtGraphSTMViewport(QWidget):
     roi_state_edited = pyqtSignal(object)
     point_selected = pyqtSignal(object)
     point_move_requested = pyqtSignal(object)
+    polygon_mask_state_changed = pyqtSignal(object)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -35,9 +37,12 @@ class PyQtGraphSTMViewport(QWidget):
         self.current_active_point_id: Optional[str] = None
         self.current_row_geometry: Optional[RowGeometry] = None
         self.current_disturbance_markers: tuple[dict[str, object], ...] = ()
+        self.current_polygon_mask_state: Optional[PolygonMaskState] = None
         self.backend_available: bool = pg is not None
         self._syncing_roi_overlay = False
         self._syncing_active_point_target = False
+        self._polygon_mask_drawing_enabled = False
+        self._draft_polygon_vertices: list[tuple[float, float]] = []
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -65,6 +70,8 @@ class PyQtGraphSTMViewport(QWidget):
         self.row_disturbance_scatter_item = None
         self.point_scatter_item = None
         self.active_point_target = None
+        self.polygon_mask_curve_item = None
+        self.polygon_mask_vertex_item = None
         if self.backend_available:
             self.image_view = pg.ImageView(self)
             self.image_view.setObjectName("atommapper_pg_image_view")
@@ -72,6 +79,21 @@ class PyQtGraphSTMViewport(QWidget):
             self.image_item = self.image_view.getImageItem()
             self.histogram_widget = self.image_view.getHistogramWidget()
             self.view_box.invertY(True)
+
+            self.polygon_mask_curve_item = pg.PlotCurveItem(
+                pen=pg.mkPen(color=(80, 220, 255, 245), width=2.2),
+            )
+            self.polygon_mask_curve_item.hide()
+            self.view_box.addItem(self.polygon_mask_curve_item)
+
+            self.polygon_mask_vertex_item = pg.ScatterPlotItem(
+                size=8,
+                pen=pg.mkPen(color=(20, 30, 35, 245), width=1.4),
+                brush=pg.mkBrush(80, 220, 255, 240),
+                pxMode=True,
+            )
+            self.polygon_mask_vertex_item.hide()
+            self.view_box.addItem(self.polygon_mask_vertex_item)
 
             self.row_axis_item = pg.PlotCurveItem(
                 pen=pg.mkPen(color=(255, 120, 60, 230), width=2.2, style=Qt.PenStyle.DashLine),
@@ -125,6 +147,7 @@ class PyQtGraphSTMViewport(QWidget):
             self.roi_item.hide()
             self.roi_item.sigRegionChanged.connect(self._on_roi_item_changed)
             self.view_box.addItem(self.roi_item)
+            self.view_box.scene().sigMouseClicked.connect(self._on_scene_mouse_clicked)
             self.stack.addWidget(self.image_view)
 
         self.info_label = QLabel(
@@ -152,6 +175,15 @@ class PyQtGraphSTMViewport(QWidget):
     def set_loaded_image(self, loaded_image: Optional[LoadedImage]) -> None:
         """Store the active image and toggle between placeholder and backend canvas."""
 
+        image_changed = (
+            loaded_image is None
+            or self.current_loaded_image is None
+            or loaded_image.image_id != self.current_loaded_image.image_id
+        )
+        if image_changed:
+            self.current_polygon_mask_state = None
+            self._draft_polygon_vertices.clear()
+            self._polygon_mask_drawing_enabled = False
         self.current_loaded_image = loaded_image
         if loaded_image is None:
             self._clear_image_view()
@@ -170,6 +202,7 @@ class PyQtGraphSTMViewport(QWidget):
         self.image_item.setImage(image_array.T, autoLevels=True)
         self.reset_view()
         self._update_roi_overlay_from_state()
+        self._update_polygon_mask_overlay()
         self._update_point_overlay()
         self._update_active_point_target()
         self._update_row_geometry_overlay()
@@ -185,6 +218,7 @@ class PyQtGraphSTMViewport(QWidget):
 
         self.current_roi_state = roi_state
         self._update_roi_overlay_from_state()
+        self._update_polygon_mask_overlay()
 
     def set_atom_rows(
         self,
@@ -216,6 +250,65 @@ class PyQtGraphSTMViewport(QWidget):
             dict(marker) for marker in (disturbance_markers or ())
         )
         self._update_row_geometry_overlay()
+
+    @property
+    def has_polygon_mask_or_draft(self) -> bool:
+        """Return True when a closed or in-progress polygon overlay exists."""
+
+        return (
+            self.current_polygon_mask_state is not None
+            and self.current_polygon_mask_state.is_valid
+        ) or bool(self._draft_polygon_vertices)
+
+    def set_polygon_mask_state(self, polygon_mask_state: Optional[PolygonMaskState]) -> None:
+        """Replace the current polygon mask overlay with a normalized state."""
+
+        self.current_polygon_mask_state = (
+            None if polygon_mask_state is None else polygon_mask_state.normalized()
+        )
+        self._draft_polygon_vertices.clear()
+        self._update_polygon_mask_overlay()
+
+    def set_polygon_mask_drawing_enabled(self, enabled: bool) -> None:
+        """Enable or disable polygon-mask drawing mode for the current ROI."""
+
+        can_draw = bool(enabled) and self.current_loaded_image is not None and self.current_roi_state is not None
+        self._polygon_mask_drawing_enabled = can_draw
+        if not can_draw:
+            self._draft_polygon_vertices.clear()
+        self._update_polygon_mask_overlay()
+
+    def clear_polygon_mask(self, *, emit_signal: bool = True) -> None:
+        """Clear the closed and in-progress polygon mask state."""
+
+        self.current_polygon_mask_state = None
+        self._draft_polygon_vertices.clear()
+        self._update_polygon_mask_overlay()
+        if emit_signal:
+            self.polygon_mask_state_changed.emit(None)
+
+    def add_polygon_mask_vertex(self, x_px: float, y_px: float) -> bool:
+        """Append one polygon vertex in image coordinates when drawing is enabled."""
+
+        if not self._polygon_mask_drawing_enabled or not self._point_within_current_roi(x_px, y_px):
+            return False
+        self.current_polygon_mask_state = None
+        self._draft_polygon_vertices.append((float(x_px), float(y_px)))
+        self._update_polygon_mask_overlay()
+        return True
+
+    def finish_polygon_mask(self) -> bool:
+        """Close the current polygon draft and emit the resulting mask state."""
+
+        state = PolygonMaskState(vertices_xy=tuple(self._draft_polygon_vertices)).normalized()
+        if not state.is_valid:
+            return False
+        self.current_polygon_mask_state = state
+        self._draft_polygon_vertices.clear()
+        self._polygon_mask_drawing_enabled = False
+        self._update_polygon_mask_overlay()
+        self.polygon_mask_state_changed.emit(state)
+        return True
 
     def reset_view(self) -> None:
         """Reset the visible range to the full image bounds."""
@@ -273,6 +366,65 @@ class PyQtGraphSTMViewport(QWidget):
         self.current_roi_state = roi_state
         self._update_roi_overlay_from_state()
         self.roi_state_edited.emit(roi_state)
+
+    def _update_polygon_mask_overlay(self) -> None:
+        if self.polygon_mask_curve_item is None or self.polygon_mask_vertex_item is None:
+            return
+
+        vertices: tuple[tuple[float, float], ...]
+        close_polygon = False
+        if self.current_polygon_mask_state is not None and self.current_polygon_mask_state.is_valid:
+            vertices = self.current_polygon_mask_state.normalized().vertices_xy
+            close_polygon = True
+        elif self._draft_polygon_vertices:
+            vertices = tuple(self._draft_polygon_vertices)
+        else:
+            self.polygon_mask_curve_item.setData([], [])
+            self.polygon_mask_curve_item.hide()
+            self.polygon_mask_vertex_item.setData([])
+            self.polygon_mask_vertex_item.hide()
+            return
+
+        x_values = [float(vertex[0]) for vertex in vertices]
+        y_values = [float(vertex[1]) for vertex in vertices]
+        if close_polygon and len(vertices) >= 3:
+            x_values.append(float(vertices[0][0]))
+            y_values.append(float(vertices[0][1]))
+        self.polygon_mask_curve_item.setData(x_values, y_values)
+        self.polygon_mask_curve_item.show()
+        self.polygon_mask_vertex_item.setData(
+            [{"pos": (float(x_value), float(y_value))} for x_value, y_value in vertices]
+        )
+        self.polygon_mask_vertex_item.show()
+
+    def _point_within_current_roi(self, x_px: float, y_px: float) -> bool:
+        roi = self.current_roi_state
+        image = self.current_loaded_image
+        if roi is None or image is None:
+            return False
+
+        clamped_roi = roi.clamped(image_width=image.pixels_x, image_height=image.pixels_y)
+        x_value = float(x_px)
+        y_value = float(y_px)
+        return (
+            float(clamped_roi.x) <= x_value <= float(clamped_roi.x + clamped_roi.width)
+            and float(clamped_roi.y) <= y_value <= float(clamped_roi.y + clamped_roi.height)
+        )
+
+    def _on_scene_mouse_clicked(self, event) -> None:  # pragma: no cover - exercised via GUI usage
+        if not self._polygon_mask_drawing_enabled or self.view_box is None:
+            return
+        if event.button() != Qt.MouseButton.LeftButton:
+            return
+
+        if event.double():
+            if self.finish_polygon_mask():
+                event.accept()
+            return
+
+        view_position = self.view_box.mapSceneToView(event.scenePos())
+        if self.add_polygon_mask_vertex(float(view_position.x()), float(view_position.y())):
+            event.accept()
 
     def _update_point_overlay(self) -> None:
         if self.point_scatter_item is None:
@@ -452,6 +604,31 @@ class PyQtGraphSTMViewport(QWidget):
     def _clear_image_view(self, detach: bool = False) -> None:
         """Clear image/ROI state and optionally detach graphics items during teardown."""
 
+        self.current_polygon_mask_state = None
+        self._draft_polygon_vertices.clear()
+        self._polygon_mask_drawing_enabled = False
+        if self.polygon_mask_curve_item is not None:
+            try:
+                self.polygon_mask_curve_item.setData([], [])
+                self.polygon_mask_curve_item.hide()
+            except Exception:
+                pass
+            if detach:
+                try:
+                    self.polygon_mask_curve_item.setParentItem(None)
+                except Exception:
+                    pass
+        if self.polygon_mask_vertex_item is not None:
+            try:
+                self.polygon_mask_vertex_item.setData([])
+                self.polygon_mask_vertex_item.hide()
+            except Exception:
+                pass
+            if detach:
+                try:
+                    self.polygon_mask_vertex_item.setParentItem(None)
+                except Exception:
+                    pass
         if self.row_axis_item is not None:
             try:
                 self.row_axis_item.setData([], [])
