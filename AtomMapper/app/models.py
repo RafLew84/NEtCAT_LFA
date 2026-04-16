@@ -533,6 +533,42 @@ class AtomRow:
         updated_points[point.point_id] = point
         return replace(self, points=tuple(updated_points.values()))
 
+    def with_inserted_point(self, point: AtomPoint, *, insert_index: int | None = None) -> "AtomRow":
+        """Return a new row with the point inserted at the requested order position."""
+
+        if point.row_id != self.row_id:
+            raise ValueError("point.row_id must match AtomRow.row_id.")
+        if point.source_group_id != self.source_group_id:
+            raise ValueError("point.source_group_id must match AtomRow.source_group_id.")
+
+        ordered_points = list(self.points)
+        ordered_points.sort(key=lambda existing: (existing.point_index, existing.point_id))
+        ordered_points = [
+            existing for existing in ordered_points if existing.point_id != point.point_id
+        ]
+        target_index = len(ordered_points) if insert_index is None else int(insert_index)
+        target_index = max(0, min(target_index, len(ordered_points)))
+        ordered_points.insert(target_index, point)
+        return replace(self, points=self._reindex_points(ordered_points))
+
+    def with_reordered_point(self, point_id: str, *, target_index: int) -> "AtomRow":
+        """Return a new row with one point moved to a new order position."""
+
+        normalized_point_id = str(point_id).strip()
+        ordered_points = list(self.points)
+        ordered_points.sort(key=lambda existing: (existing.point_index, existing.point_id))
+        current_index = next(
+            (index for index, point in enumerate(ordered_points) if point.point_id == normalized_point_id),
+            None,
+        )
+        if current_index is None:
+            raise ValueError(f"Point id '{point_id}' is not present in row '{self.row_id}'.")
+
+        point = ordered_points.pop(current_index)
+        clamped_target_index = max(0, min(int(target_index), len(ordered_points)))
+        ordered_points.insert(clamped_target_index, point)
+        return replace(self, points=self._reindex_points(ordered_points))
+
     def without_point(self, point_id: str) -> "AtomRow":
         """Return a new row with the selected point removed."""
 
@@ -542,7 +578,7 @@ class AtomRow:
         )
         if len(filtered_points) == len(self.points):
             return self
-        return replace(self, points=filtered_points)
+        return replace(self, points=self._reindex_points(filtered_points))
 
     def to_dict(self) -> Dict[str, Any]:
         """Return a JSON-serializable dictionary representation of the row."""
@@ -568,4 +604,13 @@ class AtomRow:
             color_hex=payload.get("color_hex"),
             metadata=dict(payload.get("metadata", {})),
             points=points,
+        )
+
+    @staticmethod
+    def _reindex_points(points: Tuple[AtomPoint, ...] | list[AtomPoint]) -> tuple[AtomPoint, ...]:
+        """Return points reindexed to a contiguous 0..N-1 sequence."""
+
+        return tuple(
+            replace(point, point_index=index)
+            for index, point in enumerate(points)
         )

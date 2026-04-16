@@ -109,14 +109,20 @@ class AtomMapperMainWindow(QMainWindow):
         self.add_point_button.setObjectName("atommapper_add_point_button")
         self.delete_point_button = QPushButton("Delete Point")
         self.delete_point_button.setObjectName("atommapper_delete_point_button")
+        self.move_point_up_button = QPushButton("Move Up")
+        self.move_point_up_button.setObjectName("atommapper_move_point_up_button")
+        self.move_point_down_button = QPushButton("Move Down")
+        self.move_point_down_button.setObjectName("atommapper_move_point_down_button")
         row_button_panel = QWidget(left_panel)
-        row_button_layout = QHBoxLayout(row_button_panel)
+        row_button_layout = QGridLayout(row_button_panel)
         row_button_layout.setContentsMargins(0, 0, 0, 0)
         row_button_layout.setSpacing(8)
-        row_button_layout.addWidget(self.new_row_button)
-        row_button_layout.addWidget(self.delete_row_button)
-        row_button_layout.addWidget(self.add_point_button)
-        row_button_layout.addWidget(self.delete_point_button)
+        row_button_layout.addWidget(self.new_row_button, 0, 0)
+        row_button_layout.addWidget(self.delete_row_button, 0, 1)
+        row_button_layout.addWidget(self.add_point_button, 0, 2)
+        row_button_layout.addWidget(self.move_point_up_button, 1, 0)
+        row_button_layout.addWidget(self.move_point_down_button, 1, 1)
+        row_button_layout.addWidget(self.delete_point_button, 1, 2)
         self.row_list_hint_label = QLabel("Load or select an STM image to manage rows.")
         self.row_list_hint_label.setWordWrap(True)
         self.row_list_hint_label.setStyleSheet("font-size: 12px; color: palette(mid);")
@@ -331,6 +337,8 @@ class AtomMapperMainWindow(QMainWindow):
         self.new_row_button.clicked.connect(self._create_new_row)
         self.delete_row_button.clicked.connect(self._delete_active_row)
         self.add_point_button.clicked.connect(self._add_point_from_current_roi)
+        self.move_point_up_button.clicked.connect(lambda: self._move_active_point_in_table(-1))
+        self.move_point_down_button.clicked.connect(lambda: self._move_active_point_in_table(1))
         self.delete_point_button.clicked.connect(self._delete_active_point)
         self.file_list_widget.currentRowChanged.connect(self._on_current_row_changed)
         self.row_list_widget.currentRowChanged.connect(self._on_current_row_changed_for_rows)
@@ -736,6 +744,40 @@ class AtomMapperMainWindow(QMainWindow):
                     return point
         return None
 
+    def _active_point_context(self) -> tuple[Any, AtomPoint, int] | None:
+        """Return the active point together with its row and current order position."""
+
+        active_point = self._active_point_for_current_group()
+        if active_point is None:
+            return None
+
+        active_group = self.controller.active_source_group_id
+        if active_group is None:
+            return None
+
+        row = next(
+            (
+                candidate_row
+                for candidate_row in self.controller.rows_for_source_group(active_group)
+                if candidate_row.row_id == active_point.row_id
+            ),
+            None,
+        )
+        if row is None:
+            return None
+
+        ordered_points = sorted(
+            row.points,
+            key=lambda point: (point.point_index, point.point_id),
+        )
+        point_position = next(
+            (index for index, point in enumerate(ordered_points) if point.point_id == active_point.point_id),
+            None,
+        )
+        if point_position is None:
+            return None
+        return (row, active_point, point_position)
+
     def _set_active_point_for_current_group(self, point_id: str | None) -> None:
         active_group = self.controller.active_source_group_id
         if active_group is None:
@@ -754,6 +796,7 @@ class AtomMapperMainWindow(QMainWindow):
         self._refresh_points_table()
         self._refresh_image_point_overlay()
         self._update_point_controls()
+        self._update_row_controls(self.controller.active_image, self.controller.active_row)
 
     def _normalize_active_point_selection(self, display_points: list[tuple[Any, AtomPoint]]) -> None:
         active_group = self.controller.active_source_group_id
@@ -766,6 +809,7 @@ class AtomMapperMainWindow(QMainWindow):
             return
         self._active_point_id_by_source_group.pop(active_group, None)
         self._update_point_controls()
+        self._update_row_controls(self.controller.active_image, self.controller.active_row)
 
     def _update_active_image_label(self, active_image: Any) -> None:
         if active_image is None:
@@ -1002,23 +1046,51 @@ class AtomMapperMainWindow(QMainWindow):
             self.new_row_button.setToolTip("Load or select an STM image first.")
         if has_row:
             self.delete_row_button.setToolTip(f"Delete the active row '{active_row.display_name}'.")
-            self.add_point_button.setToolTip(
-                f"Store the current ROI center in '{active_row.display_name}' using Gaussian fit or ROI fallback."
-            )
+            active_point_context = self._active_point_context()
+            if active_point_context is not None and active_point_context[0].row_id == active_row.row_id:
+                _, selected_point, _ = active_point_context
+                self.add_point_button.setToolTip(
+                    f"Store the current ROI point in '{active_row.display_name}' after selected point {selected_point.point_index}."
+                )
+            else:
+                self.add_point_button.setToolTip(
+                    f"Store the current ROI point at the end of '{active_row.display_name}'."
+                )
         else:
             self.delete_row_button.setToolTip("Select an atom row first.")
             self.add_point_button.setToolTip("Create or select an atom row first.")
 
     def _update_point_controls(self) -> None:
-        active_point = self._active_point_for_current_group()
-        has_point = active_point is not None
+        active_point_context = self._active_point_context()
+        has_point = active_point_context is not None
         self.delete_point_button.setEnabled(has_point)
+        self.move_point_up_button.setEnabled(False)
+        self.move_point_down_button.setEnabled(False)
         if has_point:
+            row, active_point, point_position = active_point_context
             self.delete_point_button.setToolTip(
                 f"Delete selected point {active_point.point_index} from the current STM file family."
             )
+            can_move_up = point_position > 0
+            can_move_down = point_position < row.point_count - 1
+            self.move_point_up_button.setEnabled(can_move_up)
+            self.move_point_down_button.setEnabled(can_move_down)
+            if can_move_up:
+                self.move_point_up_button.setToolTip(
+                    f"Move selected point {active_point.point_index} one position earlier in {row.display_name}."
+                )
+            else:
+                self.move_point_up_button.setToolTip("Selected point is already first in its row.")
+            if can_move_down:
+                self.move_point_down_button.setToolTip(
+                    f"Move selected point {active_point.point_index} one position later in {row.display_name}."
+                )
+            else:
+                self.move_point_down_button.setToolTip("Selected point is already last in its row.")
         else:
             self.delete_point_button.setToolTip("Select a saved point in the table or on the image first.")
+            self.move_point_up_button.setToolTip("Select a saved point in the table or on the image first.")
+            self.move_point_down_button.setToolTip("Select a saved point in the table or on the image first.")
 
     def _on_row_geometry_unit_changed(self, _index: int) -> None:
         self._refresh_row_disturbance_widget()
@@ -1487,18 +1559,49 @@ class AtomMapperMainWindow(QMainWindow):
                 },
             },
         )
-        updated_row = self.controller.add_point_to_row(point)
+        insert_index = None
+        inserted_after_point = None
+        active_point_context = self._active_point_context()
+        if active_point_context is not None:
+            selected_row, selected_point, selected_position = active_point_context
+            if selected_row.row_id == active_row.row_id:
+                insert_index = selected_position + 1
+                inserted_after_point = selected_point
+
+        updated_row = self.controller.add_point_to_row(point, insert_index=insert_index)
+        stored_point = next(
+            (candidate_point for candidate_point in updated_row.points if candidate_point.point_id == point.point_id),
+            point,
+        )
         self.statusBar().showMessage(
-            f"Added point {point.point_index} to {updated_row.display_name} at x={point.x_px:.2f}, y={point.y_px:.2f}.",
+            (
+                f"Inserted point {stored_point.point_index} into {updated_row.display_name} at "
+                f"x={stored_point.x_px:.2f}, y={stored_point.y_px:.2f}."
+                if inserted_after_point is not None
+                else f"Added point {stored_point.point_index} to {updated_row.display_name} at "
+                f"x={stored_point.x_px:.2f}, y={stored_point.y_px:.2f}."
+            ),
             4000,
         )
         if fallback_used:
             self.workflow_status_label.setText(
-                f"Workflow status: added point {point.point_index} to {updated_row.display_name} using ROI center fallback."
+                (
+                    f"Workflow status: inserted point {stored_point.point_index} into {updated_row.display_name} "
+                    f"after point {inserted_after_point.point_index} using ROI center fallback."
+                    if inserted_after_point is not None
+                    else f"Workflow status: added point {stored_point.point_index} to {updated_row.display_name} "
+                    "using ROI center fallback."
+                )
             )
         else:
             self.workflow_status_label.setText(
-                f"Workflow status: added point {point.point_index} to {updated_row.display_name} from {self.fit_settings_state.model.value.capitalize()} fit."
+                (
+                    f"Workflow status: inserted point {stored_point.point_index} into {updated_row.display_name} "
+                    f"after point {inserted_after_point.point_index} from {self.fit_settings_state.model.value.capitalize()} fit."
+                    if inserted_after_point is not None
+                    else f"Workflow status: added point {stored_point.point_index} to {updated_row.display_name} "
+                    f"from {self.fit_settings_state.model.value.capitalize()} fit."
+                )
             )
 
     def _delete_active_point(self) -> None:
@@ -1529,6 +1632,59 @@ class AtomMapperMainWindow(QMainWindow):
         noun = "point" if updated_row.point_count == 1 else "points"
         self.workflow_status_label.setText(
             f"Workflow status: deleted point {removed_point_index} from {row_name}. Active point selection cleared; {updated_row.point_count} {noun} remain."
+        )
+
+    def _move_active_point_in_table(self, step: int) -> None:
+        active_point_context = self._active_point_context()
+        if active_point_context is None:
+            self.statusBar().showMessage("Select a saved point before changing its position.", 4000)
+            self.workflow_status_label.setText(
+                "Workflow status: no saved point selected for row reordering."
+            )
+            return
+
+        row, active_point, point_position = active_point_context
+        target_index = point_position + int(step)
+        if target_index < 0 or target_index >= row.point_count:
+            direction_label = "first" if target_index < 0 else "last"
+            self.statusBar().showMessage(
+                f"Selected point is already {direction_label} in {row.display_name}.",
+                3000,
+            )
+            self.workflow_status_label.setText(
+                f"Workflow status: selected point is already {direction_label} in {row.display_name}."
+            )
+            return
+
+        try:
+            updated_row = self.controller.reorder_point_in_row(
+                row_id=row.row_id,
+                point_id=active_point.point_id,
+                target_index=target_index,
+            )
+        except Exception as exc:  # pragma: no cover - GUI error path
+            logger.exception("Failed to reorder point '%s': %s", active_point.point_id, exc)
+            self.statusBar().showMessage("Point reorder failed.", 4000)
+            self.workflow_status_label.setText(
+                "Workflow status: point reorder failed."
+            )
+            return
+
+        moved_point = next(
+            (point for point in updated_row.points if point.point_id == active_point.point_id),
+            None,
+        )
+        self._set_active_point_for_current_group(active_point.point_id)
+        if moved_point is None:
+            return
+
+        direction_label = "up" if step < 0 else "down"
+        self.statusBar().showMessage(
+            f"Moved point {moved_point.point_index} {direction_label} in {updated_row.display_name}.",
+            4000,
+        )
+        self.workflow_status_label.setText(
+            f"Workflow status: moved point to position {moved_point.point_index} in {updated_row.display_name}; table and plots refreshed."
         )
 
     def _handle_active_image_changed_for_rows(self, active_image: Any) -> None:

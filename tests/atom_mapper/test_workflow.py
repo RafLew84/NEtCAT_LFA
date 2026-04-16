@@ -779,6 +779,105 @@ def test_main_window_drag_move_updates_point_position_and_marks_manual_override(
     assert "selection preserved" in window.workflow_status_label.text()
 
 
+def test_main_window_add_point_inserts_after_selected_point_in_active_row(qtbot):
+    controller = AtomMapperController()
+    image = _make_gaussian_image("point-insert.stp", size=40, amplitude=18.0, offset=1.0)
+    controller.set_loaded_images([image])
+    row = controller.create_row_for_active_source_group(display_name="Row 1")
+
+    first_point = AtomPoint(
+        row_id=row.row_id,
+        image_id=image.image_id,
+        source_group_id=image.source_group_id,
+        point_index=0,
+        x_px=10.0,
+        y_px=10.0,
+        point_id="point-1",
+    )
+    second_point = AtomPoint(
+        row_id=row.row_id,
+        image_id=image.image_id,
+        source_group_id=image.source_group_id,
+        point_index=1,
+        x_px=30.0,
+        y_px=30.0,
+        point_id="point-2",
+    )
+    controller.add_point_to_row(first_point)
+    controller.add_point_to_row(second_point)
+
+    window = AtomMapperMainWindow(controller=controller)
+    qtbot.addWidget(window)
+
+    window.points_table_widget.setCurrentCell(0, 0)
+    qtbot.waitUntil(lambda: window.image_viewport.current_active_point_id == "point-1")
+
+    controller.update_active_roi_state(ROIState(x=14, y=14, width=8, height=8))
+    qtbot.mouseClick(window.add_point_button, Qt.MouseButton.LeftButton)
+
+    qtbot.waitUntil(lambda: controller.active_row is not None and controller.active_row.point_count == 3)
+    active_row = controller.active_row
+    assert active_row is not None
+    assert [point.point_index for point in active_row.points] == [0, 1, 2]
+    assert [point.point_id for point in active_row.points][:1] == ["point-1"]
+    assert active_row.points[2].point_id == "point-2"
+    inserted_point = active_row.points[1]
+    assert inserted_point.point_id not in {"point-1", "point-2"}
+    assert "inserted point 1" in window.workflow_status_label.text().lower()
+    assert "after point 0" in window.workflow_status_label.text().lower()
+    assert window.points_table_widget.item(0, 1).text() == "0"
+    assert window.points_table_widget.item(1, 1).text() == "1"
+    assert window.points_table_widget.item(2, 1).text() == "2"
+
+
+def test_main_window_move_point_buttons_reorder_table_and_row_plot(qtbot):
+    controller = AtomMapperController()
+    image = _make_gaussian_image("point-reorder.stp", size=40, amplitude=18.0, offset=1.0)
+    controller.set_loaded_images([image])
+    row = controller.create_row_for_active_source_group(display_name="Row 1")
+
+    for point_index, (point_id, x_px) in enumerate((("point-1", 10.0), ("point-2", 20.0), ("point-3", 30.0))):
+        controller.add_point_to_row(
+            AtomPoint(
+                row_id=row.row_id,
+                image_id=image.image_id,
+                source_group_id=image.source_group_id,
+                point_index=point_index,
+                x_px=x_px,
+                y_px=10.0,
+                point_id=point_id,
+            )
+        )
+
+    window = AtomMapperMainWindow(controller=controller)
+    qtbot.addWidget(window)
+
+    window.points_table_widget.setCurrentCell(2, 0)
+    qtbot.waitUntil(lambda: window.image_viewport.current_active_point_id == "point-3")
+    assert window.move_point_up_button.isEnabled() is True
+    assert window.move_point_down_button.isEnabled() is False
+
+    qtbot.mouseClick(window.move_point_up_button, Qt.MouseButton.LeftButton)
+
+    qtbot.waitUntil(
+        lambda: controller.active_row is not None
+        and [point.point_id for point in controller.active_row.points] == ["point-1", "point-3", "point-2"]
+    )
+
+    active_row = controller.active_row
+    assert active_row is not None
+    assert [point.point_index for point in active_row.points] == [0, 1, 2]
+    assert window.points_table_widget.item(0, 1).text() == "0"
+    assert window.points_table_widget.item(1, 1).text() == "1"
+    assert window.points_table_widget.item(2, 1).text() == "2"
+    assert window.points_table_widget.item(1, 0).text() == "Row 1"
+    assert window.points_table_widget.currentItem() is not None
+    assert window.points_table_widget.currentItem().data(Qt.ItemDataRole.UserRole) == "point-3"
+    assert window.row_plot_widget.current_series is not None
+    assert [sample.y_value for sample in window.row_plot_widget.current_series.samples] == [10.0, 30.0, 20.0]
+    assert "table and plots refreshed" in window.workflow_status_label.text().lower()
+
+
 def test_main_window_end_to_end_stage3a_point_editing_workflow(qtbot):
     controller = AtomMapperController()
     image = _make_gaussian_image("stage3a-e2e.stp", size=40, amplitude=20.0, offset=1.0)

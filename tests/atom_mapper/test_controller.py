@@ -387,6 +387,89 @@ def test_controller_add_point_to_row_and_emit_row_point_signals():
     assert active_row_events[-1] == updated_row
 
 
+def test_controller_can_insert_point_into_middle_of_row_and_reindex_points():
+    controller = AtomMapperController()
+    original = _make_loaded_image("sample.stp", width=40, height=30)
+    controller.set_loaded_images([original])
+    row = controller.create_row_for_active_source_group(display_name="Row A")
+
+    controller.add_point_to_row(
+        AtomPoint(
+            row_id=row.row_id,
+            image_id=original.image_id,
+            source_group_id=original.source_group_id,
+            point_index=0,
+            x_px=5.0,
+            y_px=5.0,
+            point_id="point-1",
+        )
+    )
+    controller.add_point_to_row(
+        AtomPoint(
+            row_id=row.row_id,
+            image_id=original.image_id,
+            source_group_id=original.source_group_id,
+            point_index=1,
+            x_px=15.0,
+            y_px=15.0,
+            point_id="point-2",
+        )
+    )
+
+    updated_row = controller.add_point_to_row(
+        AtomPoint(
+            row_id=row.row_id,
+            image_id=original.image_id,
+            source_group_id=original.source_group_id,
+            point_index=99,
+            x_px=10.0,
+            y_px=10.0,
+            point_id="point-inserted",
+        ),
+        insert_index=1,
+    )
+
+    assert [point.point_id for point in updated_row.points] == [
+        "point-1",
+        "point-inserted",
+        "point-2",
+    ]
+    assert [point.point_index for point in updated_row.points] == [0, 1, 2]
+
+
+def test_controller_can_reorder_point_in_row_and_reindex_points():
+    controller = AtomMapperController()
+    original = _make_loaded_image("sample.stp", width=40, height=30)
+    controller.set_loaded_images([original])
+    row = controller.create_row_for_active_source_group(display_name="Row A")
+
+    for point_index, point_id in enumerate(("point-1", "point-2", "point-3")):
+        controller.add_point_to_row(
+            AtomPoint(
+                row_id=row.row_id,
+                image_id=original.image_id,
+                source_group_id=original.source_group_id,
+                point_index=point_index,
+                x_px=10.0 + point_index,
+                y_px=11.0 + point_index,
+                point_id=point_id,
+            )
+        )
+
+    updated_row = controller.reorder_point_in_row(
+        row_id=row.row_id,
+        point_id="point-3",
+        target_index=1,
+    )
+
+    assert [point.point_id for point in updated_row.points] == [
+        "point-1",
+        "point-3",
+        "point-2",
+    ]
+    assert [point.point_index for point in updated_row.points] == [0, 1, 2]
+
+
 def test_controller_restore_from_session_reconstructs_runtime_state():
     controller = AtomMapperController()
     original = _make_loaded_image("session.stp", width=20, height=16)

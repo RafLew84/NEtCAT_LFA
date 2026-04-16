@@ -549,7 +549,7 @@ class AtomMapperController(QObject):
         self.active_row_changed.emit(self.active_row)
         return row
 
-    def add_point_to_row(self, point: AtomPoint) -> AtomRow:
+    def add_point_to_row(self, point: AtomPoint, *, insert_index: int | None = None) -> AtomRow:
         """Store a point inside the selected row after validating image-family consistency."""
 
         row = self._find_row_by_id(point.row_id)
@@ -566,7 +566,7 @@ class AtomMapperController(QObject):
         self._ensure_point_id_not_present(point.point_id, ignore_row_id=row.row_id)
 
         normalized_point = self._point_with_physical_coordinates(point, image=image)
-        updated_row = row.with_point(normalized_point)
+        updated_row = row.with_inserted_point(normalized_point, insert_index=insert_index)
         self._replace_row(updated_row)
         self.row_points_changed.emit(updated_row)
         if self.active_source_group_id == updated_row.source_group_id:
@@ -669,6 +669,27 @@ class AtomMapperController(QObject):
             source=source,
         )
         return self.replace_point_in_row(corrected_point)
+
+    def reorder_point_in_row(
+        self,
+        *,
+        row_id: str,
+        point_id: str,
+        target_index: int,
+    ) -> AtomRow:
+        """Move a stored point to a new position inside its row and reindex the row."""
+
+        row = self._find_row_by_id(row_id)
+        if row is None:
+            raise ValueError(f"Unknown row_id '{row_id}'.")
+
+        updated_row = row.with_reordered_point(point_id, target_index=target_index)
+        self._replace_row(updated_row)
+        self.row_points_changed.emit(updated_row)
+        if self.active_source_group_id == updated_row.source_group_id:
+            self._active_row_id_by_source_group[updated_row.source_group_id] = updated_row.row_id
+            self.active_row_changed.emit(updated_row)
+        return updated_row
 
     @staticmethod
     def _point_with_physical_coordinates(point: AtomPoint, *, image: LoadedImage) -> AtomPoint:
