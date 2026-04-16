@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -75,23 +76,52 @@ class AtomMapperMainWindow(QMainWindow):
         left_title = QLabel("Loaded STM files")
         left_title.setStyleSheet("font-size: 16px; font-weight: 600;")
 
-        self.load_button = QPushButton("Load STM Files...")
-        self.preprocessing_button = QPushButton("Preprocessing")
+        self.load_button = QPushButton("Load STM Files...", left_panel)
+        self.preprocessing_button = QPushButton("Preprocessing", left_panel)
         self.preprocessing_button.setObjectName("atommapper_preprocessing_button")
-        self.fit_settings_button = QPushButton("Fit Settings")
+        self.fit_settings_button = QPushButton("Fit Settings", left_panel)
         self.fit_settings_button.setObjectName("atommapper_fit_settings_button")
-        self.polygon_mask_button = QPushButton("Polygon Mask")
+        self.polygon_mask_button = QPushButton("Polygon Mask", left_panel)
         self.polygon_mask_button.setObjectName("atommapper_polygon_mask_button")
         self.polygon_mask_button.setCheckable(True)
-        self.clear_polygon_mask_button = QPushButton("Clear Mask")
+        self.clear_polygon_mask_button = QPushButton("Clear Mask", left_panel)
         self.clear_polygon_mask_button.setObjectName("atommapper_clear_polygon_mask_button")
-        self.export_csv_button = QPushButton("Export CSV")
+        self.export_csv_button = QPushButton("Export CSV", left_panel)
         self.export_csv_button.setObjectName("atommapper_export_csv_button")
-        self.save_session_button = QPushButton("Save Session")
+        self.save_session_button = QPushButton("Save Session", left_panel)
         self.save_session_button.setObjectName("atommapper_save_session_button")
-        self.load_session_button = QPushButton("Load Session")
+        self.load_session_button = QPushButton("Load Session", left_panel)
         self.load_session_button.setObjectName("atommapper_load_session_button")
-        self.file_list_hint_label = QLabel("No STM files loaded. Use 'Load STM Files...' to start.")
+        for hidden_action_button in (
+            self.load_button,
+            self.preprocessing_button,
+            self.fit_settings_button,
+            self.polygon_mask_button,
+            self.clear_polygon_mask_button,
+            self.export_csv_button,
+            self.save_session_button,
+            self.load_session_button,
+        ):
+            hidden_action_button.hide()
+
+        self.load_files_action = QAction("Load STM Files...", self)
+        self.load_files_action.setObjectName("atommapper_load_files_action")
+        self.preprocessing_action = QAction("Preprocessing", self)
+        self.preprocessing_action.setObjectName("atommapper_preprocessing_action")
+        self.fit_settings_action = QAction("Fit Settings", self)
+        self.fit_settings_action.setObjectName("atommapper_fit_settings_action")
+        self.polygon_mask_action = QAction("Polygon Mask", self)
+        self.polygon_mask_action.setObjectName("atommapper_polygon_mask_action")
+        self.polygon_mask_action.setCheckable(True)
+        self.clear_polygon_mask_action = QAction("Clear Mask", self)
+        self.clear_polygon_mask_action.setObjectName("atommapper_clear_polygon_mask_action")
+        self.export_csv_action = QAction("Export CSV", self)
+        self.export_csv_action.setObjectName("atommapper_export_csv_action")
+        self.save_session_action = QAction("Save Session", self)
+        self.save_session_action.setObjectName("atommapper_save_session_action")
+        self.load_session_action = QAction("Load Session", self)
+        self.load_session_action.setObjectName("atommapper_load_session_action")
+        self.file_list_hint_label = QLabel("No STM files loaded. Use File > Load STM Files... to start.")
         self.file_list_hint_label.setWordWrap(True)
         self.file_list_hint_label.setStyleSheet("font-size: 12px; color: palette(mid);")
         self.file_list_widget = QListWidget()
@@ -130,14 +160,6 @@ class AtomMapperMainWindow(QMainWindow):
         self.row_list_widget.setObjectName("atommapper_row_list")
 
         left_layout.addWidget(left_title)
-        left_layout.addWidget(self.load_button)
-        left_layout.addWidget(self.preprocessing_button)
-        left_layout.addWidget(self.fit_settings_button)
-        left_layout.addWidget(self.polygon_mask_button)
-        left_layout.addWidget(self.clear_polygon_mask_button)
-        left_layout.addWidget(self.export_csv_button)
-        left_layout.addWidget(self.save_session_button)
-        left_layout.addWidget(self.load_session_button)
         left_layout.addWidget(self.file_list_hint_label)
         left_layout.addWidget(self.file_list_widget, 1)
         left_layout.addWidget(rows_title)
@@ -296,11 +318,26 @@ class AtomMapperMainWindow(QMainWindow):
         self.fit_settings_dock.setWidget(self.fit_settings_panel)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.fit_settings_dock)
         self.fit_settings_dock.hide()
+        file_menu = self.menuBar().addMenu("File")
+        file_menu.addAction(self.load_files_action)
+        file_menu.addSeparator()
+        file_menu.addAction(self.export_csv_action)
+        file_menu.addSeparator()
+        file_menu.addAction(self.save_session_action)
+        file_menu.addAction(self.load_session_action)
+
+        tools_menu = self.menuBar().addMenu("Tools")
+        tools_menu.addAction(self.preprocessing_action)
+        tools_menu.addAction(self.fit_settings_action)
+        tools_menu.addSeparator()
+        tools_menu.addAction(self.polygon_mask_action)
+        tools_menu.addAction(self.clear_polygon_mask_action)
+
         view_menu = self.menuBar().addMenu("View")
         analysis_toggle_action = self.analysis_dock.toggleViewAction()
         analysis_toggle_action.setText("Analysis")
         fit_settings_toggle_action = self.fit_settings_dock.toggleViewAction()
-        fit_settings_toggle_action.setText("Fit Settings")
+        fit_settings_toggle_action.setText("Fit Settings Dock")
         view_menu.addAction(analysis_toggle_action)
         view_menu.addAction(fit_settings_toggle_action)
         self._preprocessing_dialog_class = PreprocessingDialog
@@ -327,13 +364,21 @@ class AtomMapperMainWindow(QMainWindow):
 
     def _connect_signals(self) -> None:
         self.load_button.clicked.connect(self._open_file_dialog)
+        self.load_files_action.triggered.connect(self._open_file_dialog)
         self.preprocessing_button.clicked.connect(self._open_preprocessing_dialog)
+        self.preprocessing_action.triggered.connect(self._open_preprocessing_dialog)
         self.fit_settings_button.clicked.connect(self._open_fit_settings_dock)
+        self.fit_settings_action.triggered.connect(self._open_fit_settings_dock)
         self.polygon_mask_button.toggled.connect(self._on_polygon_mask_toggled)
+        self.polygon_mask_action.toggled.connect(self._on_polygon_mask_toggled)
         self.clear_polygon_mask_button.clicked.connect(self._clear_polygon_mask)
+        self.clear_polygon_mask_action.triggered.connect(self._clear_polygon_mask)
         self.export_csv_button.clicked.connect(self._export_points_csv)
+        self.export_csv_action.triggered.connect(self._export_points_csv)
         self.save_session_button.clicked.connect(self._save_session_to_project_file)
+        self.save_session_action.triggered.connect(self._save_session_to_project_file)
         self.load_session_button.clicked.connect(self._load_session_from_project_file)
+        self.load_session_action.triggered.connect(self._load_session_from_project_file)
         self.new_row_button.clicked.connect(self._create_new_row)
         self.delete_row_button.clicked.connect(self._delete_active_row)
         self.add_point_button.clicked.connect(self._add_point_from_current_roi)
@@ -434,7 +479,7 @@ class AtomMapperMainWindow(QMainWindow):
         image_count = self.file_list_widget.count()
         self.file_list_widget.setEnabled(image_count > 0)
         if image_count == 0:
-            self.file_list_hint_label.setText("No STM files loaded. Use 'Load STM Files...' to start.")
+            self.file_list_hint_label.setText("No STM files loaded. Use File > Load STM Files... to start.")
         else:
             noun = "file" if image_count == 1 else "files"
             self.file_list_hint_label.setText(f"{image_count} STM {noun} loaded.")
@@ -843,34 +888,43 @@ class AtomMapperMainWindow(QMainWindow):
     def _update_preprocess_controls(self, active_image: Any) -> None:
         has_image = active_image is not None
         self.preprocessing_button.setEnabled(has_image)
+        self.preprocessing_action.setEnabled(has_image)
         if has_image:
-            self.preprocessing_button.setToolTip(
-                f"Open preprocessing dialog for {active_image.display_name}."
-            )
+            tooltip = f"Open preprocessing dialog for {active_image.display_name}."
         else:
-            self.preprocessing_button.setToolTip("Load or select an STM image first.")
+            tooltip = "Load or select an STM image first."
+        self.preprocessing_button.setToolTip(tooltip)
+        self.preprocessing_action.setStatusTip(tooltip)
 
     def _update_export_controls(self, active_image: Any) -> None:
         has_image = active_image is not None
         self.export_csv_button.setEnabled(has_image)
+        self.export_csv_action.setEnabled(has_image)
         if has_image:
-            self.export_csv_button.setToolTip(
+            export_tooltip = (
                 f"Export saved points for the active STM file family of {active_image.display_name}."
             )
         else:
-            self.export_csv_button.setToolTip("Load or select an STM image first.")
+            export_tooltip = "Load or select an STM image first."
+        self.export_csv_button.setToolTip(export_tooltip)
+        self.export_csv_action.setStatusTip(export_tooltip)
         self.save_session_button.setEnabled(True)
-        self.save_session_button.setToolTip(
-            "Save the current AtomMapper project state to a .atommapper_proj file."
-        )
+        self.save_session_action.setEnabled(True)
+        save_session_tooltip = "Save the current AtomMapper project state to a .atommapper_proj file."
+        self.save_session_button.setToolTip(save_session_tooltip)
+        self.save_session_action.setStatusTip(save_session_tooltip)
         self.load_session_button.setEnabled(True)
-        self.load_session_button.setToolTip(
-            "Load an AtomMapper project state from a .atommapper_proj file."
-        )
+        self.load_session_action.setEnabled(True)
+        load_session_tooltip = "Load an AtomMapper project state from a .atommapper_proj file."
+        self.load_session_button.setToolTip(load_session_tooltip)
+        self.load_session_action.setStatusTip(load_session_tooltip)
         self.fit_settings_button.setEnabled(True)
-        self.fit_settings_button.setToolTip(
+        self.fit_settings_action.setEnabled(True)
+        fit_settings_tooltip = (
             "Open the non-modal fit-settings dock to edit the local peak model and its parameters."
         )
+        self.fit_settings_button.setToolTip(fit_settings_tooltip)
+        self.fit_settings_action.setStatusTip(fit_settings_tooltip)
 
     def _update_polygon_mask_controls(self, active_image: Any, roi_state: Any) -> None:
         has_image = active_image is not None
@@ -879,21 +933,35 @@ class AtomMapperMainWindow(QMainWindow):
         can_draw = has_image and has_roi
 
         self.polygon_mask_button.setEnabled(can_draw)
+        self.polygon_mask_action.setEnabled(can_draw)
         self.clear_polygon_mask_button.setEnabled(has_mask or self.polygon_mask_button.isChecked())
+        self.clear_polygon_mask_action.setEnabled(has_mask or self.polygon_mask_button.isChecked())
 
         if can_draw:
-            self.polygon_mask_button.setToolTip(
+            polygon_tooltip = (
                 "Draw a polygon inside the active ROI. Click to add vertices, double click to close."
             )
         elif has_image:
-            self.polygon_mask_button.setToolTip("Define or select an ROI before drawing a polygon mask.")
+            polygon_tooltip = "Define or select an ROI before drawing a polygon mask."
         else:
-            self.polygon_mask_button.setToolTip("Load or select an STM image first.")
+            polygon_tooltip = "Load or select an STM image first."
+        self.polygon_mask_button.setToolTip(polygon_tooltip)
+        self.polygon_mask_action.setStatusTip(polygon_tooltip)
 
         if has_mask:
-            self.clear_polygon_mask_button.setToolTip("Clear the active polygon mask used for local fitting.")
+            clear_mask_tooltip = "Clear the active polygon mask used for local fitting."
         else:
-            self.clear_polygon_mask_button.setToolTip("No polygon mask is currently active.")
+            clear_mask_tooltip = "No polygon mask is currently active."
+        self.clear_polygon_mask_button.setToolTip(clear_mask_tooltip)
+        self.clear_polygon_mask_action.setStatusTip(clear_mask_tooltip)
+
+    def _set_polygon_mask_toggle_checked(self, checked: bool) -> None:
+        self.polygon_mask_button.blockSignals(True)
+        self.polygon_mask_button.setChecked(checked)
+        self.polygon_mask_button.blockSignals(False)
+        self.polygon_mask_action.blockSignals(True)
+        self.polygon_mask_action.setChecked(checked)
+        self.polygon_mask_action.blockSignals(False)
 
     def _update_fit_settings_context(self) -> None:
         self.fit_settings_panel.set_context(
@@ -915,11 +983,10 @@ class AtomMapperMainWindow(QMainWindow):
         self._update_workflow_status()
 
     def _on_polygon_mask_toggled(self, checked: bool) -> None:
+        self._set_polygon_mask_toggle_checked(checked)
         if checked:
             if self.controller.active_image is None or self.controller.active_roi_state is None:
-                self.polygon_mask_button.blockSignals(True)
-                self.polygon_mask_button.setChecked(False)
-                self.polygon_mask_button.blockSignals(False)
+                self._set_polygon_mask_toggle_checked(False)
                 self.statusBar().showMessage("Select an STM image and ROI before drawing a polygon mask.", 4000)
                 self.workflow_status_label.setText(
                     "Workflow status: select an STM image and ROI before drawing a polygon mask."
@@ -953,9 +1020,7 @@ class AtomMapperMainWindow(QMainWindow):
     def _handle_polygon_mask_state_changed(self, state: Any) -> None:
         self.preview_bridge.set_polygon_mask_state(state)
         if state is not None:
-            self.polygon_mask_button.blockSignals(True)
-            self.polygon_mask_button.setChecked(False)
-            self.polygon_mask_button.blockSignals(False)
+            self._set_polygon_mask_toggle_checked(False)
             self.image_viewport.set_polygon_mask_drawing_enabled(False)
             self.statusBar().showMessage("Polygon mask applied to the current ROI fit.", 4000)
         else:
@@ -968,9 +1033,7 @@ class AtomMapperMainWindow(QMainWindow):
         self._update_workflow_status()
 
     def _clear_polygon_mask(self) -> None:
-        self.polygon_mask_button.blockSignals(True)
-        self.polygon_mask_button.setChecked(False)
-        self.polygon_mask_button.blockSignals(False)
+        self._set_polygon_mask_toggle_checked(False)
         self.image_viewport.set_polygon_mask_drawing_enabled(False)
         self.image_viewport.clear_polygon_mask()
         self._update_polygon_mask_controls(
@@ -1355,9 +1418,7 @@ class AtomMapperMainWindow(QMainWindow):
             self.global_scatter_plot_widget.unit_combo.setCurrentIndex(global_scatter_unit_index)
 
         self.preview_bridge.set_polygon_mask_state(view_state.active_polygon_mask)
-        self.polygon_mask_button.blockSignals(True)
-        self.polygon_mask_button.setChecked(False)
-        self.polygon_mask_button.blockSignals(False)
+        self._set_polygon_mask_toggle_checked(False)
         self.image_viewport.set_polygon_mask_drawing_enabled(False)
         self._update_polygon_mask_controls(self.controller.active_image, self.controller.active_roi_state)
 
@@ -1780,9 +1841,7 @@ class AtomMapperMainWindow(QMainWindow):
         self.preview_bridge.set_loaded_image(active_image)
         self.preview_bridge.set_polygon_mask_state(None)
         self.preview_bridge.set_roi_state(self.controller.active_roi_state)
-        self.polygon_mask_button.blockSignals(True)
-        self.polygon_mask_button.setChecked(False)
-        self.polygon_mask_button.blockSignals(False)
+        self._set_polygon_mask_toggle_checked(False)
         self.image_viewport.set_polygon_mask_drawing_enabled(False)
         self._update_polygon_mask_controls(active_image, self.controller.active_roi_state)
         self._sync_gaussian_preview_visibility()

@@ -179,7 +179,7 @@ def test_main_window_loads_sample_file_via_button(qtbot, monkeypatch):
         lambda *args, **kwargs: ([sample_path], "STM files (*.stp *.s94)"),
     )
 
-    qtbot.mouseClick(window.load_button, Qt.MouseButton.LeftButton)
+    window.load_files_action.trigger()
 
     assert len(window.controller.loaded_images) == 1
     assert window.file_list_widget.count() == 1
@@ -220,7 +220,7 @@ def test_main_window_reports_load_errors(qtbot, monkeypatch, tmp_path: Path):
 
     monkeypatch.setattr("AtomMapper.app.main_window.QMessageBox.warning", fake_warning)
 
-    qtbot.mouseClick(window.load_button, Qt.MouseButton.LeftButton)
+    window.load_files_action.trigger()
 
     assert len(window.controller.loaded_images) == 0
     assert window.file_list_widget.count() == 0
@@ -325,7 +325,7 @@ def test_fit_settings_dock_is_non_modal_and_syncs_context(qtbot):
 
     assert window.fit_settings_dock.isHidden() is True
 
-    qtbot.mouseClick(window.fit_settings_button, Qt.MouseButton.LeftButton)
+    window.fit_settings_action.trigger()
 
     assert window.fit_settings_dock.isHidden() is False
     assert "fit-first.stp" in window.fit_settings_panel.context_label.text()
@@ -349,7 +349,7 @@ def test_fit_settings_dock_is_non_modal_and_syncs_context(qtbot):
     window.fit_settings_dock.close()
     assert window.fit_settings_dock.isHidden() is True
 
-    qtbot.mouseClick(window.fit_settings_button, Qt.MouseButton.LeftButton)
+    window.fit_settings_action.trigger()
     assert window.fit_settings_dock.isHidden() is False
 
 
@@ -366,7 +366,7 @@ def test_fit_settings_panel_refreshes_preview_and_add_point_uses_same_gaussian_s
     assert before_result is not None
     assert before_result.success is True
 
-    qtbot.mouseClick(window.fit_settings_button, Qt.MouseButton.LeftButton)
+    window.fit_settings_action.trigger()
     model_index = window.fit_settings_panel.model_combo.findData(LocalFitModelType.GAUSSIAN)
     window.fit_settings_panel.model_combo.setCurrentIndex(model_index)
 
@@ -420,7 +420,7 @@ def test_fit_settings_panel_refreshes_preview_and_add_point_uses_same_lorentzian
     qtbot.addWidget(window)
     qtbot.mouseClick(window.new_row_button, Qt.MouseButton.LeftButton)
 
-    qtbot.mouseClick(window.fit_settings_button, Qt.MouseButton.LeftButton)
+    window.fit_settings_action.trigger()
     model_index = window.fit_settings_panel.model_combo.findData(LocalFitModelType.LORENTZIAN)
     window.fit_settings_panel.model_combo.setCurrentIndex(model_index)
 
@@ -477,7 +477,7 @@ def test_fit_settings_panel_refreshes_preview_and_add_point_uses_same_voigt_sett
     qtbot.addWidget(window)
     qtbot.mouseClick(window.new_row_button, Qt.MouseButton.LeftButton)
 
-    qtbot.mouseClick(window.fit_settings_button, Qt.MouseButton.LeftButton)
+    window.fit_settings_action.trigger()
     model_index = window.fit_settings_panel.model_combo.findData(LocalFitModelType.VOIGT)
     window.fit_settings_panel.model_combo.setCurrentIndex(model_index)
 
@@ -548,7 +548,7 @@ def test_main_window_end_to_end_roi_fit_workflow(qtbot, monkeypatch):
         lambda file_path: fake_images[str(file_path)],
     )
 
-    qtbot.mouseClick(window.load_button, Qt.MouseButton.LeftButton)
+    window.load_files_action.trigger()
 
     assert window.file_list_widget.count() == 2
     assert window.controller.active_image is not None
@@ -994,7 +994,7 @@ def test_main_window_exports_active_family_points_to_csv(qtbot, monkeypatch, tmp
         lambda *args, **kwargs: (str(export_path), "CSV files (*.csv)"),
     )
 
-    qtbot.mouseClick(window.export_csv_button, Qt.MouseButton.LeftButton)
+    window.export_csv_action.trigger()
 
     assert export_path.exists()
     with export_path.open("r", encoding="utf-8", newline="") as handle:
@@ -1070,7 +1070,7 @@ def test_main_window_saves_project_session_to_file(qtbot, monkeypatch, tmp_path:
     window.global_scatter_plot_widget.unit_combo.setCurrentIndex(
         window.global_scatter_plot_widget.unit_combo.findData(PlotUnit.NM)
     )
-    qtbot.mouseClick(window.polygon_mask_button, Qt.MouseButton.LeftButton)
+    window.polygon_mask_action.trigger()
     assert window.image_viewport.add_polygon_mask_vertex(12.0, 13.0) is True
     assert window.image_viewport.add_polygon_mask_vertex(22.0, 13.0) is True
     assert window.image_viewport.add_polygon_mask_vertex(22.0, 23.0) is True
@@ -1084,7 +1084,7 @@ def test_main_window_saves_project_session_to_file(qtbot, monkeypatch, tmp_path:
         lambda *args, **kwargs: (str(session_path), "AtomMapper project (*.atommapper_proj)"),
     )
 
-    qtbot.mouseClick(window.save_session_button, Qt.MouseButton.LeftButton)
+    window.save_session_action.trigger()
 
     assert session_path.exists()
     with session_path.open("r", encoding="utf-8") as handle:
@@ -1170,7 +1170,7 @@ def test_main_window_loads_project_session_from_file(qtbot, monkeypatch, tmp_pat
         lambda *args, **kwargs: (str(session_path), "AtomMapper project (*.atommapper_proj)"),
     )
 
-    qtbot.mouseClick(window.load_session_button, Qt.MouseButton.LeftButton)
+    window.load_session_action.trigger()
 
     qtbot.waitUntil(
         lambda: (
@@ -1200,7 +1200,7 @@ def test_main_window_loads_project_session_from_file(qtbot, monkeypatch, tmp_pat
     assert window.preview_bridge.current_polygon_mask_state is not None
     assert window.image_viewport.current_polygon_mask_state is not None
     assert len(window.image_viewport.current_polygon_mask_state.vertices_xy) == 4
-    assert window.clear_polygon_mask_button.isEnabled() is True
+    assert window.clear_polygon_mask_action.isEnabled() is True
     assert len(window.image_viewport.point_scatter_item.points()) == 2
     assert window.file_list_widget.count() == 2
     assert window.statusBar().currentMessage() == "Loaded session from session-load.atommapper_proj."
@@ -1227,9 +1227,9 @@ def test_main_window_can_open_preprocessing_dialog_for_active_image(qtbot):
 
     window._preprocessing_dialog_class = FakeDialog
 
-    assert window.preprocessing_button.isEnabled()
+    assert window.preprocessing_action.isEnabled()
 
-    qtbot.mouseClick(window.preprocessing_button, Qt.MouseButton.LeftButton)
+    window.preprocessing_action.trigger()
 
     assert opened["image"] == original
     assert opened["parent"] == window
@@ -1254,7 +1254,7 @@ def test_main_window_real_preprocessing_dialog_cancel_keeps_state(qtbot):
 
     window._preprocessing_dialog_class = AutoCancelDialog
 
-    qtbot.mouseClick(window.preprocessing_button, Qt.MouseButton.LeftButton)
+    window.preprocessing_action.trigger()
 
     assert len(window.controller.loaded_images) == 1
     assert window.controller.active_image == original
@@ -1282,7 +1282,7 @@ def test_main_window_applies_blur_variant_from_preprocessing_dialog(qtbot):
 
     window._preprocessing_dialog_class = FakeDialog
 
-    qtbot.mouseClick(window.preprocessing_button, Qt.MouseButton.LeftButton)
+    window.preprocessing_action.trigger()
 
     assert len(window.controller.loaded_images) == 2
     variant = window.controller.active_image
@@ -1313,7 +1313,7 @@ def test_main_window_real_preprocessing_dialog_apply_blur_creates_variant(qtbot)
 
     window._preprocessing_dialog_class = AutoApplyBlurDialog
 
-    qtbot.mouseClick(window.preprocessing_button, Qt.MouseButton.LeftButton)
+    window.preprocessing_action.trigger()
 
     assert len(window.controller.loaded_images) == 2
     variant = window.controller.active_image
@@ -1353,7 +1353,7 @@ def test_main_window_applies_nlm_variant_from_preprocessing_dialog(qtbot):
 
     window._preprocessing_dialog_class = FakeDialog
 
-    qtbot.mouseClick(window.preprocessing_button, Qt.MouseButton.LeftButton)
+    window.preprocessing_action.trigger()
 
     assert len(window.controller.loaded_images) == 2
     variant = window.controller.active_image
@@ -1394,7 +1394,7 @@ def test_main_window_applies_bm3d_variant_from_preprocessing_dialog(qtbot):
 
     window._preprocessing_dialog_class = FakeDialog
 
-    qtbot.mouseClick(window.preprocessing_button, Qt.MouseButton.LeftButton)
+    window.preprocessing_action.trigger()
 
     assert len(window.controller.loaded_images) == 2
     variant = window.controller.active_image
@@ -1430,7 +1430,7 @@ def test_main_window_applies_rotate_variant_from_preprocessing_dialog(qtbot):
 
     window._preprocessing_dialog_class = FakeDialog
 
-    qtbot.mouseClick(window.preprocessing_button, Qt.MouseButton.LeftButton)
+    window.preprocessing_action.trigger()
 
     assert len(window.controller.loaded_images) == 2
     variant = window.controller.active_image
@@ -1465,7 +1465,7 @@ def test_main_window_applies_flip_variant_from_preprocessing_dialog(qtbot):
 
     window._preprocessing_dialog_class = FakeDialog
 
-    qtbot.mouseClick(window.preprocessing_button, Qt.MouseButton.LeftButton)
+    window.preprocessing_action.trigger()
 
     assert len(window.controller.loaded_images) == 2
     variant = window.controller.active_image
@@ -1576,7 +1576,7 @@ def test_main_window_polygon_mask_limits_fit_and_is_saved_with_point_metadata(qt
     qtbot.addWidget(window)
 
     qtbot.mouseClick(window.new_row_button, Qt.MouseButton.LeftButton)
-    qtbot.mouseClick(window.polygon_mask_button, Qt.MouseButton.LeftButton)
+    window.polygon_mask_action.trigger()
 
     assert window.image_viewport.add_polygon_mask_vertex(16.0, 16.0) is True
     assert window.image_viewport.add_polygon_mask_vertex(24.0, 16.0) is True
@@ -1600,7 +1600,7 @@ def test_main_window_polygon_mask_limits_fit_and_is_saved_with_point_metadata(qt
     assert point.metadata["fit_mask_active"] is True
     assert point.metadata["fit_mask_pixel_count"] == int(fit_result.fit_mask.sum())
 
-    qtbot.mouseClick(window.clear_polygon_mask_button, Qt.MouseButton.LeftButton)
+    window.clear_polygon_mask_action.trigger()
 
     assert window.preview_bridge.current_polygon_mask_state is None
     assert window.image_viewport.current_polygon_mask_state is None
@@ -1617,7 +1617,7 @@ def test_main_window_end_to_end_stage7_fit_model_mask_workflow_with_session_rest
     window = AtomMapperMainWindow(controller=controller)
     qtbot.addWidget(window)
     qtbot.mouseClick(window.new_row_button, Qt.MouseButton.LeftButton)
-    qtbot.mouseClick(window.fit_settings_button, Qt.MouseButton.LeftButton)
+    window.fit_settings_action.trigger()
 
     model_index = window.fit_settings_panel.model_combo.findData(LocalFitModelType.LORENTZIAN)
     window.fit_settings_panel.model_combo.setCurrentIndex(model_index)
@@ -1655,7 +1655,7 @@ def test_main_window_end_to_end_stage7_fit_model_mask_workflow_with_session_rest
     assert unmasked_result.center_image_yx is not None
     assert unmasked_result.center_image_yx[1] > 24.5
 
-    qtbot.mouseClick(window.polygon_mask_button, Qt.MouseButton.LeftButton)
+    window.polygon_mask_action.trigger()
     assert window.image_viewport.add_polygon_mask_vertex(15.5, 18.0) is True
     assert window.image_viewport.add_polygon_mask_vertex(24.0, 18.0) is True
     assert window.image_viewport.add_polygon_mask_vertex(24.0, 30.0) is True
@@ -1690,7 +1690,7 @@ def test_main_window_end_to_end_stage7_fit_model_mask_workflow_with_session_rest
         "AtomMapper.app.main_window.QFileDialog.getSaveFileName",
         lambda *args, **kwargs: (str(session_path), "AtomMapper project (*.atommapper_proj)"),
     )
-    qtbot.mouseClick(window.save_session_button, Qt.MouseButton.LeftButton)
+    window.save_session_action.trigger()
     assert session_path.exists()
 
     restored_controller = AtomMapperController()
@@ -1700,7 +1700,7 @@ def test_main_window_end_to_end_stage7_fit_model_mask_workflow_with_session_rest
         "AtomMapper.app.main_window.QFileDialog.getOpenFileName",
         lambda *args, **kwargs: (str(session_path), "AtomMapper project (*.atommapper_proj)"),
     )
-    qtbot.mouseClick(restored_window.load_session_button, Qt.MouseButton.LeftButton)
+    restored_window.load_session_action.trigger()
 
     qtbot.waitUntil(
         lambda: (
@@ -2012,7 +2012,7 @@ def test_main_window_end_to_end_stage6_geometry_workflow_with_session_restore(
         "AtomMapper.app.main_window.QFileDialog.getSaveFileName",
         lambda *args, **kwargs: (str(session_path), "AtomMapper project (*.atommapper_proj)"),
     )
-    qtbot.mouseClick(window.save_session_button, Qt.MouseButton.LeftButton)
+    window.save_session_action.trigger()
     assert session_path.exists()
 
     restored_controller = AtomMapperController()
@@ -2023,7 +2023,7 @@ def test_main_window_end_to_end_stage6_geometry_workflow_with_session_restore(
         "AtomMapper.app.main_window.QFileDialog.getOpenFileName",
         lambda *args, **kwargs: (str(session_path), "AtomMapper project (*.atommapper_proj)"),
     )
-    qtbot.mouseClick(restored_window.load_session_button, Qt.MouseButton.LeftButton)
+    restored_window.load_session_action.trigger()
 
     qtbot.waitUntil(
         lambda: (
@@ -2248,7 +2248,7 @@ def test_main_window_reports_bm3d_failure_without_crashing(qtbot, monkeypatch):
 
     monkeypatch.setattr("AtomMapper.app.main_window.QMessageBox.warning", fake_warning)
 
-    qtbot.mouseClick(window.preprocessing_button, Qt.MouseButton.LeftButton)
+    window.preprocessing_action.trigger()
 
     assert len(window.controller.loaded_images) == 1
     assert captured["title"] == "AtomMapper - Preprocessing Error"
@@ -2261,7 +2261,7 @@ def test_main_window_does_not_open_preprocessing_dialog_without_active_image(qtb
     window = create_main_window()
     qtbot.addWidget(window)
 
-    assert window.preprocessing_button.isEnabled() is False
+    assert window.preprocessing_action.isEnabled() is False
 
     window._open_preprocessing_dialog()
 

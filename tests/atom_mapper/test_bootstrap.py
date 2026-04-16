@@ -41,9 +41,12 @@ def test_create_main_window(qtbot):
     assert window.file_list_widget.count() == 0
     assert window.active_image_label.text() == "Active image: none"
     assert window.image_viewport.current_loaded_image is None
-    assert window.export_csv_button.isEnabled() is False
-    assert window.save_session_button.isEnabled() is True
-    assert window.load_session_button.isEnabled() is True
+    assert window.load_button.isHidden() is True
+    assert window.preprocessing_button.isHidden() is True
+    assert window.fit_settings_button.isHidden() is True
+    assert window.export_csv_action.isEnabled() is False
+    assert window.save_session_action.isEnabled() is True
+    assert window.load_session_action.isEnabled() is True
     assert window.analysis_dock.widget() == window.analysis_dock_content
     assert window.fit_settings_dock.widget() == window.fit_settings_panel
     assert window.fit_settings_dock.isHidden() is True
