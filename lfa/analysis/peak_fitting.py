@@ -177,36 +177,35 @@ def _max_pixel_from_patch(
     return float(y_start + dy), float(x_start + dx)
 
 
-def _run_monte_carlo_max_pixel(
+def _run_max_pixel_fallback(
     roi_patch: np.ndarray,
     y_start: int,
     x_start: int,
     noise_sigma: float,
     fit_mask: Optional[np.ndarray] = None,
-    runs: int = MC_SAMPLE_COUNT,
 ) -> Optional[PeakRefinementResult]:
-    if noise_sigma < _MIN_NOISE_SIGMA or roi_patch.size == 0:
+    """Return a fast masked max-pixel fallback without Monte Carlo sampling."""
+
+    if roi_patch.size == 0:
         return None
 
     center = _max_pixel_from_patch(roi_patch, y_start, x_start, fit_mask)
     if center is None:
         return None
-    std = _monte_carlo_uncertainty(
-        roi_patch,
-        noise_sigma,
-        lambda noisy: _max_pixel_from_patch(noisy, y_start, x_start, fit_mask),
-        runs=runs,
-    )
-    std = _apply_position_sigma_floor(std)
 
     return PeakRefinementResult(
         center=center,
-        center_std=std,
-        method="monte_carlo_max",
+        center_std=None,
+        method="max_pixel_fallback",
         success=False,
         roi_patch=roi_patch.copy(),
         noise_sigma=float(noise_sigma),
-        metadata={"mc_samples": runs},
+        metadata={
+            "fallback": "max_pixel",
+            "fit_mask_pixel_count": (
+                None if fit_mask is None else int(np.asarray(fit_mask, dtype=bool).sum())
+            ),
+        },
     )
 
 
@@ -353,7 +352,7 @@ def _fit_2d_gaussian_patch_with_initial_guess(
         minimum_sample_count=max(len(p0), 7),
     )
     if prepared is None:
-        return _run_monte_carlo_max_pixel(roi_patch, y_start, x_start, noise_sigma, fit_mask=fit_mask)
+        return _run_max_pixel_fallback(roi_patch, y_start, x_start, noise_sigma, fit_mask=fit_mask)
     xy_roi_flat, data_roi_flat, normalized_mask = prepared
 
     try:
@@ -369,8 +368,8 @@ def _fit_2d_gaussian_patch_with_initial_guess(
             maxfev=max(int(max_nfev), 10),
         )
     except RuntimeError:
-        logger.warning("fit_2d_gaussian_in_roi: curve_fit failed, attempting Monte Carlo fallback.")
-        return _run_monte_carlo_max_pixel(roi_patch, y_start, x_start, noise_sigma, fit_mask=fit_mask)
+        logger.warning("fit_2d_gaussian_in_roi: curve_fit failed, using max-pixel fallback.")
+        return _run_max_pixel_fallback(roi_patch, y_start, x_start, noise_sigma, fit_mask=fit_mask)
     except Exception as exc:  # pragma: no cover
         logger.exception("fit_2d_gaussian_in_roi: Unexpected error during fitting: %s", exc)
         return None
@@ -469,7 +468,7 @@ def _fit_2d_lorentzian_patch_with_initial_guess(
         minimum_sample_count=max(len(p0), 7),
     )
     if prepared is None:
-        return _run_monte_carlo_max_pixel(roi_patch, y_start, x_start, noise_sigma, fit_mask=fit_mask)
+        return _run_max_pixel_fallback(roi_patch, y_start, x_start, noise_sigma, fit_mask=fit_mask)
     xy_roi_flat, data_roi_flat, normalized_mask = prepared
 
     try:
@@ -485,8 +484,8 @@ def _fit_2d_lorentzian_patch_with_initial_guess(
             maxfev=max(int(max_nfev), 10),
         )
     except RuntimeError:
-        logger.warning("fit_2d_lorentzian_on_patch: curve_fit failed, attempting Monte Carlo fallback.")
-        return _run_monte_carlo_max_pixel(roi_patch, y_start, x_start, noise_sigma, fit_mask=fit_mask)
+        logger.warning("fit_2d_lorentzian_on_patch: curve_fit failed, using max-pixel fallback.")
+        return _run_max_pixel_fallback(roi_patch, y_start, x_start, noise_sigma, fit_mask=fit_mask)
     except Exception as exc:  # pragma: no cover
         logger.exception("fit_2d_lorentzian_on_patch: Unexpected error during fitting: %s", exc)
         return None
@@ -585,7 +584,7 @@ def _fit_2d_voigt_patch_with_initial_guess(
         minimum_sample_count=max(len(p0), 9),
     )
     if prepared is None:
-        return _run_monte_carlo_max_pixel(roi_patch, y_start, x_start, noise_sigma, fit_mask=fit_mask)
+        return _run_max_pixel_fallback(roi_patch, y_start, x_start, noise_sigma, fit_mask=fit_mask)
     xy_roi_flat, data_roi_flat, normalized_mask = prepared
 
     try:
@@ -601,8 +600,8 @@ def _fit_2d_voigt_patch_with_initial_guess(
             maxfev=max(int(max_nfev), 10),
         )
     except RuntimeError:
-        logger.warning("fit_2d_voigt_on_patch: curve_fit failed, attempting Monte Carlo fallback.")
-        return _run_monte_carlo_max_pixel(roi_patch, y_start, x_start, noise_sigma, fit_mask=fit_mask)
+        logger.warning("fit_2d_voigt_on_patch: curve_fit failed, using max-pixel fallback.")
+        return _run_max_pixel_fallback(roi_patch, y_start, x_start, noise_sigma, fit_mask=fit_mask)
     except Exception as exc:  # pragma: no cover
         logger.exception("fit_2d_voigt_on_patch: Unexpected error during fitting: %s", exc)
         return None

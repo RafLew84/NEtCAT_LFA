@@ -392,6 +392,67 @@ def test_fit_gaussian_on_patch_accepts_fit_mask(gaussian_peak_image):
     assert fit_result.metadata["fit_mask_fraction"] == pytest.approx(float(fit_mask.mean()))
 
 
+@pytest.mark.skipif(not SCIPY_AVAILABLE, reason="SciPy not available, skipping Gaussian fit tests")
+def test_fit_gaussian_on_patch_uses_fast_max_pixel_fallback_without_monte_carlo(
+    monkeypatch,
+    gaussian_peak_image,
+):
+    img, _, _ = gaussian_peak_image
+
+    monkeypatch.setattr(
+        peak_fitting_module,
+        "_curve_fit_safely",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("fit failed")),
+    )
+    monkeypatch.setattr(
+        peak_fitting_module,
+        "_monte_carlo_uncertainty",
+        lambda *args, **kwargs: pytest.fail("Monte Carlo fallback should not run here."),
+    )
+
+    fit_result = fit_2d_gaussian_on_patch(
+        img,
+        roi_origin_yx=(0, 0),
+        compute_uncertainty=False,
+    )
+
+    assert fit_result is not None
+    assert fit_result.success is False
+    assert fit_result.method == "max_pixel_fallback"
+    assert fit_result.center_std is None
+    peak_y, peak_x = np.unravel_index(int(np.argmax(img)), img.shape)
+    assert fit_result.center == pytest.approx((float(peak_y), float(peak_x)))
+
+
+@pytest.mark.skipif(not SCIPY_AVAILABLE, reason="SciPy not available, skipping Gaussian fit tests")
+def test_fit_gaussian_on_patch_with_too_small_mask_uses_fast_max_pixel_fallback(
+    monkeypatch,
+    gaussian_peak_image,
+):
+    img, _, _ = gaussian_peak_image
+    fit_mask = np.zeros_like(img, dtype=bool)
+    fit_mask[9, 9] = True
+
+    monkeypatch.setattr(
+        peak_fitting_module,
+        "_monte_carlo_uncertainty",
+        lambda *args, **kwargs: pytest.fail("Monte Carlo fallback should not run here."),
+    )
+
+    fit_result = fit_2d_gaussian_on_patch(
+        img,
+        roi_origin_yx=(0, 0),
+        fit_mask=fit_mask,
+        compute_uncertainty=False,
+    )
+
+    assert fit_result is not None
+    assert fit_result.success is False
+    assert fit_result.method == "max_pixel_fallback"
+    assert fit_result.center_std is None
+    assert fit_result.center == pytest.approx((9.0, 9.0))
+
+
 @pytest.mark.skipif(not SCIPY_AVAILABLE, reason="SciPy not available, skipping Lorentzian fit tests")
 def test_fit_lorentzian_on_patch_perfect_peak(lorentzian_peak_image):
     img, (y0_true, x0_true), _ = lorentzian_peak_image
@@ -435,6 +496,38 @@ def test_fit_lorentzian_on_patch_accepts_custom_initial_params_bounds_and_maxfev
     assert fit_result.metadata["max_nfev"] == 2600
 
 
+@pytest.mark.skipif(not SCIPY_AVAILABLE, reason="SciPy not available, skipping Lorentzian fit tests")
+def test_fit_lorentzian_on_patch_uses_fast_max_pixel_fallback_without_monte_carlo(
+    monkeypatch,
+    lorentzian_peak_image,
+):
+    img, _, _ = lorentzian_peak_image
+
+    monkeypatch.setattr(
+        peak_fitting_module,
+        "_curve_fit_safely",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("fit failed")),
+    )
+    monkeypatch.setattr(
+        peak_fitting_module,
+        "_monte_carlo_uncertainty",
+        lambda *args, **kwargs: pytest.fail("Monte Carlo fallback should not run here."),
+    )
+
+    fit_result = fit_2d_lorentzian_on_patch(
+        img,
+        roi_origin_yx=(0, 0),
+        compute_uncertainty=False,
+    )
+
+    assert fit_result is not None
+    assert fit_result.success is False
+    assert fit_result.method == "max_pixel_fallback"
+    assert fit_result.center_std is None
+    peak_y, peak_x = np.unravel_index(int(np.argmax(img)), img.shape)
+    assert fit_result.center == pytest.approx((float(peak_y), float(peak_x)))
+
+
 @pytest.mark.skipif(not SCIPY_AVAILABLE, reason="SciPy not available, skipping Voigt fit tests")
 def test_fit_voigt_on_patch_perfect_peak(voigt_peak_image):
     img, (y0_true, x0_true), _ = voigt_peak_image
@@ -476,6 +569,38 @@ def test_fit_voigt_on_patch_accepts_custom_initial_params_bounds_and_maxfev(voig
         (140.0, 13.0, 14.0, 4.0, 4.0, 3.0, 3.0, np.pi / 2.0, 20.0)
     )
     assert fit_result.metadata["max_nfev"] == 3600
+
+
+@pytest.mark.skipif(not SCIPY_AVAILABLE, reason="SciPy not available, skipping Voigt fit tests")
+def test_fit_voigt_on_patch_uses_fast_max_pixel_fallback_without_monte_carlo(
+    monkeypatch,
+    voigt_peak_image,
+):
+    img, _, _ = voigt_peak_image
+
+    monkeypatch.setattr(
+        peak_fitting_module,
+        "_curve_fit_safely",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("fit failed")),
+    )
+    monkeypatch.setattr(
+        peak_fitting_module,
+        "_monte_carlo_uncertainty",
+        lambda *args, **kwargs: pytest.fail("Monte Carlo fallback should not run here."),
+    )
+
+    fit_result = fit_2d_voigt_on_patch(
+        img,
+        roi_origin_yx=(0, 0),
+        compute_uncertainty=False,
+    )
+
+    assert fit_result is not None
+    assert fit_result.success is False
+    assert fit_result.method == "max_pixel_fallback"
+    assert fit_result.center_std is None
+    peak_y, peak_x = np.unravel_index(int(np.argmax(img)), img.shape)
+    assert fit_result.center == pytest.approx((float(peak_y), float(peak_x)))
 
 def test_internal_gaussian_2d_function():
     """Test the _gaussian_2d helper function directly (optional)."""
