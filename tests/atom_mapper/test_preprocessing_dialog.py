@@ -13,9 +13,11 @@ from AtomMapper.app.preprocessing import is_bm3d_available
 from AtomMapper.app.preprocessing_state import (
     BM3DParameters,
     BlurParameters,
+    FlipParameters,
     PreprocessingMethod,
     PreprocessingPreviewRequest,
     PreprocessingState,
+    RotateParameters,
 )
 
 pytest.importorskip("PyQt6", reason="PyQt6 is required for AtomMapper GUI tests")
@@ -51,10 +53,12 @@ def test_preprocessing_dialog_shows_original_preview_and_placeholders(qtbot):
     assert "Active method: Blur" in dialog.parameters_placeholder_label.text()
     assert dialog.original_preview.current_viewport == dialog.processed_preview.current_viewport
     assert dialog.original_preview.current_patch_shape == dialog.processed_preview.current_patch_shape
-    assert dialog.method_combo.count() == 3
+    assert dialog.method_combo.count() == 5
     assert dialog.method_combo.itemData(0) is PreprocessingMethod.BLUR
     assert dialog.method_combo.itemData(1) is PreprocessingMethod.NLM
     assert dialog.method_combo.itemData(2) is PreprocessingMethod.BM3D
+    assert dialog.method_combo.itemData(3) is PreprocessingMethod.ROTATE
+    assert dialog.method_combo.itemData(4) is PreprocessingMethod.FLIP
     assert dialog.apply_button is not None
     assert dialog.apply_button.isEnabled() is True
 
@@ -245,3 +249,51 @@ def test_preprocessing_dialog_disables_bm3d_when_backend_missing(qtbot, monkeypa
     assert dialog.method_combo.itemData(bm3d_index, Qt.ItemDataRole.ToolTipRole).startswith(
         "BM3D backend unavailable."
     )
+
+
+def test_preprocessing_dialog_rotate_parameters_update_live_preview(qtbot):
+    image_data = np.arange(15, dtype=float).reshape((3, 5))
+    image = _make_loaded_image("rotate.stp", image_data)
+    dialog = PreprocessingDialog(image)
+    qtbot.addWidget(dialog)
+
+    dialog.method_combo.setCurrentIndex(3)
+
+    assert dialog.preprocessing_state.method is PreprocessingMethod.ROTATE
+    assert dialog.rotate_turns_combo.isEnabled() is True
+    assert dialog.latest_preview_result is not None
+    assert dialog.latest_preview_result.success is True
+    assert dialog.latest_preview_result.processed_image is not None
+    assert dialog.latest_preview_result.processed_image.shape == (5, 3)
+
+    dialog.rotate_turns_combo.setCurrentIndex(2)
+
+    assert dialog.preprocessing_state.rotate == RotateParameters(quarter_turns=3).normalized()
+    assert dialog.latest_preview_result is not None
+    assert dialog.latest_preview_result.success is True
+    assert dialog.latest_preview_result.processed_image is not None
+    assert dialog.latest_preview_result.processed_image.shape == (5, 3)
+    assert "angle=270° CCW" in dialog.processed_preview_label.text()
+
+
+def test_preprocessing_dialog_flip_parameters_update_live_preview(qtbot):
+    image_data = np.arange(16, dtype=float).reshape((4, 4))
+    image = _make_loaded_image("flip.stp", image_data)
+    dialog = PreprocessingDialog(image)
+    qtbot.addWidget(dialog)
+
+    dialog.method_combo.setCurrentIndex(4)
+
+    assert dialog.preprocessing_state.method is PreprocessingMethod.FLIP
+    assert dialog.flip_x_checkbox.isEnabled() is True
+    assert dialog.flip_y_checkbox.isEnabled() is True
+    assert dialog.latest_preview_result is not None
+    assert dialog.latest_preview_result.success is True
+
+    dialog.flip_x_checkbox.setChecked(False)
+    dialog.flip_y_checkbox.setChecked(True)
+
+    assert dialog.preprocessing_state.flip == FlipParameters(flip_x=False, flip_y=True).normalized()
+    assert dialog.latest_preview_result is not None
+    assert dialog.latest_preview_result.success is True
+    assert "axes=Y" in dialog.processed_preview_label.text()

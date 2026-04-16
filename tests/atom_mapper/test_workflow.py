@@ -23,9 +23,11 @@ from AtomMapper.app.preprocessing_dialog import PreprocessingDialog
 from AtomMapper.app.preprocessing_state import (
     BM3DParameters,
     BlurParameters,
+    FlipParameters,
     NonLocalMeansParameters,
     PreprocessingMethod,
     PreprocessingState,
+    RotateParameters,
 )
 from AtomMapper.app.session_io import build_session_from_runtime, save_session_to_file
 from AtomMapper.app.session_model import ATOMMAPPER_SESSION_VERSION
@@ -1307,6 +1309,75 @@ def test_main_window_applies_bm3d_variant_from_preprocessing_dialog(qtbot):
     assert window.file_list_widget.item(1).text() == f"  - {variant.display_name}"
     assert "Created bm3d variant" in window.statusBar().currentMessage()
     assert "created bm3d variant" in window.workflow_status_label.text()
+
+
+def test_main_window_applies_rotate_variant_from_preprocessing_dialog(qtbot):
+    controller = AtomMapperController()
+    original = _make_gaussian_image("origin.stp", size=24, amplitude=18.0, offset=1.0)
+    controller.set_loaded_images([original])
+
+    window = AtomMapperMainWindow(controller=controller)
+    qtbot.addWidget(window)
+
+    class FakeDialog:
+        def __init__(self, loaded_image, parent):
+            self.preprocessing_state = PreprocessingState(
+                method=PreprocessingMethod.ROTATE,
+                rotate=RotateParameters(quarter_turns=1),
+            )
+
+        def exec(self):
+            return int(QDialog.DialogCode.Accepted)
+
+    window._preprocessing_dialog_class = FakeDialog
+
+    qtbot.mouseClick(window.preprocessing_button, Qt.MouseButton.LeftButton)
+
+    assert len(window.controller.loaded_images) == 2
+    variant = window.controller.active_image
+    assert variant is not None
+    assert variant is not original
+    assert variant.variant_name == "rotate-90"
+    assert variant.metadata["preprocess"] == "rotate"
+    assert variant.metadata["rotate_quarter_turns"] == 1
+    assert variant.pixels_x == original.pixels_y
+    assert variant.pixels_y == original.pixels_x
+    assert "Created rotate-90 variant" in window.statusBar().currentMessage()
+    assert "created rotate-90 variant" in window.workflow_status_label.text()
+
+
+def test_main_window_applies_flip_variant_from_preprocessing_dialog(qtbot):
+    controller = AtomMapperController()
+    original = _make_gaussian_image("origin.stp", size=24, amplitude=18.0, offset=1.0)
+    controller.set_loaded_images([original])
+
+    window = AtomMapperMainWindow(controller=controller)
+    qtbot.addWidget(window)
+
+    class FakeDialog:
+        def __init__(self, loaded_image, parent):
+            self.preprocessing_state = PreprocessingState(
+                method=PreprocessingMethod.FLIP,
+                flip=FlipParameters(flip_x=False, flip_y=True),
+            )
+
+        def exec(self):
+            return int(QDialog.DialogCode.Accepted)
+
+    window._preprocessing_dialog_class = FakeDialog
+
+    qtbot.mouseClick(window.preprocessing_button, Qt.MouseButton.LeftButton)
+
+    assert len(window.controller.loaded_images) == 2
+    variant = window.controller.active_image
+    assert variant is not None
+    assert variant is not original
+    assert variant.variant_name == "flip-y"
+    assert variant.metadata["preprocess"] == "flip"
+    assert variant.metadata["flip_x"] is False
+    assert variant.metadata["flip_y"] is True
+    assert "Created flip-y variant" in window.statusBar().currentMessage()
+    assert "created flip-y variant" in window.workflow_status_label.text()
 
 
 def test_main_window_row_panel_can_create_select_and_delete_rows(qtbot):

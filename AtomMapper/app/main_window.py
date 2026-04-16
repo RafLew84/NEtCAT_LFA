@@ -1097,6 +1097,24 @@ class AtomMapperMainWindow(QMainWindow):
                     make_active=True,
                 )
                 status_suffix = f"sigma_psd {state.bm3d.sigma_psd:.3f}, stage {state.bm3d.stage}"
+            elif state.method is PreprocessingMethod.ROTATE:
+                variant = self.controller.create_rotate_variant_for_active_image(
+                    quarter_turns=state.rotate.quarter_turns,
+                    make_active=True,
+                )
+                status_suffix = f"angle {state.rotate.angle_deg}° CCW"
+            elif state.method is PreprocessingMethod.FLIP:
+                variant = self.controller.create_flip_variant_for_active_image(
+                    flip_x=state.flip.flip_x,
+                    flip_y=state.flip.flip_y,
+                    make_active=True,
+                )
+                axes = []
+                if state.flip.flip_x:
+                    axes.append("X")
+                if state.flip.flip_y:
+                    axes.append("Y")
+                status_suffix = f"axes {'+'.join(axes)}"
             else:
                 self.statusBar().showMessage(f"{state.method.label} apply is not available yet.", 4000)
                 self.workflow_status_label.setText(

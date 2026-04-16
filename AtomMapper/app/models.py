@@ -194,6 +194,10 @@ class LoadedImage:
         display_name: Optional[str] = None,
         metadata_updates: Optional[Dict[str, Any]] = None,
         raw_metadata_updates: Optional[Dict[str, Any]] = None,
+        pixels_x: Optional[int] = None,
+        pixels_y: Optional[int] = None,
+        size_nm_x: Optional[float] = None,
+        size_nm_y: Optional[float] = None,
     ) -> "LoadedImage":
         """Create a derived image variant that stays in the same source group."""
 
@@ -220,10 +224,10 @@ class LoadedImage:
             display_name=variant_display_name,
             file_extension=self.file_extension,
             image_data=np.asarray(image_data, dtype=float),
-            pixels_x=self.pixels_x,
-            pixels_y=self.pixels_y,
-            size_nm_x=self.size_nm_x,
-            size_nm_y=self.size_nm_y,
+            pixels_x=self.pixels_x if pixels_x is None else int(pixels_x),
+            pixels_y=self.pixels_y if pixels_y is None else int(pixels_y),
+            size_nm_x=self.size_nm_x if size_nm_x is None else float(size_nm_x),
+            size_nm_y=self.size_nm_y if size_nm_y is None else float(size_nm_y),
             metadata=updated_metadata,
             raw_metadata=updated_raw_metadata,
         )

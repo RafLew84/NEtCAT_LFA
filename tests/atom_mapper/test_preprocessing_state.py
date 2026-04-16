@@ -8,12 +8,14 @@ import pytest
 from AtomMapper.app.preprocessing_state import (
     BM3DParameters,
     BlurParameters,
+    FlipParameters,
     NonLocalMeansParameters,
     PreviewViewport,
     PreprocessingMethod,
     PreprocessingPreviewRequest,
     PreprocessingPreviewResult,
     PreprocessingState,
+    RotateParameters,
 )
 
 
@@ -23,6 +25,8 @@ def test_preprocessing_method_and_parameter_normalization():
         blur=BlurParameters(sigma_px=-2.0, mode=" REFLECT "),
         nlm=NonLocalMeansParameters(h="0.25", patch_size=4, patch_distance=0, fast_mode=1),
         bm3d=BM3DParameters(sigma_psd="0.0", stage=" "),
+        rotate=RotateParameters(quarter_turns=8),
+        flip=FlipParameters(flip_x=False, flip_y=False),
     ).normalized()
 
     assert state.method is PreprocessingMethod.NLM
@@ -34,21 +38,26 @@ def test_preprocessing_method_and_parameter_normalization():
     assert state.nlm.fast_mode is True
     assert state.bm3d.sigma_psd == pytest.approx(0.1)
     assert state.bm3d.stage == "all_stages"
+    assert state.rotate.quarter_turns == 1
+    assert state.flip.flip_x is False
+    assert state.flip.flip_y is False
 
 
 def test_preprocessing_state_round_trip_dict_serialization():
     state = PreprocessingState(
-        method=PreprocessingMethod.BM3D,
+        method=PreprocessingMethod.ROTATE,
         blur=BlurParameters(sigma_px=1.6, mode="nearest"),
         nlm=NonLocalMeansParameters(h=0.22, patch_size=7, patch_distance=9, fast_mode=False),
         bm3d=BM3DParameters(sigma_psd=0.33, stage="hard_thresholding"),
+        rotate=RotateParameters(quarter_turns=3),
+        flip=FlipParameters(flip_x=False, flip_y=True),
     )
 
     payload = state.to_dict()
     restored = PreprocessingState.from_dict(payload)
 
     assert restored == state.normalized()
-    assert restored.active_parameters == restored.bm3d
+    assert restored.active_parameters == restored.rotate
 
 
 def test_preview_request_normalizes_viewport_and_state():

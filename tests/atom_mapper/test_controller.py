@@ -254,6 +254,70 @@ def test_controller_rejects_bm3d_variant_without_active_image():
         controller.create_bm3d_variant_for_active_image()
 
 
+def test_controller_can_create_rotate_variant_for_active_image():
+    controller = AtomMapperController()
+    original = _make_loaded_image("sample.stp", width=40, height=30)
+    controller.set_loaded_images([original])
+
+    variant = controller.create_rotate_variant_for_active_image(
+        quarter_turns=1,
+        make_active=True,
+    )
+
+    assert variant.variant_name == "rotate-90"
+    assert variant.parent_image_id == original.image_id
+    assert variant.source_group_id == original.source_group_id
+    assert variant.metadata["preprocess"] == "rotate"
+    assert variant.metadata["rotate_quarter_turns"] == 1
+    assert variant.metadata["rotate_angle_deg"] == 90
+    assert variant.pixels_x == original.pixels_y
+    assert variant.pixels_y == original.pixels_x
+    assert variant.size_nm_x == original.size_nm_y
+    assert variant.size_nm_y == original.size_nm_x
+    assert variant.image_data.shape == (original.pixels_x, original.pixels_y)
+    assert np.array_equal(variant.image_data, np.rot90(original.image_data, k=1))
+    assert controller.loaded_images == (original, variant)
+    assert controller.active_image == variant
+
+
+def test_controller_rejects_rotate_variant_without_active_image():
+    controller = AtomMapperController()
+
+    with pytest.raises(ValueError, match="active image"):
+        controller.create_rotate_variant_for_active_image()
+
+
+def test_controller_can_create_flip_variant_for_active_image():
+    controller = AtomMapperController()
+    original = _make_loaded_image("sample.stp", width=40, height=30)
+    controller.set_loaded_images([original])
+
+    variant = controller.create_flip_variant_for_active_image(
+        flip_x=True,
+        flip_y=True,
+        make_active=True,
+    )
+
+    assert variant.variant_name == "flip-xy"
+    assert variant.parent_image_id == original.image_id
+    assert variant.source_group_id == original.source_group_id
+    assert variant.metadata["preprocess"] == "flip"
+    assert variant.metadata["flip_x"] is True
+    assert variant.metadata["flip_y"] is True
+    assert variant.pixels_x == original.pixels_x
+    assert variant.pixels_y == original.pixels_y
+    assert np.array_equal(variant.image_data, np.flipud(np.fliplr(original.image_data)))
+    assert controller.loaded_images == (original, variant)
+    assert controller.active_image == variant
+
+
+def test_controller_rejects_flip_variant_without_active_image():
+    controller = AtomMapperController()
+
+    with pytest.raises(ValueError, match="active image"):
+        controller.create_flip_variant_for_active_image()
+
+
 def test_controller_tracks_rows_per_source_group_and_preserves_active_row_across_variants():
     controller = AtomMapperController()
     original = _make_loaded_image("sample.stp", width=40, height=30)

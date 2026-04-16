@@ -22,16 +22,19 @@ from PyQt6.QtWidgets import (
 
 from .models import LoadedImage
 from .preprocessing import apply_blur, apply_bm3d, apply_non_local_means, is_bm3d_available
+from .preprocessing import apply_flip, apply_rotation
 from .preprocessing_preview import PreprocessingImagePreview
 from .preprocessing_state import (
     BM3DParameters,
     BlurParameters,
+    FlipParameters,
     NonLocalMeansParameters,
     PreprocessingMethod,
     PreprocessingPreviewRequest,
     PreprocessingPreviewResult,
     PreviewViewport,
     PreprocessingState,
+    RotateParameters,
 )
 
 
@@ -112,6 +115,9 @@ class PreprocessingDialog(QDialog):
         self.nlm_patch_distance_spinbox.valueChanged.connect(self._on_nlm_parameters_changed)
         self.nlm_fast_mode_checkbox.toggled.connect(self._on_nlm_parameters_changed)
         self.bm3d_sigma_spinbox.valueChanged.connect(self._on_bm3d_sigma_changed)
+        self.rotate_turns_combo.currentIndexChanged.connect(self._on_rotate_parameters_changed)
+        self.flip_x_checkbox.toggled.connect(self._on_flip_parameters_changed)
+        self.flip_y_checkbox.toggled.connect(self._on_flip_parameters_changed)
 
         root_layout.addWidget(self.header_label)
         root_layout.addWidget(self.subtitle_label)
@@ -162,6 +168,8 @@ class PreprocessingDialog(QDialog):
         self.method_combo.addItem("Blur", userData=PreprocessingMethod.BLUR)
         self.method_combo.addItem("Non-local means", userData=PreprocessingMethod.NLM)
         self.method_combo.addItem("BM3D", userData=PreprocessingMethod.BM3D)
+        self.method_combo.addItem("Rotate 90°", userData=PreprocessingMethod.ROTATE)
+        self.method_combo.addItem("Flip", userData=PreprocessingMethod.FLIP)
 
         blur_sigma_label = QLabel("Blur sigma [px]", group)
         self.blur_sigma_spinbox = QDoubleSpinBox(group)
@@ -193,6 +201,15 @@ class PreprocessingDialog(QDialog):
         self.bm3d_sigma_spinbox.setRange(0.001, 50.0)
         self.bm3d_sigma_spinbox.setSingleStep(0.01)
 
+        rotate_turns_label = QLabel("Rotate angle", group)
+        self.rotate_turns_combo = QComboBox(group)
+        self.rotate_turns_combo.addItem("90° CCW", userData=1)
+        self.rotate_turns_combo.addItem("180°", userData=2)
+        self.rotate_turns_combo.addItem("270° CCW", userData=3)
+
+        self.flip_x_checkbox = QCheckBox("Flip X (left-right)", group)
+        self.flip_y_checkbox = QCheckBox("Flip Y (top-bottom)", group)
+
         self.bm3d_availability_label = QLabel(group)
         self.bm3d_availability_label.setWordWrap(True)
         self.bm3d_availability_label.setStyleSheet("font-size: 12px; color: palette(mid);")
@@ -217,9 +234,13 @@ class PreprocessingDialog(QDialog):
         layout.addWidget(self.nlm_fast_mode_checkbox, 5, 0, 1, 2)
         layout.addWidget(bm3d_sigma_label, 6, 0)
         layout.addWidget(self.bm3d_sigma_spinbox, 6, 1)
-        layout.addWidget(self.bm3d_availability_label, 7, 0, 1, 2)
-        layout.addWidget(self.parameters_placeholder_label, 8, 0, 1, 2)
-        layout.setRowStretch(9, 1)
+        layout.addWidget(rotate_turns_label, 7, 0)
+        layout.addWidget(self.rotate_turns_combo, 7, 1)
+        layout.addWidget(self.flip_x_checkbox, 8, 0, 1, 2)
+        layout.addWidget(self.flip_y_checkbox, 9, 0, 1, 2)
+        layout.addWidget(self.bm3d_availability_label, 10, 0, 1, 2)
+        layout.addWidget(self.parameters_placeholder_label, 11, 0, 1, 2)
+        layout.setRowStretch(12, 1)
         return group
 
     def _sync_method_availability(self) -> None:
@@ -289,6 +310,19 @@ class PreprocessingDialog(QDialog):
             self.bm3d_sigma_spinbox.blockSignals(True)
             self.bm3d_sigma_spinbox.setValue(self.preprocessing_state.bm3d.sigma_psd)
             self.bm3d_sigma_spinbox.blockSignals(False)
+        rotate_index = self.rotate_turns_combo.findData(self.preprocessing_state.rotate.quarter_turns)
+        if rotate_index >= 0 and rotate_index != self.rotate_turns_combo.currentIndex():
+            self.rotate_turns_combo.blockSignals(True)
+            self.rotate_turns_combo.setCurrentIndex(rotate_index)
+            self.rotate_turns_combo.blockSignals(False)
+        if self.flip_x_checkbox.isChecked() != self.preprocessing_state.flip.flip_x:
+            self.flip_x_checkbox.blockSignals(True)
+            self.flip_x_checkbox.setChecked(self.preprocessing_state.flip.flip_x)
+            self.flip_x_checkbox.blockSignals(False)
+        if self.flip_y_checkbox.isChecked() != self.preprocessing_state.flip.flip_y:
+            self.flip_y_checkbox.blockSignals(True)
+            self.flip_y_checkbox.setChecked(self.preprocessing_state.flip.flip_y)
+            self.flip_y_checkbox.blockSignals(False)
         self._update_parameter_placeholder()
         self._update_apply_button_state()
 
@@ -309,6 +343,10 @@ class PreprocessingDialog(QDialog):
             self.nlm_patch_distance_spinbox.setEnabled(False)
             self.nlm_fast_mode_checkbox.setEnabled(False)
             self.nlm_fast_mode_checkbox.setText("Use fast mode")
+            self.bm3d_sigma_spinbox.setEnabled(False)
+            self.rotate_turns_combo.setEnabled(False)
+            self.flip_x_checkbox.setEnabled(False)
+            self.flip_y_checkbox.setEnabled(False)
             return
 
         if self.preprocessing_state.method is PreprocessingMethod.NLM:
@@ -324,6 +362,9 @@ class PreprocessingDialog(QDialog):
             self.nlm_fast_mode_checkbox.setEnabled(True)
             self.nlm_fast_mode_checkbox.setText("Use fast mode")
             self.bm3d_sigma_spinbox.setEnabled(False)
+            self.rotate_turns_combo.setEnabled(False)
+            self.flip_x_checkbox.setEnabled(False)
+            self.flip_y_checkbox.setEnabled(False)
             return
 
         if self.preprocessing_state.method is PreprocessingMethod.BM3D:
@@ -343,6 +384,45 @@ class PreprocessingDialog(QDialog):
             self.nlm_fast_mode_checkbox.setEnabled(False)
             self.nlm_fast_mode_checkbox.setText("Use fast mode")
             self.bm3d_sigma_spinbox.setEnabled(self.bm3d_available)
+            self.rotate_turns_combo.setEnabled(False)
+            self.flip_x_checkbox.setEnabled(False)
+            self.flip_y_checkbox.setEnabled(False)
+            return
+
+        if self.preprocessing_state.method is PreprocessingMethod.ROTATE:
+            self.parameters_placeholder_label.setText(
+                f"Active method: {method_label}. "
+                f"Normalized parameters: {active_parameters}. "
+                "Preview updates live after changing the rotation angle."
+            )
+            self.blur_sigma_spinbox.setEnabled(False)
+            self.nlm_h_spinbox.setEnabled(False)
+            self.nlm_patch_size_spinbox.setEnabled(False)
+            self.nlm_patch_distance_spinbox.setEnabled(False)
+            self.nlm_fast_mode_checkbox.setEnabled(False)
+            self.nlm_fast_mode_checkbox.setText("Use fast mode")
+            self.bm3d_sigma_spinbox.setEnabled(False)
+            self.rotate_turns_combo.setEnabled(True)
+            self.flip_x_checkbox.setEnabled(False)
+            self.flip_y_checkbox.setEnabled(False)
+            return
+
+        if self.preprocessing_state.method is PreprocessingMethod.FLIP:
+            self.parameters_placeholder_label.setText(
+                f"Active method: {method_label}. "
+                f"Normalized parameters: {active_parameters}. "
+                "Preview updates live after changing the flip axes."
+            )
+            self.blur_sigma_spinbox.setEnabled(False)
+            self.nlm_h_spinbox.setEnabled(False)
+            self.nlm_patch_size_spinbox.setEnabled(False)
+            self.nlm_patch_distance_spinbox.setEnabled(False)
+            self.nlm_fast_mode_checkbox.setEnabled(False)
+            self.nlm_fast_mode_checkbox.setText("Use fast mode")
+            self.bm3d_sigma_spinbox.setEnabled(False)
+            self.rotate_turns_combo.setEnabled(False)
+            self.flip_x_checkbox.setEnabled(True)
+            self.flip_y_checkbox.setEnabled(True)
             return
 
         self.blur_sigma_spinbox.setEnabled(False)
@@ -352,6 +432,9 @@ class PreprocessingDialog(QDialog):
         self.nlm_fast_mode_checkbox.setEnabled(False)
         self.nlm_fast_mode_checkbox.setText("Use fast mode")
         self.bm3d_sigma_spinbox.setEnabled(False)
+        self.rotate_turns_combo.setEnabled(False)
+        self.flip_x_checkbox.setEnabled(False)
+        self.flip_y_checkbox.setEnabled(False)
         self.parameters_placeholder_label.setText(
             f"Active method: {method_label}. "
             f"Normalized parameters: {active_parameters}. "
@@ -367,14 +450,24 @@ class PreprocessingDialog(QDialog):
         can_apply = self.preprocessing_state.method in {
             PreprocessingMethod.BLUR,
             PreprocessingMethod.NLM,
+            PreprocessingMethod.ROTATE,
         } or (
             self.preprocessing_state.method is PreprocessingMethod.BM3D and self.bm3d_available
         )
+        if self.preprocessing_state.method is PreprocessingMethod.FLIP:
+            can_apply = self.preprocessing_state.flip.flip_x or self.preprocessing_state.flip.flip_y
         self.apply_button.setEnabled(can_apply)
         if self.preprocessing_state.method is PreprocessingMethod.BLUR:
             self.apply_button.setToolTip("Create a blur-based image variant from the current image.")
         elif self.preprocessing_state.method is PreprocessingMethod.NLM:
             self.apply_button.setToolTip("Create an NLM-denoised image variant from the current image.")
+        elif self.preprocessing_state.method is PreprocessingMethod.ROTATE:
+            self.apply_button.setToolTip("Create a rotated image variant from the current image.")
+        elif self.preprocessing_state.method is PreprocessingMethod.FLIP:
+            if can_apply:
+                self.apply_button.setToolTip("Create a flipped image variant from the current image.")
+            else:
+                self.apply_button.setToolTip("Enable flip X and/or flip Y to create a flipped variant.")
         elif self.preprocessing_state.method is PreprocessingMethod.BM3D and self.bm3d_available:
             self.apply_button.setToolTip("Create a BM3D-denoised image variant from the current image.")
         else:
@@ -431,6 +524,26 @@ class PreprocessingDialog(QDialog):
                 status_message = (
                     f"BM3D preview ready. sigma_psd={self.preprocessing_state.bm3d.sigma_psd:.3f}"
                 )
+            elif self.preprocessing_state.method is PreprocessingMethod.ROTATE:
+                processed_image = apply_rotation(
+                    self.loaded_image.image_data,
+                    quarter_turns=self.preprocessing_state.rotate.quarter_turns,
+                )
+                status_message = (
+                    f"Rotate preview ready. angle={self.preprocessing_state.rotate.angle_deg}° CCW"
+                )
+            elif self.preprocessing_state.method is PreprocessingMethod.FLIP:
+                processed_image = apply_flip(
+                    self.loaded_image.image_data,
+                    flip_x=self.preprocessing_state.flip.flip_x,
+                    flip_y=self.preprocessing_state.flip.flip_y,
+                )
+                flip_axes = []
+                if self.preprocessing_state.flip.flip_x:
+                    flip_axes.append("X")
+                if self.preprocessing_state.flip.flip_y:
+                    flip_axes.append("Y")
+                status_message = f"Flip preview ready. axes={'+'.join(flip_axes)}"
             else:
                 raise NotImplementedError(
                     f"{self.preprocessing_state.method.label} preview is not implemented yet."
@@ -442,7 +555,9 @@ class PreprocessingDialog(QDialog):
             )
             self.processed_preview.set_preview_image(
                 processed_image,
-                viewport=self.preview_viewport,
+                viewport=(
+                    None if self.preprocessing_state.method is PreprocessingMethod.ROTATE else self.preview_viewport
+                ),
                 status_text=self.latest_preview_result.status_message,
             )
         except Exception as exc:  # pragma: no cover - guarded by preprocessing tests
@@ -459,6 +574,8 @@ class PreprocessingDialog(QDialog):
                             PreprocessingMethod.BLUR,
                             PreprocessingMethod.NLM,
                             PreprocessingMethod.BM3D,
+                            PreprocessingMethod.ROTATE,
+                            PreprocessingMethod.FLIP,
                         }
                         else f"{self.preprocessing_state.method.label} preview is not implemented yet."
                     )
@@ -493,6 +610,8 @@ class PreprocessingDialog(QDialog):
             ),
             nlm=self.preprocessing_state.nlm,
             bm3d=self.preprocessing_state.bm3d,
+            rotate=self.preprocessing_state.rotate,
+            flip=self.preprocessing_state.flip,
         ).normalized()
         self._update_parameter_placeholder()
         self._refresh_processed_preview()
@@ -510,6 +629,8 @@ class PreprocessingDialog(QDialog):
                 fast_mode=bool(self.nlm_fast_mode_checkbox.isChecked()),
             ),
             bm3d=self.preprocessing_state.bm3d,
+            rotate=self.preprocessing_state.rotate,
+            flip=self.preprocessing_state.flip,
         ).normalized()
         self._update_parameter_placeholder()
         self._refresh_processed_preview()
@@ -525,6 +646,44 @@ class PreprocessingDialog(QDialog):
                 sigma_psd=float(value),
                 stage=self.preprocessing_state.bm3d.stage,
             ),
+            rotate=self.preprocessing_state.rotate,
+            flip=self.preprocessing_state.flip,
         ).normalized()
         self._update_parameter_placeholder()
+        self._refresh_processed_preview()
+
+    def _on_rotate_parameters_changed(self, _index: int) -> None:
+        """Update rotation parameters and refresh only the processed preview."""
+
+        quarter_turns = self.rotate_turns_combo.currentData()
+        if quarter_turns is None:
+            return
+
+        self.preprocessing_state = PreprocessingState(
+            method=self.preprocessing_state.method,
+            blur=self.preprocessing_state.blur,
+            nlm=self.preprocessing_state.nlm,
+            bm3d=self.preprocessing_state.bm3d,
+            rotate=RotateParameters(quarter_turns=int(quarter_turns)),
+            flip=self.preprocessing_state.flip,
+        ).normalized()
+        self._update_parameter_placeholder()
+        self._refresh_processed_preview()
+
+    def _on_flip_parameters_changed(self, *_args: object) -> None:
+        """Update flip parameters and refresh only the processed preview."""
+
+        self.preprocessing_state = PreprocessingState(
+            method=self.preprocessing_state.method,
+            blur=self.preprocessing_state.blur,
+            nlm=self.preprocessing_state.nlm,
+            bm3d=self.preprocessing_state.bm3d,
+            rotate=self.preprocessing_state.rotate,
+            flip=FlipParameters(
+                flip_x=bool(self.flip_x_checkbox.isChecked()),
+                flip_y=bool(self.flip_y_checkbox.isChecked()),
+            ),
+        ).normalized()
+        self._update_parameter_placeholder()
+        self._update_apply_button_state()
         self._refresh_processed_preview()

@@ -8,10 +8,14 @@ import pytest
 from AtomMapper.app.preprocessing import (
     apply_bm3d,
     apply_blur,
+    apply_flip,
     apply_non_local_means,
+    apply_rotation,
     build_bm3d_metadata,
     build_blur_metadata,
+    build_flip_metadata,
     build_nlm_metadata,
+    build_rotation_metadata,
     is_bm3d_available,
 )
 
@@ -44,6 +48,53 @@ def test_build_blur_metadata_returns_serializable_fields():
     assert metadata == {
         "preprocess": "blur",
         "blur_sigma_px": 1.5,
+    }
+
+
+def test_apply_rotation_returns_rotated_array_and_rejects_invalid_turns():
+    image_data = np.arange(12, dtype=float).reshape((3, 4))
+
+    rotated = apply_rotation(image_data, quarter_turns=1)
+
+    assert rotated.shape == (4, 3)
+    assert rotated.dtype == float
+    assert np.array_equal(rotated, np.rot90(image_data, k=1))
+
+    with pytest.raises(ValueError, match="quarter_turns"):
+        apply_rotation(image_data, quarter_turns=4)
+
+
+def test_build_rotation_metadata_returns_serializable_fields():
+    metadata = build_rotation_metadata(quarter_turns=3)
+
+    assert metadata == {
+        "preprocess": "rotate",
+        "rotate_quarter_turns": 3,
+        "rotate_angle_deg": 270,
+        "rotate_direction": "ccw",
+    }
+
+
+def test_apply_flip_returns_flipped_array_and_rejects_empty_transform():
+    image_data = np.arange(9, dtype=float).reshape((3, 3))
+
+    flipped = apply_flip(image_data, flip_x=True, flip_y=True)
+
+    assert flipped.shape == image_data.shape
+    assert flipped.dtype == float
+    assert np.array_equal(flipped, np.flipud(np.fliplr(image_data)))
+
+    with pytest.raises(ValueError, match="At least one"):
+        apply_flip(image_data, flip_x=False, flip_y=False)
+
+
+def test_build_flip_metadata_returns_serializable_fields():
+    metadata = build_flip_metadata(flip_x=True, flip_y=False)
+
+    assert metadata == {
+        "preprocess": "flip",
+        "flip_x": True,
+        "flip_y": False,
     }
 
 

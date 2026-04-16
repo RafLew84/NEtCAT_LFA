@@ -16,6 +16,8 @@ class PreprocessingMethod(str, Enum):
     BLUR = "blur"
     NLM = "nlm"
     BM3D = "bm3d"
+    ROTATE = "rotate"
+    FLIP = "flip"
 
     @classmethod
     def normalize(cls, value: object) -> "PreprocessingMethod":
@@ -38,6 +40,8 @@ class PreprocessingMethod(str, Enum):
             PreprocessingMethod.BLUR: "Blur",
             PreprocessingMethod.NLM: "Non-local means",
             PreprocessingMethod.BM3D: "BM3D",
+            PreprocessingMethod.ROTATE: "Rotate 90°",
+            PreprocessingMethod.FLIP: "Flip",
         }
         return labels[self]
 
@@ -192,7 +196,74 @@ class BM3DParameters:
         ).normalized()
 
 
-PreprocessingParameters = BlurParameters | NonLocalMeansParameters | BM3DParameters
+@dataclass(frozen=True)
+class RotateParameters:
+    """Parameters for 90-degree rotation transforms."""
+
+    quarter_turns: int = 1
+
+    def normalized(self) -> "RotateParameters":
+        """Return normalized rotation parameters."""
+
+        turns = _normalize_int(self.quarter_turns, default=1, minimum=1) % 4
+        if turns == 0:
+            turns = 1
+        return RotateParameters(quarter_turns=turns)
+
+    @property
+    def angle_deg(self) -> int:
+        """Return the effective counter-clockwise angle in degrees."""
+
+        return int(self.normalized().quarter_turns * 90)
+
+    def to_dict(self) -> dict[str, Any]:
+        normalized = self.normalized()
+        return {
+            "quarter_turns": normalized.quarter_turns,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Optional[dict[str, Any]]) -> "RotateParameters":
+        payload = data or {}
+        return cls(
+            quarter_turns=payload.get("quarter_turns", 1),
+        ).normalized()
+
+
+@dataclass(frozen=True)
+class FlipParameters:
+    """Parameters for axis flips."""
+
+    flip_x: bool = True
+    flip_y: bool = False
+
+    def normalized(self) -> "FlipParameters":
+        """Return normalized flip parameters."""
+
+        return FlipParameters(
+            flip_x=bool(self.flip_x),
+            flip_y=bool(self.flip_y),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        normalized = self.normalized()
+        return {
+            "flip_x": normalized.flip_x,
+            "flip_y": normalized.flip_y,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Optional[dict[str, Any]]) -> "FlipParameters":
+        payload = data or {}
+        return cls(
+            flip_x=payload.get("flip_x", True),
+            flip_y=payload.get("flip_y", False),
+        ).normalized()
+
+
+PreprocessingParameters = (
+    BlurParameters | NonLocalMeansParameters | BM3DParameters | RotateParameters | FlipParameters
+)
 
 
 @dataclass(frozen=True)
@@ -203,6 +274,8 @@ class PreprocessingState:
     blur: BlurParameters = field(default_factory=BlurParameters)
     nlm: NonLocalMeansParameters = field(default_factory=NonLocalMeansParameters)
     bm3d: BM3DParameters = field(default_factory=BM3DParameters)
+    rotate: RotateParameters = field(default_factory=RotateParameters)
+    flip: FlipParameters = field(default_factory=FlipParameters)
 
     def normalized(self) -> "PreprocessingState":
         """Return a normalized preprocessing state."""
@@ -212,6 +285,8 @@ class PreprocessingState:
             blur=self.blur.normalized(),
             nlm=self.nlm.normalized(),
             bm3d=self.bm3d.normalized(),
+            rotate=self.rotate.normalized(),
+            flip=self.flip.normalized(),
         )
 
     @property
@@ -223,7 +298,11 @@ class PreprocessingState:
             return normalized.blur
         if normalized.method is PreprocessingMethod.NLM:
             return normalized.nlm
-        return normalized.bm3d
+        if normalized.method is PreprocessingMethod.BM3D:
+            return normalized.bm3d
+        if normalized.method is PreprocessingMethod.ROTATE:
+            return normalized.rotate
+        return normalized.flip
 
     def with_method(self, method: object) -> "PreprocessingState":
         """Return a copy of the state with the active method changed."""
@@ -241,6 +320,8 @@ class PreprocessingState:
                 "blur": normalized.blur.to_dict(),
                 "nlm": normalized.nlm.to_dict(),
                 "bm3d": normalized.bm3d.to_dict(),
+                "rotate": normalized.rotate.to_dict(),
+                "flip": normalized.flip.to_dict(),
             },
         }
 
@@ -255,6 +336,8 @@ class PreprocessingState:
             blur=BlurParameters.from_dict(parameters.get("blur")),
             nlm=NonLocalMeansParameters.from_dict(parameters.get("nlm")),
             bm3d=BM3DParameters.from_dict(parameters.get("bm3d")),
+            rotate=RotateParameters.from_dict(parameters.get("rotate")),
+            flip=FlipParameters.from_dict(parameters.get("flip")),
         ).normalized()
 
 

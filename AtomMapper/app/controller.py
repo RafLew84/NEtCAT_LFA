@@ -14,10 +14,14 @@ from .models import AtomPoint, AtomRow, LoadedImage, ROIState
 from .preprocessing import (
     apply_bm3d,
     apply_blur,
+    apply_flip,
     apply_non_local_means,
+    apply_rotation,
     build_bm3d_metadata,
     build_blur_metadata,
+    build_flip_metadata,
     build_nlm_metadata,
+    build_rotation_metadata,
 )
 from .session_model import AtomMapperSession
 
@@ -335,6 +339,59 @@ class AtomMapperController(QObject):
                 sigma_psd=sigma_psd,
                 stage=stage,
             ),
+        )
+        self.add_loaded_variant(variant, make_active=make_active)
+        return variant
+
+    def create_rotate_variant_for_active_image(
+        self,
+        *,
+        quarter_turns: int = 1,
+        make_active: bool = True,
+    ) -> LoadedImage:
+        """Create, append, and optionally activate a 90-degree rotation variant."""
+
+        active = self.active_image
+        if active is None:
+            raise ValueError("Cannot create rotation variant without an active image.")
+
+        normalized_turns = int(quarter_turns) % 4
+        if normalized_turns == 0:
+            raise ValueError("quarter_turns must not be a multiple of 4.")
+
+        rotated_data = apply_rotation(active.image_data, quarter_turns=normalized_turns)
+        swap_geometry = normalized_turns % 2 == 1
+        variant = active.derive_variant(
+            variant_name=f"rotate-{normalized_turns * 90}",
+            image_data=rotated_data,
+            metadata_updates=build_rotation_metadata(quarter_turns=normalized_turns),
+            pixels_x=active.pixels_y if swap_geometry else active.pixels_x,
+            pixels_y=active.pixels_x if swap_geometry else active.pixels_y,
+            size_nm_x=active.size_nm_y if swap_geometry else active.size_nm_x,
+            size_nm_y=active.size_nm_x if swap_geometry else active.size_nm_y,
+        )
+        self.add_loaded_variant(variant, make_active=make_active)
+        return variant
+
+    def create_flip_variant_for_active_image(
+        self,
+        *,
+        flip_x: bool = True,
+        flip_y: bool = False,
+        make_active: bool = True,
+    ) -> LoadedImage:
+        """Create, append, and optionally activate a flipped image variant."""
+
+        active = self.active_image
+        if active is None:
+            raise ValueError("Cannot create flip variant without an active image.")
+
+        flipped_data = apply_flip(active.image_data, flip_x=flip_x, flip_y=flip_y)
+        variant_suffix = "xy" if flip_x and flip_y else ("x" if flip_x else "y")
+        variant = active.derive_variant(
+            variant_name=f"flip-{variant_suffix}",
+            image_data=flipped_data,
+            metadata_updates=build_flip_metadata(flip_x=flip_x, flip_y=flip_y),
         )
         self.add_loaded_variant(variant, make_active=make_active)
         return variant

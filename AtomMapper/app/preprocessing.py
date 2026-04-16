@@ -44,6 +44,75 @@ def build_blur_metadata(*, sigma_px: float) -> dict[str, Any]:
     }
 
 
+def apply_rotation(image_data: np.ndarray, *, quarter_turns: int = 1) -> np.ndarray:
+    """Return a copy of a 2D STM image rotated counter-clockwise in 90-degree steps."""
+
+    image_array = np.asarray(image_data, dtype=float)
+    if image_array.ndim != 2:
+        raise ValueError(f"Expected 2D image data, got shape {image_array.shape!r}.")
+
+    turns = int(quarter_turns) % 4
+    if turns == 0:
+        raise ValueError("quarter_turns must not be a multiple of 4.")
+
+    return np.array(np.rot90(image_array, k=turns), dtype=float, copy=True)
+
+
+def build_rotation_metadata(*, quarter_turns: int) -> dict[str, Any]:
+    """Return metadata fields describing a 90-degree rotation preprocessing step."""
+
+    turns = int(quarter_turns) % 4
+    if turns == 0:
+        raise ValueError("quarter_turns must not be a multiple of 4.")
+
+    return {
+        "preprocess": "rotate",
+        "rotate_quarter_turns": turns,
+        "rotate_angle_deg": 90 * turns,
+        "rotate_direction": "ccw",
+    }
+
+
+def apply_flip(
+    image_data: np.ndarray,
+    *,
+    flip_x: bool = True,
+    flip_y: bool = False,
+) -> np.ndarray:
+    """Return a flipped copy of a 2D STM image."""
+
+    image_array = np.asarray(image_data, dtype=float)
+    if image_array.ndim != 2:
+        raise ValueError(f"Expected 2D image data, got shape {image_array.shape!r}.")
+
+    flip_x_value = bool(flip_x)
+    flip_y_value = bool(flip_y)
+    if not flip_x_value and not flip_y_value:
+        raise ValueError("At least one of flip_x or flip_y must be enabled.")
+
+    transformed = np.array(image_array, dtype=float, copy=True)
+    if flip_x_value:
+        transformed = np.fliplr(transformed)
+    if flip_y_value:
+        transformed = np.flipud(transformed)
+    return np.array(transformed, dtype=float, copy=True)
+
+
+def build_flip_metadata(*, flip_x: bool, flip_y: bool) -> dict[str, Any]:
+    """Return metadata fields describing a flip preprocessing step."""
+
+    flip_x_value = bool(flip_x)
+    flip_y_value = bool(flip_y)
+    if not flip_x_value and not flip_y_value:
+        raise ValueError("At least one of flip_x or flip_y must be enabled.")
+
+    return {
+        "preprocess": "flip",
+        "flip_x": flip_x_value,
+        "flip_y": flip_y_value,
+    }
+
+
 def apply_non_local_means(
     image_data: np.ndarray,
     *,
