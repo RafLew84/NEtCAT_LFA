@@ -219,7 +219,7 @@ class AtomMapperMainWindow(QMainWindow):
         )
         self.points_table_hint_label.setWordWrap(True)
         self.points_table_hint_label.setStyleSheet("font-size: 12px; color: palette(mid);")
-        self.points_table_widget = QTableWidget(0, 10, right_panel)
+        self.points_table_widget = QTableWidget(0, 12, right_panel)
         self.points_table_widget.setObjectName("atommapper_points_table")
         self.points_table_widget.setHorizontalHeaderLabels(
             [
@@ -231,6 +231,8 @@ class AtomMapperMainWindow(QMainWindow):
                 "sigma_y",
                 "position_std_x_px",
                 "position_std_y_px",
+                "position_std_x_nm",
+                "position_std_y_nm",
                 "uncertainty",
                 "status",
             ]
@@ -630,12 +632,24 @@ class AtomMapperMainWindow(QMainWindow):
             self._set_points_table_item(
                 row_index,
                 8,
-                str(point.metadata.get("position_uncertainty_status") or ""),
+                self._format_optional_float(point.position_std_x_nm),
                 point_id=point.point_id,
             )
             self._set_points_table_item(
                 row_index,
                 9,
+                self._format_optional_float(point.position_std_y_nm),
+                point_id=point.point_id,
+            )
+            self._set_points_table_item(
+                row_index,
+                10,
+                self._format_position_uncertainty_status(point),
+                point_id=point.point_id,
+            )
+            self._set_points_table_item(
+                row_index,
+                11,
                 self._format_point_status(point),
                 point_id=point.point_id,
             )
@@ -801,6 +815,20 @@ class AtomMapperMainWindow(QMainWindow):
     @staticmethod
     def _format_point_status(point: AtomPoint) -> str:
         return describe_point_status(point)
+
+    @staticmethod
+    def _format_position_uncertainty_status(point: AtomPoint) -> str:
+        status = str(point.metadata.get("position_uncertainty_status") or "")
+        if not status:
+            return ""
+        qualifiers: list[str] = []
+        if point.metadata.get("position_uncertainty_original_mask_missing"):
+            qualifiers.append("original mask unavailable")
+        if point.metadata.get("position_uncertainty_settings_source") == "session_fallback":
+            qualifiers.append("session settings")
+        if not qualifiers:
+            return status
+        return f"{status} ({', '.join(qualifiers)})"
 
     def _set_points_table_item(self, row: int, column: int, text: str, *, point_id: str | None = None) -> None:
         item = QTableWidgetItem(text)
@@ -1707,6 +1735,7 @@ class AtomMapperMainWindow(QMainWindow):
                     if fit_result is None or fit_result.fit_mask is None
                     else int(fit_result.fit_mask.sum())
                 ),
+                "fit_settings": self.fit_settings_state.to_dict(),
                 "position_uncertainty_status": (
                     "computed" if position_std_x_px is not None else None
                 ),
@@ -1718,6 +1747,10 @@ class AtomMapperMainWindow(QMainWindow):
                 "position_uncertainty_reference": (
                     "saved_position" if position_std_x_px is not None else None
                 ),
+                "position_uncertainty_settings_source": (
+                    "point_snapshot" if position_std_x_px is not None else None
+                ),
+                "position_uncertainty_original_mask_missing": False,
                 "fit_shape_parameters": {}
                 if fit_result is None
                 else {

@@ -420,6 +420,8 @@ def test_fit_settings_panel_refreshes_preview_and_add_point_uses_same_gaussian_s
     assert point.position_std_x_nm is not None
     assert point.position_std_y_nm is not None
     assert point.metadata["position_uncertainty_status"] == "computed"
+    assert point.metadata["position_uncertainty_settings_source"] == "point_snapshot"
+    assert point.metadata["fit_settings"] == window.fit_settings_state.to_dict()
     assert "from Gaussian fit" in window.workflow_status_label.text()
 
 
@@ -786,7 +788,7 @@ def test_main_window_drag_move_updates_point_position_and_marks_manual_override(
     assert window.points_table_widget.currentItem().data(Qt.ItemDataRole.UserRole) == "point-1"
     assert window.points_table_widget.item(0, 2).text() == "16.500"
     assert window.points_table_widget.item(0, 3).text() == "17.250"
-    assert window.points_table_widget.item(0, 9).text() == "manual (drag)"
+    assert window.points_table_widget.item(0, 11).text() == "manual (drag)"
     assert window.statusBar().currentMessage() == "Moved point 0 in Row 1 to x=16.50, y=17.25."
     assert "selection preserved" in window.workflow_status_label.text()
 
@@ -934,7 +936,7 @@ def test_main_window_end_to_end_stage3a_point_editing_workflow(qtbot):
     moved_point = next(point for point in controller.active_row.points if point.point_id == second_point_id)
     assert moved_point.manual_override is True
     assert moved_point.manual_override_source == "drag"
-    assert window.points_table_widget.item(1, 9).text() == "manual (drag)"
+    assert window.points_table_widget.item(1, 11).text() == "manual (drag)"
 
     window.points_table_widget.setCurrentCell(0, 0)
     qtbot.waitUntil(lambda: window.image_viewport.current_active_point_id == first_point_id)
@@ -1046,8 +1048,8 @@ def test_main_window_exports_active_family_points_to_csv(qtbot, monkeypatch, tmp
     assert "exported 2 points to CSV" in window.workflow_status_label.text()
     assert window.image_viewport.current_active_point_id is None
     assert window.points_table_widget.currentItem() is None
-    assert window.points_table_widget.item(0, 9).text() == "fit"
-    assert window.points_table_widget.item(1, 9).text() == "manual (drag)"
+    assert window.points_table_widget.item(0, 11).text() == "fit"
+    assert window.points_table_widget.item(1, 11).text() == "manual (drag)"
 
 
 def test_main_window_saves_project_session_to_file(qtbot, monkeypatch, tmp_path: Path):
@@ -1201,8 +1203,8 @@ def test_main_window_loads_project_session_from_file(qtbot, monkeypatch, tmp_pat
     assert window.image_viewport.current_active_point_id == "point-2"
     assert window.points_table_widget.currentItem() is not None
     assert window.points_table_widget.currentItem().data(Qt.ItemDataRole.UserRole) == "point-2"
-    assert window.points_table_widget.item(0, 9).text() == "fit"
-    assert window.points_table_widget.item(1, 9).text() == "fit"
+    assert window.points_table_widget.item(0, 11).text() == "fit"
+    assert window.points_table_widget.item(1, 11).text() == "fit"
     assert window.show_gaussian_fit_checkbox.isChecked() is False
     assert window.gaussian_fit_preview.isHidden()
     assert window.row_plot_widget.current_mode is RowPlotMode.DISTANCE_NM
@@ -1263,10 +1265,14 @@ def test_tools_action_recalculates_uncertainties_and_refreshes_saved_points_tabl
     assert updated.position_std_y_px is not None
     assert window.points_table_widget.horizontalHeaderItem(6).text() == "position_std_x_px"
     assert window.points_table_widget.horizontalHeaderItem(7).text() == "position_std_y_px"
+    assert window.points_table_widget.horizontalHeaderItem(8).text() == "position_std_x_nm"
+    assert window.points_table_widget.horizontalHeaderItem(9).text() == "position_std_y_nm"
     assert window.points_table_widget.item(0, 6).text()
     assert window.points_table_widget.item(0, 7).text()
-    assert window.points_table_widget.item(0, 8).text() == "recomputed"
-    assert window.points_table_widget.item(0, 9).text() == "fit"
+    assert window.points_table_widget.item(0, 8).text()
+    assert window.points_table_widget.item(0, 9).text()
+    assert window.points_table_widget.item(0, 10).text() == "recomputed (session settings)"
+    assert window.points_table_widget.item(0, 11).text() == "fit"
     assert "Recalculated position uncertainties for 1 point" in (
         window.statusBar().currentMessage()
     )
@@ -1788,7 +1794,7 @@ def test_main_window_end_to_end_stage7_fit_model_mask_workflow_with_session_rest
     assert restored_window.gaussian_fit_preview.current_fit_result.center_image_yx is not None
     assert restored_window.gaussian_fit_preview.current_fit_result.center_image_yx[1] < 24.0
     assert restored_window.points_table_widget.rowCount() == 1
-    assert restored_window.points_table_widget.item(0, 9).text() == "fit"
+    assert restored_window.points_table_widget.item(0, 11).text() == "fit"
     assert "loaded project session" in restored_window.workflow_status_label.text()
 
 
@@ -2061,7 +2067,7 @@ def test_main_window_end_to_end_stage6_geometry_workflow_with_session_restore(
         lambda: (
             window.points_table_widget.rowCount() == 5
             and any(
-                window.points_table_widget.item(row_index, 9).text() == "manual (drag)"
+                window.points_table_widget.item(row_index, 11).text() == "manual (drag)"
                 for row_index in range(window.points_table_widget.rowCount())
             )
         )
@@ -2109,7 +2115,7 @@ def test_main_window_end_to_end_stage6_geometry_workflow_with_session_restore(
     assert restored_window.image_viewport.row_disturbance_scatter_item is not None
     assert len(restored_window.image_viewport.row_disturbance_scatter_item.points()) >= 1
     assert any(
-        restored_window.points_table_widget.item(row_index, 9).text() == "manual (drag)"
+        restored_window.points_table_widget.item(row_index, 11).text() == "manual (drag)"
         for row_index in range(restored_window.points_table_widget.rowCount())
     )
     assert "candidate" in restored_window.active_row_label.text() or "no local candidates" in restored_window.active_row_label.text()

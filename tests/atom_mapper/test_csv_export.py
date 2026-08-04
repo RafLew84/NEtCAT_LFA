@@ -86,9 +86,11 @@ def test_build_point_export_rows_includes_px_nm_fit_and_status_fields():
                     "fit_method": "voigt_fit",
                     "fit_mask_active": True,
                     "fit_mask_pixel_count": 37,
-                    "position_uncertainty_status": "recomputed_without_original_mask",
+                    "position_uncertainty_status": "recomputed",
                     "position_uncertainty_method": "fit_covariance",
                     "position_uncertainty_reference": "original_fit_position",
+                    "position_uncertainty_settings_source": "session_fallback",
+                    "position_uncertainty_original_mask_missing": True,
                 },
             ),
         ),
@@ -115,11 +117,11 @@ def test_build_point_export_rows_includes_px_nm_fit_and_status_fields():
     assert export_rows[1]["position_std_y_px"] == "0.420000"
     assert export_rows[1]["position_std_x_nm"] == "0.031000"
     assert export_rows[1]["position_std_y_nm"] == "0.042000"
-    assert export_rows[1]["position_uncertainty_status"] == (
-        "recomputed_without_original_mask"
-    )
+    assert export_rows[1]["position_uncertainty_status"] == "recomputed"
     assert export_rows[1]["position_uncertainty_method"] == "fit_covariance"
     assert export_rows[1]["position_uncertainty_reference"] == "original_fit_position"
+    assert export_rows[1]["position_uncertainty_settings_source"] == "session_fallback"
+    assert export_rows[1]["position_uncertainty_original_mask_missing"] == "true"
     assert export_rows[1]["fit_success"] == "false"
     assert export_rows[1]["fit_model"] == "voigt"
     assert export_rows[1]["fit_method"] == "voigt_fit"

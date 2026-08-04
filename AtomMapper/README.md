@@ -292,12 +292,14 @@ Current columns:
 - `sigma_y`
 - `position_std_x_px`
 - `position_std_y_px`
+- `position_std_x_nm`
+- `position_std_y_nm`
 - uncertainty
 - status
 
 `sigma_x` and `sigma_y` are fitted peak-width parameters. They are not position
-uncertainties. `position_std_x_px` and `position_std_y_px` are the standard uncertainties
-of the fitted center in pixels.
+uncertainties. The `position_std_*` columns are the standard uncertainties of the fitted
+center in pixels and, when calibration is available, nanometers.
 
 Point status can be:
 
@@ -313,11 +315,17 @@ moving the point or changing its saved peak widths. The calculated standard
 uncertainties are stored in both pixels and nanometers when image calibration is
 available.
 
+New points preserve a snapshot of their fit settings, which is reused during
+recalculation. Legacy points without such a snapshot use the fit settings stored for
+the loaded session. The table shows this as the `session settings` qualifier, and CSV
+exports it in `position_uncertainty_settings_source`.
+
 Older projects did not preserve polygon-mask vertices for individual points. A point
-that originally used such a mask is therefore re-fitted without it and marked
-`recomputed_without_original_mask`. For a manually moved point, the uncertainty is
-marked as referring to the `original_fit_position`, rather than to the dragged
-coordinate.
+that originally used such a mask is therefore re-fitted without it and shown with the
+`original mask unavailable` qualifier. CSV exports the same fact in
+`position_uncertainty_original_mask_missing`. For a manually moved point, the
+uncertainty is marked as referring to the `original_fit_position`, rather than to the
+dragged coordinate.
 
 ## CSV export
 

@@ -49,9 +49,8 @@ def recalculate_position_uncertainties(
             status = updated_point.metadata.get("position_uncertainty_status")
             if status == "recomputed":
                 recomputed_points += 1
-            elif status == "recomputed_without_original_mask":
-                recomputed_points += 1
-                recomputed_without_original_mask += 1
+                if updated_point.metadata.get("position_uncertainty_original_mask_missing"):
+                    recomputed_without_original_mask += 1
             else:
                 failed_points += 1
             updated_points.append(updated_point)
@@ -89,6 +88,9 @@ def _recalculate_point_uncertainty(
     except (KeyError, TypeError, ValueError):
         return _with_failure_status(point, metadata, "missing_fit_context")
 
+    point_fit_settings, settings_source = _fit_settings_for_point(metadata, fit_settings)
+    point_fit_settings = point_fit_settings.with_model(model)
+
     image_data = np.asarray(image.image_data, dtype=float)
     x0 = max(0, roi.x)
     y0 = max(0, roi.y)
@@ -104,7 +106,7 @@ def _recalculate_point_uncertainty(
             roi_origin_yx=(y0, x0),
             compute_uncertainty=True,
             fit_mask=None,
-            fit_settings_state=fit_settings,
+            fit_settings_state=point_fit_settings,
         )
     )
     if not fit_result.success or fit_result.center_std_yx is None:
@@ -119,9 +121,9 @@ def _recalculate_point_uncertainty(
         position_std_y_nm = position_std_y_px * calibration.pixel_size_nm_y
 
     missing_original_mask = bool(metadata.get("fit_mask_active"))
-    metadata["position_uncertainty_status"] = (
-        "recomputed_without_original_mask" if missing_original_mask else "recomputed"
-    )
+    metadata["position_uncertainty_status"] = "recomputed"
+    metadata["position_uncertainty_original_mask_missing"] = missing_original_mask
+    metadata["position_uncertainty_settings_source"] = settings_source
     metadata["position_uncertainty_reference"] = (
         "original_fit_position" if point.manual_override else "saved_position"
     )
@@ -142,6 +144,9 @@ def _with_failure_status(
     metadata: dict[str, object],
     reason: str,
 ) -> AtomPoint:
+    metadata.pop("position_uncertainty_method", None)
+    metadata.pop("position_uncertainty_original_mask_missing", None)
+    metadata.pop("position_uncertainty_settings_source", None)
     metadata["position_uncertainty_status"] = reason
     metadata["position_uncertainty_reference"] = (
         "original_fit_position" if point.manual_override else "saved_position"
@@ -154,6 +159,19 @@ def _with_failure_status(
         position_std_y_nm=None,
         metadata=metadata,
     )
+
+
+def _fit_settings_for_point(
+    metadata: dict[str, object],
+    session_fit_settings: FitSettingsState,
+) -> tuple[FitSettingsState, str]:
+    snapshot = metadata.get("fit_settings")
+    if isinstance(snapshot, dict):
+        try:
+            return FitSettingsState.from_dict(snapshot), "point_snapshot"
+        except (TypeError, ValueError):
+            pass
+    return session_fit_settings.normalized(), "session_fallback"
 
 
 def position_uncertainty_method(raw_result: object | None) -> str:
