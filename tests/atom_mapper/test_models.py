@@ -165,6 +165,10 @@ def test_atom_point_serializes_and_restores_fit_payload():
         amplitude=18.2,
         sigma_x_px=1.3,
         sigma_y_px=1.7,
+        position_std_x_px=0.31,
+        position_std_y_px=0.42,
+        position_std_x_nm=0.031,
+        position_std_y_nm=0.042,
         theta_deg=33.0,
         offset=0.4,
         fit_success=False,
@@ -184,6 +188,29 @@ def test_atom_point_serializes_and_restores_fit_payload():
     assert payload["manual_override"] is False
     assert payload["original_x_px"] is None
     assert payload["original_y_px"] is None
+    assert payload["position_std_x_px"] == 0.31
+    assert payload["position_std_y_px"] == 0.42
+    assert payload["position_std_x_nm"] == 0.031
+    assert payload["position_std_y_nm"] == 0.042
+
+
+def test_atom_point_loads_legacy_payload_without_position_uncertainty_fields():
+    point = AtomPoint.from_dict(
+        {
+            "point_id": "point-1",
+            "row_id": "row-1",
+            "image_id": "image-1",
+            "source_group_id": "group-1",
+            "point_index": 0,
+            "x_px": 12.5,
+            "y_px": 9.75,
+        }
+    )
+
+    assert point.position_std_x_px is None
+    assert point.position_std_y_px is None
+    assert point.position_std_x_nm is None
+    assert point.position_std_y_nm is None
 
 
 def test_atom_point_with_manual_position_preserves_original_fit_coordinates():
@@ -195,6 +222,9 @@ def test_atom_point_with_manual_position_preserves_original_fit_coordinates():
         x_px=12.5,
         y_px=9.75,
         fit_success=True,
+        position_std_x_px=0.3,
+        position_std_y_px=0.4,
+        metadata={"position_uncertainty_reference": "saved_position"},
     )
 
     corrected = point.with_manual_position(x_px=14.0, y_px=8.5, source="drag")
@@ -207,6 +237,7 @@ def test_atom_point_with_manual_position_preserves_original_fit_coordinates():
     assert corrected.original_y_px == 9.75
     assert corrected.fit_x_px == 12.5
     assert corrected.fit_y_px == 9.75
+    assert corrected.metadata["position_uncertainty_reference"] == "original_fit_position"
 
 
 def test_atom_point_manual_override_roundtrip_restores_original_fit_coordinates():

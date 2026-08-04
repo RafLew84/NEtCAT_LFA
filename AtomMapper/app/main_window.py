@@ -12,9 +12,9 @@ from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
+    QDialog,
     QDockWidget,
     QFileDialog,
-    QDialog,
     QGridLayout,
     QHBoxLayout,
     QLabel,
@@ -39,10 +39,11 @@ from .image_utils import extract_roi_patch
 from .io import SUPPORTED_STM_EXTENSIONS
 from .models import AtomPoint
 from .plots import PlotUnit, build_row_geometry_metrics
-from .pyqtgraph_image_view import PyQtGraphSTMViewport
-from .pyqtgraph_preview_bridge import PyQtGraphPreviewBridge
+from .position_uncertainty import position_uncertainty_method
 from .preprocessing_dialog import PreprocessingDialog
 from .preprocessing_state import PreprocessingMethod
+from .pyqtgraph_image_view import PyQtGraphSTMViewport
+from .pyqtgraph_preview_bridge import PyQtGraphPreviewBridge
 from .row_disturbance_widget import RowDisturbanceWidget
 from .row_geometry import RowGeometryUnit, build_row_disturbance_series, fit_row_geometry
 from .row_metrics_widget import RowMetricsWidget
@@ -121,6 +122,13 @@ class AtomMapperMainWindow(QMainWindow):
         self.save_session_action.setObjectName("atommapper_save_session_action")
         self.load_session_action = QAction("Load Session", self)
         self.load_session_action.setObjectName("atommapper_load_session_action")
+        self.recalculate_position_uncertainties_action = QAction(
+            "Recalculate position uncertainties",
+            self,
+        )
+        self.recalculate_position_uncertainties_action.setObjectName(
+            "atommapper_recalculate_position_uncertainties_action"
+        )
         self.file_list_hint_label = QLabel("No STM files loaded. Use File > Load STM Files... to start.")
         self.file_list_hint_label.setWordWrap(True)
         self.file_list_hint_label.setStyleSheet("font-size: 12px; color: palette(mid);")
@@ -211,10 +219,21 @@ class AtomMapperMainWindow(QMainWindow):
         )
         self.points_table_hint_label.setWordWrap(True)
         self.points_table_hint_label.setStyleSheet("font-size: 12px; color: palette(mid);")
-        self.points_table_widget = QTableWidget(0, 7, right_panel)
+        self.points_table_widget = QTableWidget(0, 10, right_panel)
         self.points_table_widget.setObjectName("atommapper_points_table")
         self.points_table_widget.setHorizontalHeaderLabels(
-            ["row", "index", "x_px", "y_px", "sigma_x", "sigma_y", "status"]
+            [
+                "row",
+                "index",
+                "x_px",
+                "y_px",
+                "sigma_x",
+                "sigma_y",
+                "position_std_x_px",
+                "position_std_y_px",
+                "uncertainty",
+                "status",
+            ]
         )
         self.points_table_widget.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.points_table_widget.setSelectionBehavior(
@@ -330,6 +349,8 @@ class AtomMapperMainWindow(QMainWindow):
         tools_menu.addAction(self.preprocessing_action)
         tools_menu.addAction(self.fit_settings_action)
         tools_menu.addSeparator()
+        tools_menu.addAction(self.recalculate_position_uncertainties_action)
+        tools_menu.addSeparator()
         tools_menu.addAction(self.polygon_mask_action)
         tools_menu.addAction(self.clear_polygon_mask_action)
 
@@ -352,6 +373,7 @@ class AtomMapperMainWindow(QMainWindow):
         self._update_active_image_label(self.controller.active_image)
         self._update_preprocess_controls(self.controller.active_image)
         self._update_export_controls(self.controller.active_image)
+        self._update_position_uncertainty_controls()
         self._update_polygon_mask_controls(
             self.controller.active_image,
             self.controller.active_roi_state,
@@ -379,6 +401,9 @@ class AtomMapperMainWindow(QMainWindow):
         self.save_session_action.triggered.connect(self._save_session_to_project_file)
         self.load_session_button.clicked.connect(self._load_session_from_project_file)
         self.load_session_action.triggered.connect(self._load_session_from_project_file)
+        self.recalculate_position_uncertainties_action.triggered.connect(
+            self._recalculate_position_uncertainties
+        )
         self.new_row_button.clicked.connect(self._create_new_row)
         self.delete_row_button.clicked.connect(self._delete_active_row)
         self.add_point_button.clicked.connect(self._add_point_from_current_roi)
@@ -404,8 +429,10 @@ class AtomMapperMainWindow(QMainWindow):
         self.controller.rows_changed.connect(self._handle_rows_changed)
         self.controller.rows_changed.connect(self._refresh_points_table)
         self.controller.rows_changed.connect(self._refresh_image_point_overlay)
+        self.controller.rows_changed.connect(self._update_position_uncertainty_controls)
         self.controller.active_row_changed.connect(self._handle_active_row_changed)
         self.controller.row_points_changed.connect(self._handle_row_points_changed)
+        self.controller.row_points_changed.connect(self._update_position_uncertainty_controls)
         self.show_gaussian_fit_checkbox.stateChanged.connect(self._on_show_gaussian_fit_changed)
         self.row_metrics_widget.unit_combo.currentIndexChanged.connect(
             self._on_row_geometry_unit_changed
@@ -591,6 +618,24 @@ class AtomMapperMainWindow(QMainWindow):
             self._set_points_table_item(
                 row_index,
                 6,
+                self._format_optional_float(point.position_std_x_px),
+                point_id=point.point_id,
+            )
+            self._set_points_table_item(
+                row_index,
+                7,
+                self._format_optional_float(point.position_std_y_px),
+                point_id=point.point_id,
+            )
+            self._set_points_table_item(
+                row_index,
+                8,
+                str(point.metadata.get("position_uncertainty_status") or ""),
+                point_id=point.point_id,
+            )
+            self._set_points_table_item(
+                row_index,
+                9,
                 self._format_point_status(point),
                 point_id=point.point_id,
             )
@@ -925,6 +970,41 @@ class AtomMapperMainWindow(QMainWindow):
         )
         self.fit_settings_button.setToolTip(fit_settings_tooltip)
         self.fit_settings_action.setStatusTip(fit_settings_tooltip)
+
+    def _update_position_uncertainty_controls(self, *_args: Any) -> None:
+        point_count = sum(row.point_count for row in self.controller.atom_rows)
+        has_points = point_count > 0
+        self.recalculate_position_uncertainties_action.setEnabled(has_points)
+        if has_points:
+            tooltip = (
+                "Re-fit saved point ROIs and calculate localization uncertainty for "
+                f"{point_count} saved point(s)."
+            )
+        else:
+            tooltip = "Add or load saved atom points before recalculating uncertainties."
+        self.recalculate_position_uncertainties_action.setStatusTip(tooltip)
+
+    def _recalculate_position_uncertainties(self) -> None:
+        summary = self.controller.recalculate_position_uncertainties(self.fit_settings_state)
+        point_noun = "point" if summary.total_points == 1 else "points"
+        if summary.recomputed_points == summary.total_points:
+            message = (
+                f"Recalculated position uncertainties for {summary.total_points} {point_noun}."
+            )
+        else:
+            message = (
+                "Recalculated position uncertainties for "
+                f"{summary.recomputed_points} of {summary.total_points} {point_noun}."
+            )
+        if summary.recomputed_without_original_mask:
+            message += (
+                f" {summary.recomputed_without_original_mask} result(s) were recalculated "
+                "without the original mask."
+            )
+        if summary.failed_points:
+            message += f" {summary.failed_points} point(s) could not be recalculated."
+        self.statusBar().showMessage(message, 10000)
+        self.workflow_status_label.setText(f"Workflow status: {message}")
 
     def _update_polygon_mask_controls(self, active_image: Any, roi_state: Any) -> None:
         has_image = active_image is not None
@@ -1544,6 +1624,10 @@ class AtomMapperMainWindow(QMainWindow):
         y_px: float
         sigma_x_px = None
         sigma_y_px = None
+        position_std_x_px = None
+        position_std_y_px = None
+        position_std_x_nm = None
+        position_std_y_nm = None
         amplitude = None
         theta_deg = None
         offset = None
@@ -1562,8 +1646,16 @@ class AtomMapperMainWindow(QMainWindow):
             fit_method = fit_result.method
             fit_error_message = fit_result.error_message
             if fit_result.center_std_yx is not None:
-                sigma_y_px = fit_result.center_std_yx[0] if fit_result.sigma_y is None else sigma_y_px
-                sigma_x_px = fit_result.center_std_yx[1] if fit_result.sigma_x is None else sigma_x_px
+                position_std_y_px = float(fit_result.center_std_yx[0])
+                position_std_x_px = float(fit_result.center_std_yx[1])
+                calibration = active_image.physical_calibration
+                if calibration is not None:
+                    position_std_x_nm = (
+                        position_std_x_px * calibration.pixel_size_nm_x
+                    )
+                    position_std_y_nm = (
+                        position_std_y_px * calibration.pixel_size_nm_y
+                    )
         else:
             fallback_used = True
             x_px = roi.x + (roi.width / 2.0)
@@ -1593,6 +1685,10 @@ class AtomMapperMainWindow(QMainWindow):
             amplitude=amplitude,
             sigma_x_px=sigma_x_px,
             sigma_y_px=sigma_y_px,
+            position_std_x_px=position_std_x_px,
+            position_std_y_px=position_std_y_px,
+            position_std_x_nm=position_std_x_nm,
+            position_std_y_nm=position_std_y_nm,
             theta_deg=theta_deg,
             offset=offset,
             fit_success=fit_success,
@@ -1610,6 +1706,17 @@ class AtomMapperMainWindow(QMainWindow):
                     None
                     if fit_result is None or fit_result.fit_mask is None
                     else int(fit_result.fit_mask.sum())
+                ),
+                "position_uncertainty_status": (
+                    "computed" if position_std_x_px is not None else None
+                ),
+                "position_uncertainty_method": (
+                    None
+                    if fit_result is None or fit_result.center_std_yx is None
+                    else position_uncertainty_method(fit_result.raw_result)
+                ),
+                "position_uncertainty_reference": (
+                    "saved_position" if position_std_x_px is not None else None
                 ),
                 "fit_shape_parameters": {}
                 if fit_result is None

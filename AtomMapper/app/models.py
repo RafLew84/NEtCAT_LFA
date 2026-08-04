@@ -304,6 +304,10 @@ class AtomPoint:
     amplitude: Optional[float] = None
     sigma_x_px: Optional[float] = None
     sigma_y_px: Optional[float] = None
+    position_std_x_px: Optional[float] = None
+    position_std_y_px: Optional[float] = None
+    position_std_x_nm: Optional[float] = None
+    position_std_y_nm: Optional[float] = None
     theta_deg: Optional[float] = None
     offset: Optional[float] = None
     fit_success: bool = True
@@ -364,6 +368,26 @@ class AtomPoint:
         object.__setattr__(self, "amplitude", _normalize_optional_float(self.amplitude, "amplitude"))
         object.__setattr__(self, "sigma_x_px", _normalize_optional_float(self.sigma_x_px, "sigma_x_px"))
         object.__setattr__(self, "sigma_y_px", _normalize_optional_float(self.sigma_y_px, "sigma_y_px"))
+        object.__setattr__(
+            self,
+            "position_std_x_px",
+            _normalize_optional_float(self.position_std_x_px, "position_std_x_px"),
+        )
+        object.__setattr__(
+            self,
+            "position_std_y_px",
+            _normalize_optional_float(self.position_std_y_px, "position_std_y_px"),
+        )
+        object.__setattr__(
+            self,
+            "position_std_x_nm",
+            _normalize_optional_float(self.position_std_x_nm, "position_std_x_nm"),
+        )
+        object.__setattr__(
+            self,
+            "position_std_y_nm",
+            _normalize_optional_float(self.position_std_y_nm, "position_std_y_nm"),
+        )
         object.__setattr__(self, "theta_deg", _normalize_optional_float(self.theta_deg, "theta_deg"))
         object.__setattr__(self, "offset", _normalize_optional_float(self.offset, "offset"))
         object.__setattr__(self, "fit_success", bool(self.fit_success))
@@ -397,6 +421,9 @@ class AtomPoint:
     ) -> "AtomPoint":
         """Return a copy of the point with manually corrected coordinates."""
 
+        metadata = dict(self.metadata)
+        if self.position_std_x_px is not None or self.position_std_y_px is not None:
+            metadata["position_uncertainty_reference"] = "original_fit_position"
         return replace(
             self,
             x_px=x_px,
@@ -407,6 +434,7 @@ class AtomPoint:
             manual_override_source=source,
             original_x_px=self.fit_x_px,
             original_y_px=self.fit_y_px,
+            metadata=metadata,
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -425,6 +453,10 @@ class AtomPoint:
             "amplitude": self.amplitude,
             "sigma_x_px": self.sigma_x_px,
             "sigma_y_px": self.sigma_y_px,
+            "position_std_x_px": self.position_std_x_px,
+            "position_std_y_px": self.position_std_y_px,
+            "position_std_x_nm": self.position_std_x_nm,
+            "position_std_y_nm": self.position_std_y_nm,
             "theta_deg": self.theta_deg,
             "offset": self.offset,
             "fit_success": self.fit_success,
@@ -453,6 +485,10 @@ class AtomPoint:
             amplitude=payload.get("amplitude"),
             sigma_x_px=payload.get("sigma_x_px"),
             sigma_y_px=payload.get("sigma_y_px"),
+            position_std_x_px=payload.get("position_std_x_px"),
+            position_std_y_px=payload.get("position_std_y_px"),
+            position_std_x_nm=payload.get("position_std_x_nm"),
+            position_std_y_nm=payload.get("position_std_y_nm"),
             theta_deg=payload.get("theta_deg"),
             offset=payload.get("offset"),
             fit_success=payload.get("fit_success", True),

@@ -71,6 +71,11 @@ from .plots import (
     sorted_row_points,
 )
 from .polygon_mask import PolygonMaskState, build_polygon_mask_for_roi
+from .position_uncertainty import (
+    PositionUncertaintyRecalculationSummary,
+    position_uncertainty_method,
+    recalculate_position_uncertainties,
+)
 from .roi_preview import ROIPreviewWidget
 from .row_disturbance_widget import RowDisturbanceWidget
 from .row_metrics_widget import RowMetricsWidget
@@ -146,12 +151,15 @@ __all__ = [
     "build_row_disturbance_series",
     "fit_row_geometry",
     "project_row_points",
+    "position_uncertainty_method",
+    "recalculate_position_uncertainties",
     "RowMetricsWidget",
     "RowPlotWidget",
     "GlobalScatterSample",
     "GlobalScatterSeries",
     "PlotUnit",
     "PolygonMaskState",
+    "PositionUncertaintyRecalculationSummary",
     "RowDistanceMetrics",
     "RowGeometryMetrics",
     "RowMetricSeries",

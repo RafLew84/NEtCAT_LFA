@@ -2,23 +2,28 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
 import logging
+from dataclasses import replace
 from pathlib import Path
 from typing import Iterable, Optional, Sequence
 
 from PyQt6.QtCore import QObject, pyqtSignal
 
+from .fit_settings import FitSettingsState
 from .io import load_loaded_image
 from .models import AtomPoint, AtomRow, LoadedImage, ROIState
+from .position_uncertainty import (
+    PositionUncertaintyRecalculationSummary,
+    recalculate_position_uncertainties,
+)
 from .preprocessing import (
-    apply_bm3d,
     apply_blur,
+    apply_bm3d,
     apply_flip,
     apply_non_local_means,
     apply_rotation,
-    build_bm3d_metadata,
     build_blur_metadata,
+    build_bm3d_metadata,
     build_flip_metadata,
     build_nlm_metadata,
     build_rotation_metadata,
@@ -476,6 +481,22 @@ class AtomMapperController(QObject):
 
         self.rows_changed.emit()
         self.active_row_changed.emit(self.active_row)
+
+    def recalculate_position_uncertainties(
+        self,
+        fit_settings: FitSettingsState,
+    ) -> PositionUncertaintyRecalculationSummary:
+        """Re-fit stored point ROIs and attach localization uncertainties."""
+
+        updated_rows, summary = recalculate_position_uncertainties(
+            self._rows,
+            self._loaded_images,
+            fit_settings,
+        )
+        self._rows = list(updated_rows)
+        self.rows_changed.emit()
+        self.active_row_changed.emit(self.active_row)
+        return summary
 
     def add_row(self, row: AtomRow, *, make_active: bool = True) -> AtomRow:
         """Append a new row to the controller state."""

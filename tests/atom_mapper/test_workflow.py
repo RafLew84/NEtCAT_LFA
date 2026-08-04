@@ -8,7 +8,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from PyQt6.QtCore import QTimer, Qt
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import QCheckBox, QDialog, QLineEdit, QMessageBox, QSpinBox
 
 from AtomMapper.app.controller import AtomMapperController
@@ -16,13 +16,13 @@ from AtomMapper.app.fit_models import LocalFitModelType
 from AtomMapper.app.main import create_main_window
 from AtomMapper.app.main_window import AtomMapperMainWindow
 from AtomMapper.app.models import AtomPoint, LoadedImage, ROIState
-from AtomMapper.app.polygon_mask import PolygonMaskState
 from AtomMapper.app.plots import PlotUnit, RowPlotMode
+from AtomMapper.app.polygon_mask import PolygonMaskState
 from AtomMapper.app.preprocessing import is_bm3d_available
 from AtomMapper.app.preprocessing_dialog import PreprocessingDialog
 from AtomMapper.app.preprocessing_state import (
-    BM3DParameters,
     BlurParameters,
+    BM3DParameters,
     FlipParameters,
     NonLocalMeansParameters,
     PreprocessingMethod,
@@ -30,8 +30,7 @@ from AtomMapper.app.preprocessing_state import (
     RotateParameters,
 )
 from AtomMapper.app.session_io import build_session_from_runtime, save_session_to_file
-from AtomMapper.app.session_model import ATOMMAPPER_SESSION_VERSION
-from AtomMapper.app.session_model import SessionViewState
+from AtomMapper.app.session_model import ATOMMAPPER_SESSION_VERSION, SessionViewState
 
 pytest.importorskip("PyQt6", reason="PyQt6 is required for AtomMapper GUI tests")
 pytest.importorskip("pytestqt", reason="pytest-qt is required for AtomMapper GUI tests")
@@ -381,6 +380,13 @@ def test_fit_settings_panel_refreshes_preview_and_add_point_uses_same_gaussian_s
     assert custom_initial_guess_checkbox is not None
     custom_initial_guess_checkbox.setChecked(True)
 
+    compute_uncertainty_checkbox = window.fit_settings_panel.findChild(
+        QCheckBox,
+        "atommapper_fit_common_compute_uncertainty_checkbox",
+    )
+    assert compute_uncertainty_checkbox is not None
+    compute_uncertainty_checkbox.setChecked(True)
+
     gaussian_sigma_y_edit = window.fit_settings_panel.findChild(
         QLineEdit,
         "atommapper_fit_gaussian_sigma_y_init_lineedit",
@@ -391,6 +397,7 @@ def test_fit_settings_panel_refreshes_preview_and_add_point_uses_same_gaussian_s
 
     assert window.fit_settings_state.common.max_nfev == 2800
     assert window.fit_settings_state.common.use_custom_initial_guess is True
+    assert window.fit_settings_state.common.compute_uncertainty is True
     assert window.fit_settings_state.gaussian.sigma_y_init == 1.1
 
     refreshed_result = window.preview_bridge.compute_current_fit_result()
@@ -408,6 +415,11 @@ def test_fit_settings_panel_refreshes_preview_and_add_point_uses_same_gaussian_s
     assert point.fit_success is True
     assert point.metadata["fallback_used"] is False
     assert point.metadata["fit_method"] == "gaussian_fit"
+    assert point.position_std_x_px is not None
+    assert point.position_std_y_px is not None
+    assert point.position_std_x_nm is not None
+    assert point.position_std_y_nm is not None
+    assert point.metadata["position_uncertainty_status"] == "computed"
     assert "from Gaussian fit" in window.workflow_status_label.text()
 
 
@@ -774,7 +786,7 @@ def test_main_window_drag_move_updates_point_position_and_marks_manual_override(
     assert window.points_table_widget.currentItem().data(Qt.ItemDataRole.UserRole) == "point-1"
     assert window.points_table_widget.item(0, 2).text() == "16.500"
     assert window.points_table_widget.item(0, 3).text() == "17.250"
-    assert window.points_table_widget.item(0, 6).text() == "manual (drag)"
+    assert window.points_table_widget.item(0, 9).text() == "manual (drag)"
     assert window.statusBar().currentMessage() == "Moved point 0 in Row 1 to x=16.50, y=17.25."
     assert "selection preserved" in window.workflow_status_label.text()
 
@@ -922,7 +934,7 @@ def test_main_window_end_to_end_stage3a_point_editing_workflow(qtbot):
     moved_point = next(point for point in controller.active_row.points if point.point_id == second_point_id)
     assert moved_point.manual_override is True
     assert moved_point.manual_override_source == "drag"
-    assert window.points_table_widget.item(1, 6).text() == "manual (drag)"
+    assert window.points_table_widget.item(1, 9).text() == "manual (drag)"
 
     window.points_table_widget.setCurrentCell(0, 0)
     qtbot.waitUntil(lambda: window.image_viewport.current_active_point_id == first_point_id)
@@ -1034,8 +1046,8 @@ def test_main_window_exports_active_family_points_to_csv(qtbot, monkeypatch, tmp
     assert "exported 2 points to CSV" in window.workflow_status_label.text()
     assert window.image_viewport.current_active_point_id is None
     assert window.points_table_widget.currentItem() is None
-    assert window.points_table_widget.item(0, 6).text() == "fit"
-    assert window.points_table_widget.item(1, 6).text() == "manual (drag)"
+    assert window.points_table_widget.item(0, 9).text() == "fit"
+    assert window.points_table_widget.item(1, 9).text() == "manual (drag)"
 
 
 def test_main_window_saves_project_session_to_file(qtbot, monkeypatch, tmp_path: Path):
@@ -1189,8 +1201,8 @@ def test_main_window_loads_project_session_from_file(qtbot, monkeypatch, tmp_pat
     assert window.image_viewport.current_active_point_id == "point-2"
     assert window.points_table_widget.currentItem() is not None
     assert window.points_table_widget.currentItem().data(Qt.ItemDataRole.UserRole) == "point-2"
-    assert window.points_table_widget.item(0, 6).text() == "fit"
-    assert window.points_table_widget.item(1, 6).text() == "fit"
+    assert window.points_table_widget.item(0, 9).text() == "fit"
+    assert window.points_table_widget.item(1, 9).text() == "fit"
     assert window.show_gaussian_fit_checkbox.isChecked() is False
     assert window.gaussian_fit_preview.isHidden()
     assert window.row_plot_widget.current_mode is RowPlotMode.DISTANCE_NM
@@ -1205,6 +1217,59 @@ def test_main_window_loads_project_session_from_file(qtbot, monkeypatch, tmp_pat
     assert window.file_list_widget.count() == 2
     assert window.statusBar().currentMessage() == "Loaded session from session-load.atommapper_proj."
     assert "loaded project session" in window.workflow_status_label.text()
+
+
+def test_tools_action_recalculates_uncertainties_and_refreshes_saved_points_table(qtbot):
+    controller = AtomMapperController()
+    image = _make_gaussian_image("uncertainty-action.stp", size=40)
+    controller.set_loaded_images([image])
+    row = controller.create_row_for_active_source_group(display_name="Row 1")
+    controller.add_point_to_row(
+        AtomPoint(
+            point_id="point-1",
+            row_id=row.row_id,
+            image_id=image.image_id,
+            source_group_id=image.source_group_id,
+            point_index=0,
+            x_px=20.0,
+            y_px=20.0,
+            sigma_x_px=1.8,
+            sigma_y_px=1.6,
+            metadata={
+                "fit_model": "gaussian",
+                "fit_method": "gaussian_fit",
+                "roi_x": 14,
+                "roi_y": 14,
+                "roi_width": 13,
+                "roi_height": 13,
+                "fit_mask_active": False,
+            },
+        )
+    )
+    window = AtomMapperMainWindow(controller=controller)
+    qtbot.addWidget(window)
+
+    tools_menu = next(
+        action.menu() for action in window.menuBar().actions() if action.text() == "Tools"
+    )
+    assert tools_menu is not None
+    assert window.recalculate_position_uncertainties_action in tools_menu.actions()
+    assert window.recalculate_position_uncertainties_action.isEnabled() is True
+
+    window.recalculate_position_uncertainties_action.trigger()
+
+    updated = controller.atom_rows[0].points[0]
+    assert updated.position_std_x_px is not None
+    assert updated.position_std_y_px is not None
+    assert window.points_table_widget.horizontalHeaderItem(6).text() == "position_std_x_px"
+    assert window.points_table_widget.horizontalHeaderItem(7).text() == "position_std_y_px"
+    assert window.points_table_widget.item(0, 6).text()
+    assert window.points_table_widget.item(0, 7).text()
+    assert window.points_table_widget.item(0, 8).text() == "recomputed"
+    assert window.points_table_widget.item(0, 9).text() == "fit"
+    assert "Recalculated position uncertainties for 1 point" in (
+        window.statusBar().currentMessage()
+    )
 
 
 def test_main_window_can_open_preprocessing_dialog_for_active_image(qtbot):
@@ -1557,6 +1622,7 @@ def test_main_window_add_point_uses_gaussian_fit_for_active_row(qtbot):
     assert point.sigma_x_px is not None
     assert point.sigma_y_px is not None
     assert point.offset is not None
+    assert window.recalculate_position_uncertainties_action.isEnabled() is True
     assert window.row_list_widget.item(0).text() == "Row 1 (1 point)"
     assert "from Gaussian fit" in window.workflow_status_label.text()
     assert window.image_viewport.point_scatter_item is not None
@@ -1722,7 +1788,7 @@ def test_main_window_end_to_end_stage7_fit_model_mask_workflow_with_session_rest
     assert restored_window.gaussian_fit_preview.current_fit_result.center_image_yx is not None
     assert restored_window.gaussian_fit_preview.current_fit_result.center_image_yx[1] < 24.0
     assert restored_window.points_table_widget.rowCount() == 1
-    assert restored_window.points_table_widget.item(0, 6).text() == "fit"
+    assert restored_window.points_table_widget.item(0, 9).text() == "fit"
     assert "loaded project session" in restored_window.workflow_status_label.text()
 
 
@@ -1995,7 +2061,7 @@ def test_main_window_end_to_end_stage6_geometry_workflow_with_session_restore(
         lambda: (
             window.points_table_widget.rowCount() == 5
             and any(
-                window.points_table_widget.item(row_index, 6).text() == "manual (drag)"
+                window.points_table_widget.item(row_index, 9).text() == "manual (drag)"
                 for row_index in range(window.points_table_widget.rowCount())
             )
         )
@@ -2043,7 +2109,7 @@ def test_main_window_end_to_end_stage6_geometry_workflow_with_session_restore(
     assert restored_window.image_viewport.row_disturbance_scatter_item is not None
     assert len(restored_window.image_viewport.row_disturbance_scatter_item.points()) >= 1
     assert any(
-        restored_window.points_table_widget.item(row_index, 6).text() == "manual (drag)"
+        restored_window.points_table_widget.item(row_index, 9).text() == "manual (drag)"
         for row_index in range(restored_window.points_table_widget.rowCount())
     )
     assert "candidate" in restored_window.active_row_label.text() or "no local candidates" in restored_window.active_row_label.text()

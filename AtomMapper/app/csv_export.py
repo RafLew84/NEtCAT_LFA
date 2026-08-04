@@ -5,7 +5,7 @@ from __future__ import annotations
 import csv
 import math
 from pathlib import Path
-from typing import Any, Iterable, Sequence
+from typing import Any, Sequence
 
 from .models import AtomPoint, AtomRow, LoadedImage
 from .plots import sorted_row_points
@@ -32,6 +32,13 @@ POINT_EXPORT_FIELDNAMES = (
     "amplitude",
     "sigma_x_px",
     "sigma_y_px",
+    "position_std_x_px",
+    "position_std_y_px",
+    "position_std_x_nm",
+    "position_std_y_nm",
+    "position_uncertainty_status",
+    "position_uncertainty_method",
+    "position_uncertainty_reference",
     "theta_deg",
     "offset",
     "fit_success",
@@ -114,6 +121,19 @@ def build_point_export_rows(
                     "amplitude": _format_optional_float(point.amplitude),
                     "sigma_x_px": _format_optional_float(point.sigma_x_px),
                     "sigma_y_px": _format_optional_float(point.sigma_y_px),
+                    "position_std_x_px": _format_optional_float(point.position_std_x_px),
+                    "position_std_y_px": _format_optional_float(point.position_std_y_px),
+                    "position_std_x_nm": _format_optional_float(point.position_std_x_nm),
+                    "position_std_y_nm": _format_optional_float(point.position_std_y_nm),
+                    "position_uncertainty_status": str(
+                        point.metadata.get("position_uncertainty_status") or ""
+                    ),
+                    "position_uncertainty_method": str(
+                        point.metadata.get("position_uncertainty_method") or ""
+                    ),
+                    "position_uncertainty_reference": str(
+                        point.metadata.get("position_uncertainty_reference") or ""
+                    ),
                     "theta_deg": _format_optional_float(point.theta_deg),
                     "offset": _format_optional_float(point.offset),
                     "fit_success": _format_bool(point.fit_success),

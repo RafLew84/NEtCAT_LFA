@@ -290,13 +290,34 @@ Current columns:
 - `y_px`
 - `sigma_x`
 - `sigma_y`
+- `position_std_x_px`
+- `position_std_y_px`
+- uncertainty
 - status
+
+`sigma_x` and `sigma_y` are fitted peak-width parameters. They are not position
+uncertainties. `position_std_x_px` and `position_std_y_px` are the standard uncertainties
+of the fitted center in pixels.
 
 Point status can be:
 
 - fit-based
 - ROI fallback
 - manual override after drag
+
+## Recalculate position uncertainties
+
+Use `Tools > Recalculate position uncertainties` after loading an existing project.
+AtomMapper re-fits every saved point from its embedded image and stored ROI, without
+moving the point or changing its saved peak widths. The calculated standard
+uncertainties are stored in both pixels and nanometers when image calibration is
+available.
+
+Older projects did not preserve polygon-mask vertices for individual points. A point
+that originally used such a mask is therefore re-fitted without it and marked
+`recomputed_without_original_mask`. For a manually moved point, the uncertainty is
+marked as referring to the `original_fit_position`, rather than to the dragged
+coordinate.
 
 ## CSV export
 
@@ -309,6 +330,8 @@ The exported CSV includes:
 - coordinates in `px`
 - coordinates in `nm` when available
 - fit parameters
+- fitted-center uncertainties in `px` and `nm`
+- uncertainty status, method, and position reference
 - manual override flags
 - point status
 
