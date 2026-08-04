@@ -16,6 +16,10 @@ from .position_uncertainty import (
     PositionUncertaintyRecalculationSummary,
     recalculate_position_uncertainties,
 )
+from .position_uncertainty_retry import (
+    PositionUncertaintyRetrySummary,
+    retry_very_large_position_uncertainties,
+)
 from .preprocessing import (
     apply_blur,
     apply_bm3d,
@@ -489,6 +493,22 @@ class AtomMapperController(QObject):
         """Re-fit stored point ROIs and attach localization uncertainties."""
 
         updated_rows, summary = recalculate_position_uncertainties(
+            self._rows,
+            self._loaded_images,
+            fit_settings,
+        )
+        self._rows = list(updated_rows)
+        self.rows_changed.emit()
+        self.active_row_changed.emit(self.active_row)
+        return summary
+
+    def retry_very_large_position_uncertainties(
+        self,
+        fit_settings: FitSettingsState,
+    ) -> PositionUncertaintyRetrySummary:
+        """Retry oversized localization uncertainties with constrained fits."""
+
+        updated_rows, summary = retry_very_large_position_uncertainties(
             self._rows,
             self._loaded_images,
             fit_settings,

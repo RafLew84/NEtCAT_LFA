@@ -76,6 +76,11 @@ from .position_uncertainty import (
     position_uncertainty_method,
     recalculate_position_uncertainties,
 )
+from .position_uncertainty_retry import (
+    PositionUncertaintyRetrySummary,
+    has_very_large_position_uncertainty,
+    retry_very_large_position_uncertainties,
+)
 from .roi_preview import ROIPreviewWidget
 from .row_disturbance_widget import RowDisturbanceWidget
 from .row_metrics_widget import RowMetricsWidget
@@ -151,8 +156,10 @@ __all__ = [
     "build_row_disturbance_series",
     "fit_row_geometry",
     "project_row_points",
+    "has_very_large_position_uncertainty",
     "position_uncertainty_method",
     "recalculate_position_uncertainties",
+    "retry_very_large_position_uncertainties",
     "RowMetricsWidget",
     "RowPlotWidget",
     "GlobalScatterSample",
@@ -160,6 +167,7 @@ __all__ = [
     "PlotUnit",
     "PolygonMaskState",
     "PositionUncertaintyRecalculationSummary",
+    "PositionUncertaintyRetrySummary",
     "RowDistanceMetrics",
     "RowGeometryMetrics",
     "RowMetricSeries",

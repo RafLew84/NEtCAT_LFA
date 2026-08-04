@@ -40,6 +40,7 @@ from .io import SUPPORTED_STM_EXTENSIONS
 from .models import AtomPoint
 from .plots import PlotUnit, build_row_geometry_metrics
 from .position_uncertainty import position_uncertainty_method
+from .position_uncertainty_retry import has_very_large_position_uncertainty
 from .preprocessing_dialog import PreprocessingDialog
 from .preprocessing_state import PreprocessingMethod
 from .pyqtgraph_image_view import PyQtGraphSTMViewport
@@ -128,6 +129,13 @@ class AtomMapperMainWindow(QMainWindow):
         )
         self.recalculate_position_uncertainties_action.setObjectName(
             "atommapper_recalculate_position_uncertainties_action"
+        )
+        self.retry_large_position_uncertainties_action = QAction(
+            "Retry very large position uncertainties",
+            self,
+        )
+        self.retry_large_position_uncertainties_action.setObjectName(
+            "atommapper_retry_large_position_uncertainties_action"
         )
         self.file_list_hint_label = QLabel("No STM files loaded. Use File > Load STM Files... to start.")
         self.file_list_hint_label.setWordWrap(True)
@@ -352,6 +360,7 @@ class AtomMapperMainWindow(QMainWindow):
         tools_menu.addAction(self.fit_settings_action)
         tools_menu.addSeparator()
         tools_menu.addAction(self.recalculate_position_uncertainties_action)
+        tools_menu.addAction(self.retry_large_position_uncertainties_action)
         tools_menu.addAction(self.export_csv_action)
         tools_menu.addSeparator()
         tools_menu.addAction(self.polygon_mask_action)
@@ -406,6 +415,9 @@ class AtomMapperMainWindow(QMainWindow):
         self.load_session_action.triggered.connect(self._load_session_from_project_file)
         self.recalculate_position_uncertainties_action.triggered.connect(
             self._recalculate_position_uncertainties
+        )
+        self.retry_large_position_uncertainties_action.triggered.connect(
+            self._retry_very_large_position_uncertainties
         )
         self.new_row_button.clicked.connect(self._create_new_row)
         self.delete_row_button.clicked.connect(self._delete_active_row)
@@ -827,6 +839,10 @@ class AtomMapperMainWindow(QMainWindow):
             qualifiers.append("original mask unavailable")
         if point.metadata.get("position_uncertainty_settings_source") == "session_fallback":
             qualifiers.append("session settings")
+        if point.metadata.get("position_uncertainty_settings_source") == "bounded_retry":
+            qualifiers.append("bounded retry")
+        if point.metadata.get("position_uncertainty_retry_at_bound"):
+            qualifiers.append("constraint boundary")
         if not qualifiers:
             return status
         return f"{status} ({', '.join(qualifiers)})"
@@ -1002,8 +1018,17 @@ class AtomMapperMainWindow(QMainWindow):
 
     def _update_position_uncertainty_controls(self, *_args: Any) -> None:
         point_count = sum(row.point_count for row in self.controller.atom_rows)
+        large_uncertainty_count = sum(
+            1
+            for row in self.controller.atom_rows
+            for point in row.points
+            if has_very_large_position_uncertainty(point)
+        )
         has_points = point_count > 0
         self.recalculate_position_uncertainties_action.setEnabled(has_points)
+        self.retry_large_position_uncertainties_action.setEnabled(
+            large_uncertainty_count > 0
+        )
         if has_points:
             tooltip = (
                 "Re-fit saved point ROIs and calculate localization uncertainty for "
@@ -1012,6 +1037,14 @@ class AtomMapperMainWindow(QMainWindow):
         else:
             tooltip = "Add or load saved atom points before recalculating uncertainties."
         self.recalculate_position_uncertainties_action.setStatusTip(tooltip)
+        if large_uncertainty_count:
+            retry_tooltip = (
+                "Retry constrained fits for "
+                f"{large_uncertainty_count} position uncertainty value(s) larger than their ROI."
+            )
+        else:
+            retry_tooltip = "No position uncertainties larger than their ROI were detected."
+        self.retry_large_position_uncertainties_action.setStatusTip(retry_tooltip)
 
     def _recalculate_position_uncertainties(self) -> None:
         summary = self.controller.recalculate_position_uncertainties(self.fit_settings_state)
@@ -1032,6 +1065,26 @@ class AtomMapperMainWindow(QMainWindow):
             )
         if summary.failed_points:
             message += f" {summary.failed_points} point(s) could not be recalculated."
+        self.statusBar().showMessage(message, 10000)
+        self.workflow_status_label.setText(f"Workflow status: {message}")
+
+    def _retry_very_large_position_uncertainties(self) -> None:
+        summary = self.controller.retry_very_large_position_uncertainties(
+            self.fit_settings_state
+        )
+        if summary.detected_points == 0:
+            message = "No very large position uncertainties were detected."
+        else:
+            noun = "uncertainty" if summary.detected_points == 1 else "uncertainties"
+            message = (
+                f"Retried {summary.detected_points} very large position {noun}; "
+                f"{summary.still_unreliable_points} remain unreliable."
+            )
+            if summary.constraint_boundary_points:
+                message += (
+                    f" {summary.constraint_boundary_points} result(s) reached a "
+                    "constraint boundary."
+                )
         self.statusBar().showMessage(message, 10000)
         self.workflow_status_label.setText(f"Workflow status: {message}")
 

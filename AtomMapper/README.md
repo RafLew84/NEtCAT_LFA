@@ -327,6 +327,20 @@ that originally used such a mask is therefore re-fitted without it and shown wit
 uncertainty is marked as referring to the `original_fit_position`, rather than to the
 dragged coordinate.
 
+### Retry very large position uncertainties
+
+Use `Tools > Retry very large position uncertainties` after recalculation when the
+results table contains implausibly large values. AtomMapper automatically detects a
+point when its X or Y position uncertainty is larger than the matching ROI dimension.
+Only detected points are retried.
+
+The retry uses the saved fit position and peak-shape parameters as initial values,
+keeps the fitted center inside the ROI, and applies bounded peak widths, amplitude,
+angle, and offset. Successful results are marked `bounded retry`. A result that reaches
+one of those limits is additionally marked `constraint boundary`; it should be treated
+with more caution. If the constrained result still fails quality checks, its numeric
+uncertainty is cleared and its status becomes `unreliable_fit`.
+
 ## CSV export
 
 Use `Tools > Export results table to CSV` (or the `Export CSV` button) to save the
@@ -340,7 +354,7 @@ The exported CSV includes:
 - coordinates in `nm` when available
 - fit parameters
 - fitted-center uncertainties in `px` and `nm`
-- uncertainty status, method, and position reference
+- uncertainty status, method, position reference, retry result, and covariance condition
 - manual override flags
 - point status
 

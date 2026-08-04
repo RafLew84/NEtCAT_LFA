@@ -1280,6 +1280,63 @@ def test_tools_action_recalculates_uncertainties_and_refreshes_saved_points_tabl
     )
 
 
+def test_tools_action_retries_very_large_position_uncertainties(qtbot):
+    controller = AtomMapperController()
+    image = _make_gaussian_image("uncertainty-retry-action.stp", size=40)
+    controller.set_loaded_images([image])
+    row = controller.create_row_for_active_source_group(display_name="Row 1")
+    controller.add_point_to_row(
+        AtomPoint(
+            point_id="point-1",
+            row_id=row.row_id,
+            image_id=image.image_id,
+            source_group_id=image.source_group_id,
+            point_index=0,
+            x_px=20.0,
+            y_px=20.0,
+            amplitude=20.0,
+            sigma_x_px=1.8,
+            sigma_y_px=1.6,
+            offset=1.0,
+            position_std_x_px=1000.0,
+            position_std_y_px=500.0,
+            metadata={
+                "fit_model": "gaussian",
+                "fit_method": "gaussian_fit",
+                "roi_x": 14,
+                "roi_y": 14,
+                "roi_width": 13,
+                "roi_height": 13,
+                "fit_mask_active": True,
+                "position_uncertainty_status": "recomputed",
+                "position_uncertainty_original_mask_missing": True,
+                "position_uncertainty_settings_source": "session_fallback",
+            },
+        )
+    )
+    window = AtomMapperMainWindow(controller=controller)
+    qtbot.addWidget(window)
+
+    tools_menu = next(
+        action.menu() for action in window.menuBar().actions() if action.text() == "Tools"
+    )
+    assert tools_menu is not None
+    assert window.retry_large_position_uncertainties_action in tools_menu.actions()
+    assert window.retry_large_position_uncertainties_action.isEnabled() is True
+
+    window.retry_large_position_uncertainties_action.trigger()
+
+    updated = controller.atom_rows[0].points[0]
+    assert updated.position_std_x_px is not None
+    assert updated.position_std_y_px is not None
+    assert updated.position_std_x_px <= 13.0
+    assert updated.position_std_y_px <= 13.0
+    assert updated.metadata["position_uncertainty_settings_source"] == "bounded_retry"
+    assert "bounded retry" in window.points_table_widget.item(0, 10).text()
+    assert window.retry_large_position_uncertainties_action.isEnabled() is False
+    assert "Retried 1 very large position uncertainty" in window.statusBar().currentMessage()
+
+
 def test_main_window_can_open_preprocessing_dialog_for_active_image(qtbot):
     controller = AtomMapperController()
     original = _make_gaussian_image("origin.stp", size=40, amplitude=18.0, offset=1.0)

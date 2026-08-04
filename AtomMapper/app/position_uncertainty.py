@@ -121,6 +121,9 @@ def _recalculate_point_uncertainty(
         position_std_y_nm = position_std_y_px * calibration.pixel_size_nm_y
 
     missing_original_mask = bool(metadata.get("fit_mask_active"))
+    metadata.pop("position_uncertainty_retry_status", None)
+    metadata.pop("position_uncertainty_retry_at_bound", None)
+    metadata.pop("position_uncertainty_covariance_condition", None)
     metadata["position_uncertainty_status"] = "recomputed"
     metadata["position_uncertainty_original_mask_missing"] = missing_original_mask
     metadata["position_uncertainty_settings_source"] = settings_source
@@ -147,6 +150,9 @@ def _with_failure_status(
     metadata.pop("position_uncertainty_method", None)
     metadata.pop("position_uncertainty_original_mask_missing", None)
     metadata.pop("position_uncertainty_settings_source", None)
+    metadata.pop("position_uncertainty_retry_status", None)
+    metadata.pop("position_uncertainty_retry_at_bound", None)
+    metadata.pop("position_uncertainty_covariance_condition", None)
     metadata["position_uncertainty_status"] = reason
     metadata["position_uncertainty_reference"] = (
         "original_fit_position" if point.manual_override else "saved_position"

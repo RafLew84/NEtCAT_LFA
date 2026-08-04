@@ -91,6 +91,9 @@ def test_build_point_export_rows_includes_px_nm_fit_and_status_fields():
                     "position_uncertainty_reference": "original_fit_position",
                     "position_uncertainty_settings_source": "session_fallback",
                     "position_uncertainty_original_mask_missing": True,
+                    "position_uncertainty_retry_status": "succeeded_at_constraint_boundary",
+                    "position_uncertainty_retry_at_bound": True,
+                    "position_uncertainty_covariance_condition": 1234.5,
                 },
             ),
         ),
@@ -122,6 +125,11 @@ def test_build_point_export_rows_includes_px_nm_fit_and_status_fields():
     assert export_rows[1]["position_uncertainty_reference"] == "original_fit_position"
     assert export_rows[1]["position_uncertainty_settings_source"] == "session_fallback"
     assert export_rows[1]["position_uncertainty_original_mask_missing"] == "true"
+    assert export_rows[1]["position_uncertainty_retry_status"] == (
+        "succeeded_at_constraint_boundary"
+    )
+    assert export_rows[1]["position_uncertainty_retry_at_bound"] == "true"
+    assert export_rows[1]["position_uncertainty_covariance_condition"] == "1234.500000"
     assert export_rows[1]["fit_success"] == "false"
     assert export_rows[1]["fit_model"] == "voigt"
     assert export_rows[1]["fit_method"] == "voigt_fit"

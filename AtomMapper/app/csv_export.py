@@ -41,6 +41,9 @@ POINT_EXPORT_FIELDNAMES = (
     "position_uncertainty_reference",
     "position_uncertainty_settings_source",
     "position_uncertainty_original_mask_missing",
+    "position_uncertainty_retry_status",
+    "position_uncertainty_retry_at_bound",
+    "position_uncertainty_covariance_condition",
     "theta_deg",
     "offset",
     "fit_success",
@@ -141,6 +144,15 @@ def build_point_export_rows(
                     ),
                     "position_uncertainty_original_mask_missing": _format_bool(
                         point.metadata.get("position_uncertainty_original_mask_missing")
+                    ),
+                    "position_uncertainty_retry_status": str(
+                        point.metadata.get("position_uncertainty_retry_status") or ""
+                    ),
+                    "position_uncertainty_retry_at_bound": _format_bool(
+                        point.metadata.get("position_uncertainty_retry_at_bound")
+                    ),
+                    "position_uncertainty_covariance_condition": _format_optional_float(
+                        point.metadata.get("position_uncertainty_covariance_condition")
                     ),
                     "theta_deg": _format_optional_float(point.theta_deg),
                     "offset": _format_optional_float(point.offset),
