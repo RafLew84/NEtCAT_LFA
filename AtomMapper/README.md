@@ -329,7 +329,8 @@ dragged coordinate.
 
 ## CSV export
 
-Use `Export CSV` to save points from the active image family.
+Use `Tools > Export results table to CSV` (or the `Export CSV` button) to save the
+currently displayed points from the active image family.
 
 The exported CSV includes:
 

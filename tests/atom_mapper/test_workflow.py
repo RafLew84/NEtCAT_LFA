@@ -1255,6 +1255,8 @@ def test_tools_action_recalculates_uncertainties_and_refreshes_saved_points_tabl
         action.menu() for action in window.menuBar().actions() if action.text() == "Tools"
     )
     assert tools_menu is not None
+    assert window.export_csv_action in tools_menu.actions()
+    assert window.export_csv_action.text() == "Export results table to CSV"
     assert window.recalculate_position_uncertainties_action in tools_menu.actions()
     assert window.recalculate_position_uncertainties_action.isEnabled() is True
 
